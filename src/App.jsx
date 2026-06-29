@@ -744,13 +744,17 @@ function Cell({r,c,card,currentPlayer,actionsLeft,onDragStart,onDrop,onCellClick
 // ═══════════════════════════════════════════════════════════════════════════════
 //  POWER CARD DISPLAY
 // ═══════════════════════════════════════════════════════════════════════════════
-function PowerCardDisplay({type,onClick,isActive=false,animClass=''}){
+function PowerCardDisplay({type,onClick,isActive=false,animClass='',compact=false}){
   const info=POWER_INFO[type]
+  const w=compact?'w-[48px]':'w-[76px]'
+  const h=compact?'48px':'84px'
+  const iconSz=compact?'text-base':'text-2xl'
+  const nameSz=compact?'text-[7px]':'text-[9px]'
   return(
-    <div onClick={onClick} style={{height:'84px'}}
-      className={`w-[76px] border-2 ${info.border} ${info.glow} rounded-xl bg-gradient-to-br ${info.bg} flex flex-col items-center justify-center gap-1 p-1.5 cursor-pointer select-none transition-all hover:scale-105 hover:brightness-110 ${isActive?'ring-2 ring-yellow-400 ring-offset-1 ring-offset-slate-900 scale-105':''} ${animClass}`}>
-      <span className="text-2xl leading-none">{info.icon}</span>
-      <span className="text-[9px] font-bold text-center text-slate-200 leading-tight px-0.5">{info.name}</span>
+    <div onClick={onClick} style={{height:h}}
+      className={`${w} border-2 ${info.border} ${info.glow} rounded-xl bg-gradient-to-br ${info.bg} flex flex-col items-center justify-center gap-0.5 p-1 cursor-pointer select-none transition-all hover:scale-105 hover:brightness-110 ${isActive?'ring-2 ring-yellow-400 ring-offset-1 ring-offset-slate-900 scale-105':''} ${animClass}`}>
+      <span className={`${iconSz} leading-none`}>{info.icon}</span>
+      <span className={`${nameSz} font-bold text-center text-slate-200 leading-tight px-0.5`}>{info.name}</span>
     </div>
   )
 }
@@ -758,22 +762,25 @@ function PowerCardDisplay({type,onClick,isActive=false,animClass=''}){
 // ═══════════════════════════════════════════════════════════════════════════════
 //  POWER BAR
 // ═══════════════════════════════════════════════════════════════════════════════
-function PowerBar({game,isMyTurn,targeting,onActivatePower,onCancelTargeting}){
+function PowerBar({game,isMyTurn,targeting,onActivatePower,onCancelTargeting,compact=false}){
   const cp=game.currentPlayer,myHand=game.powerCardHand[cp]||[]
+  const minH=compact?'min-h-[52px]':'min-h-[72px]'
+  const pad=compact?'px-2 py-1':'px-4 py-2'
+  const gap=compact?'gap-1.5':'gap-3'
   return(
-    <div className="flex items-center justify-center gap-3 bg-purple-950/50 border border-purple-800/30 rounded-2xl px-4 py-2 w-full min-h-[72px]">
+    <div className={`flex items-center justify-center ${gap} bg-purple-950/50 border border-purple-800/30 rounded-2xl ${pad} w-full ${minH}`}>
       {targeting?(
-        <div className="flex items-center gap-3">
-          <PowerCardDisplay type={targeting} isActive/>
+        <div className={`flex items-center ${gap}`}>
+          <PowerCardDisplay type={targeting} isActive compact={compact}/>
           <div className="flex flex-col items-start gap-1">
-            <span className="text-yellow-400 text-sm font-bold animate-pulse">{POWER_INFO[targeting].icon} Sélectionnez une cible…</span>
+            <span className={`text-yellow-400 ${compact?'text-xs':'text-sm'} font-bold animate-pulse`}>{POWER_INFO[targeting].icon} Sélectionnez une cible…</span>
             <button onClick={onCancelTargeting} className="flex items-center gap-1 text-slate-400 hover:text-white bg-slate-700/70 hover:bg-slate-700 px-2 py-1 rounded-lg text-xs transition-colors"><X size={11}/> Annuler</button>
           </div>
         </div>
       ):(
         <div className="flex items-center gap-2 flex-wrap justify-center">
           {myHand.map((type,i)=>(
-            <PowerCardDisplay key={i} type={type}
+            <PowerCardDisplay key={i} type={type} compact={compact}
               onClick={isMyTurn?()=>onActivatePower(type):undefined}/>
           ))}
           {!isMyTurn&&myHand.length>0&&<span className="text-slate-500 text-xs ml-1">En attente…</span>}
@@ -957,7 +964,7 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
                 animKey={anims[`${r},${c}`]||''} targeting={targeting} game={game} onBoardTouchStart={handleTouchStart} compact={compact}/>
             )))}
           </div>
-          <PowerBar game={game} isMyTurn={isMyTurn} targeting={targeting} onActivatePower={type=>setTargeting(type)} onCancelTargeting={()=>setTargeting(null)}/>
+          <PowerBar game={game} isMyTurn={isMyTurn} targeting={targeting} onActivatePower={type=>setTargeting(type)} onCancelTargeting={()=>setTargeting(null)} compact={compact}/>
           <div className="flex items-center gap-3 flex-wrap justify-center">
             <span className={`text-sm font-bold ${currentPlayer===1?'text-blue-400':'text-red-400'}`}>
               Tour — {isAI&&currentPlayer===2?<span className="flex items-center gap-1.5"><Bot size={14} className="inline"/> IA réfléchit… <span className="animate-pulse">▪▪▪</span></span>:`Joueur ${currentPlayer}`}
