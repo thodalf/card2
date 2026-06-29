@@ -4,6 +4,22 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>Tactical Card Game</title>
+    <script>
+      // Ensure crypto is available as a bare global before any module loads
+      (function(){
+        if(typeof globalThis.crypto==='undefined'){
+          if(typeof window!=='undefined'&&window.crypto)
+            try{Object.defineProperty(globalThis,'crypto',{get:function(){return window.crypto},configurable:true})}catch(e){}
+        }
+        if(typeof globalThis.crypto!=='undefined'&&!globalThis.crypto.randomUUID){
+          globalThis.crypto.randomUUID=function(){
+            var b=new Uint8Array(16);globalThis.crypto.getRandomValues(b);
+            b[6]=(b[6]&0x0f)|0x40;b[8]=(b[8]&0x3f)|0x80;
+            return Array.from(b).map(function(v,i){return([4,6,8,10].indexOf(i)>-1?'-':'')+v.toString(16).padStart(2,'0')}).join('');
+          };
+        }
+      })();
+    </script>
     <meta name="theme-color" content="#0f172a" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
