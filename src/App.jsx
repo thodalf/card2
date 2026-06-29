@@ -147,69 +147,39 @@ function snd(type,enabled){
 // ═══════════════════════════════════════════════════════════════════════════════
 //  MUSIC — procedural ambient loop (A natural minor, arpeggiated)
 // ═══════════════════════════════════════════════════════════════════════════════
-let _music=null
-const M_BEAT=60/76  // ~0.79s per beat @ 76 BPM
-// A minor pentatonic, ascending then descending over 12 beats
-const M_ARP=[220,261.63,329.63,392,440,523.25,440,392,329.63,261.63,220,196]
+let _audio = null
+let _gameTrackIdx = 0
+const GAME_TRACKS = ['/musiques/music1.mp3', '/musiques/music2.mp3']
 
-function _mn(dest,ctx,freq,when,dur,vol=0.06,type='triangle'){
-  const o=ctx.createOscillator(),g=ctx.createGain()
-  o.type=type;o.frequency.value=freq
-  o.connect(g);g.connect(dest)
-  g.gain.setValueAtTime(0,when)
-  g.gain.linearRampToValueAtTime(vol,when+0.03)
-  g.gain.exponentialRampToValueAtTime(0.001,when+dur)
-  o.start(when);o.stop(when+dur+0.06)
+function _playNextGameTrack() {
+  if (!_audio) return
+  _audio.src = GAME_TRACKS[_gameTrackIdx]
+  _audio.play().catch(() => {})
 }
 
-function _scheduleBar(dest,ctx,t){
-  const b=M_BEAT
-  // Drone bass (A1 + E1)
-  _mn(dest,ctx,55, t,b*12,0.07,'sine')
-  _mn(dest,ctx,82.41,t,b*12,0.04,'sine')
-  // Arpeggio melody
-  M_ARP.forEach((f,i)=>_mn(dest,ctx,f,t+i*b,b*0.78,0.068))
-  // Soft sub-octave shadow on every other note
-  ;[0,2,4,6,8,10].forEach(i=>_mn(dest,ctx,M_ARP[i]*0.5,t+i*b,b*1.1,0.026))
-  // Bell shimmer on beats 1, 4, 7, 10
-  ;[0,3,6,9].forEach(i=>_mn(dest,ctx,M_ARP[i]*2,t+i*b,0.22,0.028,'sine'))
+function startMusic(enabled, isMenu = false) {
+  stopMusic()
+  if (!enabled) return
+  _audio = new Audio()
+  _audio.volume = 0.5
+  if (isMenu) {
+    _audio.src = '/musiques/menu.mp3'
+    _audio.loop = true
+    _audio.play().catch(() => {})
+  } else {
+    _audio.addEventListener('ended', () => {
+      _gameTrackIdx = (_gameTrackIdx + 1) % GAME_TRACKS.length
+      _playNextGameTrack()
+    })
+    _playNextGameTrack()
+  }
 }
 
-function startMusic(enabled){
-  if(!enabled){stopMusic();return}
-  if(_music)return
-  try{
-    const ctx=getCtx()
-    const master=ctx.createGain()
-    // Two delay sends for spatial depth (no feedback)
-    const d1=ctx.createDelay(2),d1g=ctx.createGain()
-    const d2=ctx.createDelay(2),d2g=ctx.createGain()
-    d1.delayTime.value=M_BEAT*1.5; d1g.gain.value=0.13
-    d2.delayTime.value=M_BEAT*3.5; d2g.gain.value=0.06
-    master.connect(d1);d1.connect(d1g);d1g.connect(ctx.destination)
-    master.connect(d2);d2.connect(d2g);d2g.connect(ctx.destination)
-    master.connect(ctx.destination)
-    master.gain.setValueAtTime(0,ctx.currentTime)
-    master.gain.linearRampToValueAtTime(0.22,ctx.currentTime+4)
-    _music={ctx,master,active:true,loopId:null}
-    let nextT=ctx.currentTime+0.2
-    const schedule=()=>{
-      if(!_music?.active)return
-      _scheduleBar(master,ctx,nextT)
-      nextT+=M_BEAT*12
-      _music.loopId=setTimeout(schedule,Math.max(50,(nextT-ctx.currentTime-0.4)*1000))
-    }
-    schedule()
-  }catch(e){}
-}
-
-function stopMusic(){
-  if(!_music)return
-  const m=_music;_music=null
-  m.active=false
-  if(m.loopId)clearTimeout(m.loopId)
-  try{m.master.gain.setTargetAtTime(0,m.ctx.currentTime,1.0)}catch(e){}
-  setTimeout(()=>{try{m.master.disconnect()}catch(e){}},4000)
+function stopMusic() {
+  if (!_audio) return
+  _audio.pause()
+  _audio.src = ''
+  _audio = null
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -846,7 +816,7 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
 // ═══════════════════════════════════════════════════════════════════════════════
 function MenuScreen({onLocal,onAI,onOnline,onRules}){
   return(
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex flex-col items-center justify-center gap-5">
+    <div className="min-h-screen flex flex-col items-center justify-center gap-5" style={{background:'linear-gradient(rgba(10,15,30,0.60),rgba(10,15,30,0.60)),url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}>
       <div className="text-center mb-4">
         <h1 className="text-5xl font-black text-white tracking-tight"><span className="text-blue-400">⚔</span> Tactical Cards <span className="text-red-400">⚔</span></h1>
         <p className="text-slate-400 mt-1">Jeu de cartes tactique 2 joueurs</p>
@@ -924,7 +894,8 @@ export default function App(){
 
   // ── Music ─────────────────────────────────────────────────────
   useEffect(()=>{
-    if(screen==='game')startMusic(soundOn)
+    if(screen==='game') startMusic(soundOn, false)
+    else if(screen==='menu') startMusic(soundOn, true)
     else stopMusic()
     return ()=>stopMusic()
   },[screen,soundOn])
