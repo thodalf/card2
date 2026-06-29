@@ -1,0 +1,94 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* { box-sizing: border-box; }
+
+@keyframes card-place {
+  from { transform: scale(0) rotate(360deg); opacity: 0; }
+  to   { transform: scale(1) rotate(0deg);   opacity: 1; }
+}
+@keyframes card-move {
+  0%,100% { transform: translateY(0); }
+  50%     { transform: translateY(-12px); }
+}
+@keyframes card-attack {
+  0%,100% { transform: translate(0,0) rotate(0deg); }
+  20%     { transform: translate(-5px,-2px) rotate(-4deg); }
+  40%     { transform: translate(5px, 2px) rotate( 4deg); }
+  60%     { transform: translate(-3px,-1px) rotate(-2deg); }
+  80%     { transform: translate(3px, 1px) rotate( 2deg); }
+}
+@keyframes card-destroy {
+  0%   { transform: scale(1)   rotate(0deg);   opacity: 1;   filter: brightness(1); }
+  40%  { transform: scale(1.4) rotate(360deg); opacity: 0.8; filter: brightness(4) blur(1px); }
+  80%  { transform: scale(0.3) rotate(650deg); opacity: 0.2; filter: brightness(2) blur(4px); }
+  100% { transform: scale(0)   rotate(720deg); opacity: 0;   filter: blur(8px); }
+}
+@keyframes card-power {
+  0%   { transform: scale(1);   filter: brightness(1); }
+  30%  { transform: scale(1.15); filter: brightness(1.8) hue-rotate(40deg); }
+  60%  { transform: scale(0.95); filter: brightness(1.4); }
+  100% { transform: scale(1);   filter: brightness(1); }
+}
+@keyframes target-pulse {
+  0%,100% { box-shadow: 0 0 0 0 rgba(234,179,8,0.2); }
+  50%     { box-shadow: 0 0 0 3px rgba(234,179,8,0.6); }
+}
+@keyframes power-draw {
+  0%   { transform: translateY(-20px) scale(0.8); opacity: 0; }
+  60%  { transform: translateY(4px)   scale(1.05); opacity: 1; }
+  100% { transform: translateY(0)     scale(1); }
+}
+
+.anim-place    { animation: card-place   0.35s ease-out; }
+.anim-move     { animation: card-move    0.22s ease-in-out; }
+.anim-attack   { animation: card-attack  0.3s ease-in-out; }
+.anim-destroy  { animation: card-destroy 0.55s ease-in-out forwards; }
+.anim-power    { animation: card-power   0.45s ease-in-out; }
+.anim-draw     { animation: power-draw   0.4s cubic-bezier(.2,1.4,.6,1); }
+.target-pulse  { animation: target-pulse 1.2s ease-in-out infinite; }
+
+@keyframes card-idle {
+  0%, 100% { transform: translateY(0px) rotate(0deg); }
+  30%      { transform: translateY(-6px) rotate(-0.6deg); }
+  70%      { transform: translateY(-3px) rotate(0.4deg); }
+}
+.anim-idle { animation: card-idle 2.8s ease-in-out infinite; }
+
+/* ── Landscape phone layout ───────────────────────────────────── */
+@media screen and (max-height: 500px) and (orientation: landscape) {
+  .game-outer { overflow: auto; }
+
+  .game-inner {
+    flex-direction: row !important;
+    align-items: center !important;
+    padding: 4px 8px !important;
+    gap: 6px !important;
+  }
+
+  /* Hands become vertical columns on the sides */
+  .game-hand-section { gap: 2px !important; }
+  .game-hand-cards {
+    flex-direction: column !important;
+    flex-wrap: nowrap !important;
+    gap: 3px !important;
+    max-height: 92vh;
+    overflow-y: auto;
+    scrollbar-width: none;
+  }
+  .game-hand-cards::-webkit-scrollbar { display: none; }
+
+  /* Pause idle animation to save performance */
+  .anim-idle { animation: none !important; }
+
+  /* Scale board area to fit height */
+  .game-board-area {
+    zoom: 0.62;
+    flex-shrink: 0;
+  }
+
+  .bg-slate-900\/50 {
+    background-image: url('/images/plateau.png');
+  }
+}
