@@ -165,7 +165,9 @@ function startMusic(enabled, isMenu = false) {
   if (isMenu) {
     _audio.src = '/musiques/menu.mp3'
     _audio.loop = true
-    _audio.play().catch(() => {})
+    const tryPlay = () => _audio && _audio.play().catch(() => {})
+    tryPlay()
+    document.addEventListener('pointerdown', tryPlay, { once: true })
   } else {
     _audio.addEventListener('ended', () => {
       _gameTrackIdx = (_gameTrackIdx + 1) % GAME_TRACKS.length
@@ -814,18 +816,46 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
 // ═══════════════════════════════════════════════════════════════════════════════
 //  MENU / RULES / LOBBY / GAMEOVER
 // ═══════════════════════════════════════════════════════════════════════════════
+const CINZEL_DEC = {fontFamily:"'Cinzel Decorative', serif"}
+const CINZEL     = {fontFamily:"'Cinzel', serif"}
+
+function MenuBtn({onClick, icon, color, children}){
+  return(
+    <button onClick={onClick}
+      className="w-full flex items-center gap-3 px-5 py-3 rounded-lg transition-all duration-200 hover:scale-105 active:scale-95 select-none cursor-pointer"
+      style={{...CINZEL, fontSize:'0.88rem', letterSpacing:'0.08em',
+        background:'linear-gradient(135deg,rgba(12,8,3,0.90),rgba(28,18,6,0.88))',
+        border:`2px solid ${color}`, color,
+        textShadow:`0 0 10px ${color}99`,
+        boxShadow:`0 4px 18px rgba(0,0,0,0.65), inset 0 1px 0 rgba(255,255,255,0.06), 0 0 8px ${color}33`}}>
+      {icon}<span>{children}</span>
+    </button>
+  )
+}
+
 function MenuScreen({onLocal,onAI,onOnline,onRules}){
   return(
-    <div className="min-h-screen flex flex-col items-center justify-center gap-5" style={{background:'linear-gradient(rgba(10,15,30,0.60),rgba(10,15,30,0.60)),url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}>
-      <div className="text-center mb-4">
-        <h1 className="text-5xl font-black text-white tracking-tight"><span className="text-blue-400">⚔</span> Tactical Cards <span className="text-red-400">⚔</span></h1>
-        <p className="text-slate-400 mt-1">Jeu de cartes tactique 2 joueurs</p>
+    <div className="min-h-screen flex flex-col items-center justify-center gap-6 px-4"
+      style={{backgroundImage:'url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}>
+
+      <div className="text-center">
+        <h1 className="text-6xl font-black tracking-wide leading-tight"
+          style={{...CINZEL_DEC,
+            background:'linear-gradient(to bottom,#ffe566 0%,#c9a020 55%,#7a5c0a 100%)',
+            WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',
+            filter:'drop-shadow(0 2px 14px rgba(0,0,0,1)) drop-shadow(0 0 6px rgba(0,0,0,0.9))'}}>
+          Tactical Cards
+        </h1>
+        <div className="text-amber-600/70 text-lg tracking-widest mt-1 select-none">⸺⸺ ✦ ⸺⸺</div>
+        <p className="text-amber-300/60 text-xs tracking-[0.25em] uppercase mt-1 drop-shadow-md"
+          style={CINZEL}>Jeu de cartes tactique · 2 joueurs</p>
       </div>
-      <div className="flex flex-col gap-3 w-60">
-        <button onClick={onAI}     className="bg-violet-600 hover:bg-violet-500 text-white font-bold py-3 px-6 rounded-xl transition-all hover:scale-105 flex items-center gap-2 justify-center shadow-lg"><Bot      size={18}/> Solo vs IA</button>
-        <button onClick={onLocal}  className="bg-blue-600   hover:bg-blue-500   text-white font-bold py-3 px-6 rounded-xl transition-all hover:scale-105 flex items-center gap-2 justify-center shadow-lg"><Users    size={18}/> Partie Locale</button>
-        <button onClick={onOnline} className="bg-purple-600 hover:bg-purple-500 text-white font-bold py-3 px-6 rounded-xl transition-all hover:scale-105 flex items-center gap-2 justify-center shadow-lg"><Wifi     size={18}/> Partie en Ligne</button>
-        <button onClick={onRules}  className="bg-slate-700  hover:bg-slate-600  text-white font-bold py-3 px-6 rounded-xl transition-all hover:scale-105 flex items-center gap-2 justify-center shadow-lg"><BookOpen size={18}/> Règles du jeu</button>
+
+      <div className="flex flex-col gap-3 w-64">
+        <MenuBtn onClick={onAI}     icon={<Bot      size={16}/>} color="#a78bfa">Solo vs IA</MenuBtn>
+        <MenuBtn onClick={onLocal}  icon={<Users    size={16}/>} color="#60a5fa">Partie Locale</MenuBtn>
+        <MenuBtn onClick={onOnline} icon={<Wifi     size={16}/>} color="#c084fc">Partie en Ligne</MenuBtn>
+        <MenuBtn onClick={onRules}  icon={<BookOpen size={16}/>} color="#fbbf24">Règles du jeu</MenuBtn>
       </div>
     </div>
   )
