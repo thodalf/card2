@@ -3,6 +3,10 @@ import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 
 export default defineConfig({
+  define: {
+    // Firebase and some deps reference `global.crypto` (Node.js style) — map it to browser globalThis
+    global: 'globalThis',
+  },
   plugins: [
     react(),
     VitePWA({
