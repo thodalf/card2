@@ -159,10 +159,10 @@ function _playNextGameTrack() {
 }
 
 function startMusic(enabled, isMenu = false) {
+  if (!enabled) { stopMusic(); return }
   const mode = isMenu ? 'menu' : 'game'
   if (_currentMode === mode && _audio && !_audio.paused) return
   stopMusic()
-  if (!enabled) return
   _currentMode = mode
   _audio = new Audio()
   _audio.volume = 0.5
@@ -314,7 +314,7 @@ function scoreAttack(game,ar,ac,dr,dc,sit){
 }
 
 function findBestAttack(game,cp,sit){
-  let best=null,bestS=0  // threshold 0: don't attack if it can't score positively
+  let best=null,bestS=-25  // allow moderately risky non-lethal attacks
   for(let ar=0;ar<5;ar++)for(let ac=0;ac<5;ac++){
     if(!game.board[ar][ac]||game.board[ar][ac].owner!==cp)continue
     for(const[ddr,ddc]of[[-1,0],[1,0],[0,-1],[0,1]]){
@@ -414,7 +414,7 @@ function scoreMove(game,fr,fc,tr,tc,card,cp){
 }
 
 function findBestMove(game,cp){
-  let best=null,bestS=0   // threshold 0: skip if no move is worth making
+  let best=null,bestS=-8  // move if marginally beneficial or to escape danger
   for(let fr=0;fr<5;fr++)for(let fc=0;fc<5;fc++){
     const card=game.board[fr][fc];if(!card||card.owner!==cp)continue
     for(let dr=-1;dr<=1;dr++)for(let dc=-1;dc<=1;dc++){
@@ -547,6 +547,28 @@ function computeAIAction(game){
   if(al.moves>0){
     const m=findBestMove(game,cp)
     if(m)return{type:'move',...m}
+  }
+
+  // Fallback: never idle with remaining actions — force the least-bad option
+  if(al.moves>0){
+    for(let fr=0;fr<5;fr++)for(let fc=0;fc<5;fc++){
+      const card=game.board[fr][fc];if(!card||card.owner!==cp)continue
+      for(const[ddr,ddc]of[[-1,0],[0,-1],[0,1],[1,0]]){
+        const tr=fr+ddr,tc=fc+ddc
+        if(tr<0||tr>=5||tc<0||tc>=5)continue
+        if(!isCellBlocked(game,tr,tc)&&!game.board[tr][tc])return{type:'move',fr,fc,tr,tc}
+      }
+    }
+  }
+  if(al.attack>0){
+    for(let ar=0;ar<5;ar++)for(let ac=0;ac<5;ac++){
+      if(!game.board[ar][ac]||game.board[ar][ac].owner!==cp)continue
+      for(const[ddr,ddc]of[[-1,0],[1,0],[0,-1],[0,1]]){
+        const dr=ar+ddr,dc=ac+ddc
+        if(dr<0||dr>=5||dc<0||dc>=5)continue
+        if(game.board[dr][dc]&&game.board[dr][dc].owner!==cp)return{type:'attack',ar,ac,dr,dc}
+      }
+    }
   }
 
   return{type:'endTurn'}
