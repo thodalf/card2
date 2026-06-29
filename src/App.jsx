@@ -149,6 +149,7 @@ function snd(type,enabled){
 // ═══════════════════════════════════════════════════════════════════════════════
 let _audio = null
 let _gameTrackIdx = 0
+let _currentMode = null
 const GAME_TRACKS = ['/musiques/music1.mp3', '/musiques/music2.mp3']
 
 function _playNextGameTrack() {
@@ -158,8 +159,11 @@ function _playNextGameTrack() {
 }
 
 function startMusic(enabled, isMenu = false) {
+  const mode = isMenu ? 'menu' : 'game'
+  if (_currentMode === mode && _audio && !_audio.paused) return
   stopMusic()
   if (!enabled) return
+  _currentMode = mode
   _audio = new Audio()
   _audio.volume = 0.5
   if (isMenu) {
@@ -182,6 +186,7 @@ function stopMusic() {
   _audio.pause()
   _audio.src = ''
   _audio = null
+  _currentMode = null
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -871,13 +876,14 @@ function RulesScreen({onBack}){
     ['🏆 Victoire','Plus aucune carte (main + plateau = 0) = défaite.'],
   ]
   return(
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 py-8 px-4 flex flex-col items-center overflow-y-auto">
+    <div className="min-h-screen py-8 px-4 flex flex-col items-center overflow-y-auto"
+      style={{backgroundImage:'url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}>
       <div className="max-w-lg w-full">
-        <button onClick={onBack} className="flex items-center gap-2 text-slate-400 hover:text-white mb-6 transition-colors"><Home size={16}/> Menu</button>
-        <h2 className="text-3xl font-black text-white mb-5">Règles du jeu</h2>
+        <button onClick={onBack} className="flex items-center gap-2 text-amber-400/80 hover:text-amber-300 mb-6 transition-colors" style={CINZEL}><Home size={16}/> Menu</button>
+        <h2 className="text-3xl font-black mb-5" style={{...CINZEL_DEC,background:'linear-gradient(to bottom,#ffe566,#c9a020)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',filter:'drop-shadow(0 1px 10px rgba(0,0,0,1))'}}>Règles du jeu</h2>
         {S.map(([t,d])=>(
-          <div key={t} className="bg-slate-800/60 rounded-xl p-4 mb-3 border border-slate-700/40">
-            <h3 className="text-white font-bold mb-1">{t}</h3>
+          <div key={t} className="rounded-xl p-4 mb-3 border border-amber-900/40" style={{background:'rgba(8,5,2,0.78)'}}>
+            <h3 className="text-amber-300 font-bold mb-1" style={CINZEL}>{t}</h3>
             <p className="text-slate-300 text-sm leading-relaxed">{d}</p>
           </div>
         ))}
@@ -892,8 +898,8 @@ function OnlineLobbyScreen({onBack,onGameStart}){
   async function handleCreate(){setError('');const c=genRoomCode();setCode(c);setMode('create');try{await createRoom(c,initialGame);setWaiting(true);unsubRef.current=subscribeRoom(c,data=>{if(data.player2Joined){if(unsubRef.current){unsubRef.current();unsubRef.current=null}onGameStart(data.state??initialGame,c,1)}})}catch(e){setError('Firebase non configuré — renseignez src/firebase.js')}}
   async function handleJoin(){setError('');const c=inputCode.trim().toUpperCase();if(c.length!==6){setError('Code invalide.');return}try{const state=await joinRoom(c);if(!state){setError('Partie introuvable.');return}setCode(c);setWaiting(true);unsubRef.current=subscribeRoom(c,data=>{if(data.state){if(unsubRef.current){unsubRef.current();unsubRef.current=null}onGameStart(data.state,c,2)}})}catch(e){setError('Firebase non configuré — renseignez src/firebase.js')}}
   function copyCode(){navigator.clipboard.writeText(code).then(()=>{setCopied(true);setTimeout(()=>setCopied(false),2000)})}
-  if(waiting)return(<div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 flex flex-col items-center justify-center gap-6"><div className="text-4xl animate-spin">⚙</div><p className="text-white text-xl font-bold">Code : <span className="text-purple-400 tracking-widest font-black">{code}</span></p><p className="text-slate-400 animate-pulse">En attente du joueur 2…</p><button onClick={copyCode} className="flex items-center gap-2 text-slate-300 hover:text-white bg-slate-700 hover:bg-slate-600 py-2 px-4 rounded-lg transition-colors text-sm">{copied?<><Check size={14}/> Copié !</>:<><Copy size={14}/> Copier le code</>}</button><button onClick={()=>{setWaiting(false);setMode(null)}} className="text-slate-500 hover:text-slate-300 text-sm">Annuler</button></div>)
-  return(<div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 flex flex-col items-center justify-center gap-6 px-4 relative"><button onClick={onBack} className="absolute top-4 left-4 text-slate-400 hover:text-white"><Home size={20}/></button><h2 className="text-3xl font-black text-white">Partie en Ligne</h2>{error&&<p className="text-red-400 text-sm bg-red-900/30 px-4 py-2 rounded-lg text-center max-w-sm">{error}</p>}{!mode&&<div className="flex gap-4"><button onClick={handleCreate} className="bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-6 rounded-xl transition-all hover:scale-105">Créer</button><button onClick={()=>setMode('join')} className="bg-purple-600 hover:bg-purple-500 text-white font-bold py-3 px-6 rounded-xl transition-all hover:scale-105">Rejoindre</button></div>}{mode==='join'&&<div className="bg-slate-800 rounded-2xl p-6 border border-slate-700 w-72"><p className="text-slate-400 text-sm mb-2">Code de la partie :</p><input value={inputCode} onChange={e=>setInputCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,6))} className="bg-slate-700 text-white font-black text-2xl tracking-widest text-center border border-slate-600 rounded-lg px-4 py-2 w-full outline-none focus:border-purple-500 mb-3" placeholder="XXXXXX" maxLength={6}/><button onClick={handleJoin} disabled={inputCode.length!==6} className="w-full bg-purple-600 hover:bg-purple-500 disabled:opacity-40 text-white font-bold py-2 rounded-lg transition-colors">Rejoindre</button><button onClick={()=>setMode(null)} className="w-full text-slate-500 hover:text-slate-300 text-sm mt-2">Retour</button></div>}</div>)
+  if(waiting)return(<div className="min-h-screen flex flex-col items-center justify-center gap-6" style={{backgroundImage:'url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}><div className="text-4xl animate-spin">⚙</div><p className="text-white text-xl font-bold">Code : <span className="text-purple-400 tracking-widest font-black">{code}</span></p><p className="text-slate-400 animate-pulse">En attente du joueur 2…</p><button onClick={copyCode} className="flex items-center gap-2 text-slate-300 hover:text-white bg-slate-700 hover:bg-slate-600 py-2 px-4 rounded-lg transition-colors text-sm">{copied?<><Check size={14}/> Copié !</>:<><Copy size={14}/> Copier le code</>}</button><button onClick={()=>{setWaiting(false);setMode(null)}} className="text-slate-500 hover:text-slate-300 text-sm">Annuler</button></div>)
+  return(<div className="min-h-screen flex flex-col items-center justify-center gap-6 px-4 relative" style={{backgroundImage:'url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}><button onClick={onBack} className="absolute top-4 left-4 text-amber-400/80 hover:text-amber-300 transition-colors"><Home size={20}/></button><h2 className="text-3xl font-black" style={{...CINZEL_DEC,background:'linear-gradient(to bottom,#ffe566,#c9a020)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',filter:'drop-shadow(0 1px 10px rgba(0,0,0,1))'}}>Partie en Ligne</h2>{error&&<p className="text-red-400 text-sm bg-red-900/30 px-4 py-2 rounded-lg text-center max-w-sm">{error}</p>}{!mode&&<div className="flex gap-4"><button onClick={handleCreate} className="bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-6 rounded-xl transition-all hover:scale-105">Créer</button><button onClick={()=>setMode('join')} className="bg-purple-600 hover:bg-purple-500 text-white font-bold py-3 px-6 rounded-xl transition-all hover:scale-105">Rejoindre</button></div>}{mode==='join'&&<div className="bg-slate-800 rounded-2xl p-6 border border-slate-700 w-72"><p className="text-slate-400 text-sm mb-2">Code de la partie :</p><input value={inputCode} onChange={e=>setInputCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,6))} className="bg-slate-700 text-white font-black text-2xl tracking-widest text-center border border-slate-600 rounded-lg px-4 py-2 w-full outline-none focus:border-purple-500 mb-3" placeholder="XXXXXX" maxLength={6}/><button onClick={handleJoin} disabled={inputCode.length!==6} className="w-full bg-purple-600 hover:bg-purple-500 disabled:opacity-40 text-white font-bold py-2 rounded-lg transition-colors">Rejoindre</button><button onClick={()=>setMode(null)} className="w-full text-slate-500 hover:text-slate-300 text-sm mt-2">Retour</button></div>}</div>)
 }
 function GameOverScreen({winner,isAI,onReplay,onMenu}){
   return(<div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 flex flex-col items-center justify-center gap-5"><div className="text-7xl mb-2 animate-bounce">🏆</div><h2 className="text-4xl font-black text-white"><span className={winner===1?'text-blue-400':'text-red-400'}>{isAI&&winner===2?'L\'IA':`Joueur ${winner}`}</span> gagne !</h2><p className="text-slate-400">{isAI&&winner===2?'L\'IA a éliminé toutes vos cartes.':'L\'adversaire n\'a plus aucune carte.'}</p><div className="flex gap-4 mt-4"><button onClick={onReplay} className="bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-7 rounded-xl transition-all hover:scale-105 flex items-center gap-2 shadow-lg"><Play size={18}/> Rejouer</button><button onClick={onMenu} className="bg-slate-700 hover:bg-slate-600 text-white font-bold py-3 px-7 rounded-xl transition-all hover:scale-105 flex items-center gap-2 shadow-lg"><Home size={18}/> Menu</button></div></div>)
@@ -925,7 +931,7 @@ export default function App(){
   // ── Music ─────────────────────────────────────────────────────
   useEffect(()=>{
     if(screen==='game') startMusic(soundOn, false)
-    else if(screen==='menu') startMusic(soundOn, true)
+    else if(['menu','rules','online'].includes(screen)) startMusic(soundOn, true)
     else stopMusic()
     return ()=>stopMusic()
   },[screen,soundOn])
