@@ -933,8 +933,8 @@ export default function App(){
     if(screen==='game') startMusic(soundOn, false)
     else if(['menu','rules','online'].includes(screen)) startMusic(soundOn, true)
     else stopMusic()
-    return ()=>stopMusic()
   },[screen,soundOn])
+  useEffect(()=>()=>stopMusic(),[])
 
   // ── AI loop ──────────────────────────────────────────────────
   useEffect(()=>{
