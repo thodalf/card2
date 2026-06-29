@@ -80,7 +80,12 @@ export async function pushState(code, state) {
 export function subscribeRoom(code, callback) {
   if (!db) return () => {}
   const r = ref(db, `rooms/${code}`)
-  const unsub = onValue(r, snap => { if (snap.exists()) callback(snap.val()) })
+  const unsub = onValue(r, snap => {
+    if (snap.exists()) {
+      const data = snap.val()
+      callback({ ...data, state: data.state ? deserializeState(data.state) : null })
+    }
+  })
   return unsub
 }
 
