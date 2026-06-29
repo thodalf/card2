@@ -288,8 +288,8 @@ function scoreAttack(game,ar,ac,dr,dc,sit){
 
   let s=0
   if(dDies){
-    // Reward killing: scale by enemy card value + scarcity bonus
     s+=180+def.total*2
+    if(cardTier(def)==='strong')s+=200  // huge bonus: killing a strong card is always worth it
     if((sit?.oppCards??9)<=2)s+=100
   } else {
     // Reward hitting low-value faces — brings them closer to death
@@ -515,7 +515,42 @@ function computeAIAction(game){
   const cp=2,al=game.actionsLeft,powerCards=game.powerCardHand[cp]||[]
   const sit=getSituation(game,cp)
 
-  // Try each held power card in priority order
+  // Priority 0: retreat a card with a 0-face exposed toward an enemy (imminent kill)
+  if(al.moves>0){
+    let bestFlee=null,bestFleeS=-Infinity
+    for(let fr=0;fr<5;fr++)for(let fc=0;fc<5;fc++){
+      const card=game.board[fr][fc];if(!card||card.owner!==cp)continue
+      const d=cardDangerScore(game,fr,fc,cp)
+      if(d<80)continue
+      for(let dr=-1;dr<=1;dr++)for(let dc=-1;dc<=1;dc++){
+        if(dr===0&&dc===0)continue
+        const tr=fr+dr,tc=fc+dc
+        if(tr<0||tr>=5||tc<0||tc>=5)continue
+        if(isCellBlocked(game,tr,tc)||game.board[tr][tc])continue
+        const s=d+scoreMove(game,fr,fc,tr,tc,card,cp)
+        if(s>bestFleeS){bestFleeS=s;bestFlee={fr,fc,tr,tc}}
+      }
+    }
+    if(bestFlee)return{type:'move',...bestFlee}
+  }
+
+  // Priority 1: guaranteed kill of a strong enemy card (attacker survives)
+  if(al.attack>0){
+    for(let ar=0;ar<5;ar++)for(let ac=0;ac<5;ac++){
+      if(!game.board[ar][ac]||game.board[ar][ac].owner!==cp)continue
+      for(const[ddr,ddc]of[[-1,0],[1,0],[0,-1],[0,1]]){
+        const dr=ar+ddr,dc=ac+ddc
+        if(dr<0||dr>=5||dc<0||dc>=5)continue
+        const def=game.board[dr][dc]
+        if(!def||def.owner===cp)continue
+        if(cardTier(def)!=='strong')continue
+        const{aDies,dDies}=analyzeAttack(game,ar,ac,dr,dc)
+        if(dDies&&!aDies)return{type:'attack',ar,ac,dr,dc}
+      }
+    }
+  }
+
+  // Power cards
   if(powerCards.length>0){
     for(const type of['recall','buff','switch','block']){
       if(!powerCards.includes(type))continue
@@ -524,7 +559,7 @@ function computeAIAction(game){
     }
   }
 
-  // If a kill is available, take it before anything else
+  // Any guaranteed kill (any tier)
   if(al.attack>0){
     const atk=findBestAttack(game,cp,sit)
     if(atk){
@@ -533,13 +568,13 @@ function computeAIAction(game){
     }
   }
 
-  // Place a card (checks danger internally via scorePlacement)
+  // Place a card
   if(al.placement>0&&game.players[cp].hand.length>0){
     const p=findBestPlacement(game,cp,sit)
     if(p)return{type:'place',...p}
   }
 
-  // High-value non-lethal attack: take immediately (hitting ≤2 face or strong damage)
+  // High-value non-lethal attack before moving
   if(al.attack>0){
     const atk=findBestAttack(game,cp,sit)
     if(atk){
@@ -548,19 +583,19 @@ function computeAIAction(game){
     }
   }
 
-  // Move first to reach better attack position (target weak faces)
+  // Move to better position
   if(al.moves>0){
     const m=findBestMove(game,cp)
     if(m)return{type:'move',...m}
   }
 
-  // Any remaining non-lethal attack (moves exhausted)
+  // Any remaining attack
   if(al.attack>0){
     const atk=findBestAttack(game,cp,sit)
     if(atk)return{type:'attack',...atk}
   }
 
-  // Fallback: never idle with remaining actions — force the least-bad option
+  // Fallback: force some action
   if(al.moves>0){
     for(let fr=0;fr<5;fr++)for(let fc=0;fc<5;fc++){
       const card=game.board[fr][fc];if(!card||card.owner!==cp)continue
@@ -635,8 +670,8 @@ const TIER_THEME={
 function CardFace({card,small=false,draggable=false,onDragStart,onTouchStart,animClass='',isTarget=false}){
   const tier=cardTier(card),theme=TIER_THEME[card.owner][tier]
   // small=true → placed on board; small=false → in hand (larger)
-  const sz=small?'w-[80px] h-[80px]':'w-[118px] h-[118px]'
-  const fs=small?'text-[10px]':'text-[15px]'
+  const sz=small?'w-[58px] h-[58px]':'w-[64px] h-[64px]'
+  const fs='text-[9px]'
   const hasImg=!!card.imageUrl
   // Colored outer glow distinguishes players even with full-opacity images
   const playerGlow=card.owner===1
@@ -688,7 +723,7 @@ function Cell({r,c,card,currentPlayer,actionsLeft,onDragStart,onDrop,onCellClick
   const borderColor=blocked?'border-slate-700/30':P1_ROWS.includes(r)?'border-blue-500/70':P2_ROWS.includes(r)?'border-red-500/70':'border-slate-300/50'
   return(
     <div data-cell={`${r},${c}`}
-      className={`w-[90px] h-[90px] rounded-xl border-2 ${borderColor} ${bg} flex items-center justify-center relative transition-all duration-100 overflow-hidden ${targeting&&validTarget?'cursor-pointer':''}`}
+      className={`w-[68px] h-[68px] rounded-xl border-2 ${borderColor} ${bg} flex items-center justify-center relative transition-all duration-100 overflow-hidden ${targeting&&validTarget?'cursor-pointer':''}`}
       onDragOver={!blocked&&!targeting?e=>{e.preventDefault();setOver(true)}:undefined}
       onDragLeave={!blocked&&!targeting?()=>setOver(false):undefined}
       onDrop={!blocked&&!targeting?e=>{e.preventDefault();setOver(false);onDrop(e,r,c)}:undefined}
@@ -748,10 +783,11 @@ function PowerBar({game,isMyTurn,targeting,onActivatePower,onCancelTargeting}){
 // ═══════════════════════════════════════════════════════════════════════════════
 //  GAME SCREEN
 // ═══════════════════════════════════════════════════════════════════════════════
-function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,onPowerAction}){
+function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,onPowerAction,onSurrender}){
   const[drag,setDrag]=useState(null)
   const[anims,setAnims]=useState({})
   const[targeting,setTargeting]=useState(null)
+  const[confirmSurrender,setConfirmSurrender]=useState(false)
   const[gameScale,setGameScale]=useState(1)
   const touchDragRef=useRef(null)
   const localGameRef=useRef(game)
@@ -762,7 +798,7 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
   useEffect(()=>{myPlayerRef_.current=myPlayer},[myPlayer])
   useEffect(()=>{targetingRef_.current=targeting},[targeting])
   useEffect(()=>{
-    const DESIGN_W=498 // 5×90px cells + gaps + padding
+    const DESIGN_W=368 // 5×68px cells + gap-1 + p-1.5
     const update=()=>setGameScale(Math.min(1,window.innerWidth/DESIGN_W))
     update()
     window.addEventListener('resize',update)
@@ -876,13 +912,13 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
           {currentPlayer===player&&<span className="w-2 h-2 rounded-full bg-green-400 animate-pulse inline-block"/>}
           <span className={`${activeColor} text-xs font-bold`}>{label} · {pts} pts</span>
         </div>
-        <div className="game-hand-cards flex gap-3 justify-center flex-wrap">
+        <div className="game-hand-cards flex gap-1.5 justify-center flex-wrap">
           {players[player].hand.map((card,i)=>(
             <div key={card.id} className="anim-idle" style={{animationDelay:`${i*0.18}s`}}>
               <CardFace card={card} draggable={canDrag} onDragStart={e=>handleDragStart(e,'hand',i,player)} onTouchStart={canDrag?e=>handleTouchStart(e,'hand',i,player):undefined}/>
             </div>
           ))}
-          {!players[player].hand.length&&<span className="text-slate-600 text-xs w-[142px] text-center py-8">vide</span>}
+          {!players[player].hand.length&&<span className="text-slate-600 text-xs w-[64px] text-center py-3">vide</span>}
         </div>
       </div>
     )
@@ -891,19 +927,19 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
   return(
     <div className="game-outer min-h-screen bg-gradient-to-br from-slate-900 via-slate-900 to-slate-800 overflow-y-auto relative">
       <button onClick={onHome} className="absolute top-3 left-3 z-10 text-slate-500 hover:text-white transition-colors"><Home size={18}/></button>
-      <div className="game-inner flex flex-col items-center gap-3 py-4 px-2" style={{zoom:gameScale,transformOrigin:'top center'}}>
+      <div className="game-inner flex flex-col items-center gap-2 py-2 px-2" style={{zoom:gameScale,transformOrigin:'top center'}}>
 
         {/* J1 hand — top */}
         {renderHand(1,currentPlayer===1&&isMyTurn&&actionsLeft.placement>0&&!targeting)}
 
         {/* Board + controls */}
-        <div className="game-board-area flex flex-col items-center gap-2">
+        <div className="game-board-area flex flex-col items-center gap-1.5">
           <div className="flex gap-2">
             <span className={badge('Pose',actionsLeft.placement,'green')}>Pose {actionsLeft.placement}</span>
             <span className={badge('Dépl',actionsLeft.moves,'yellow')}>Dépl {actionsLeft.moves}</span>
             <span className={badge('Att',actionsLeft.attack,'red')}>Att {actionsLeft.attack}</span>
           </div>
-          <div className={`grid grid-cols-5 gap-1.5 p-2.5 rounded-2xl border transition-all ${targeting?'border-purple-600/60 shadow-[0_0_20px_rgba(147,51,234,0.2)]':'border-slate-700/30'}`}
+          <div className={`grid grid-cols-5 gap-1 p-1.5 rounded-2xl border transition-all ${targeting?'border-purple-600/60 shadow-[0_0_20px_rgba(147,51,234,0.2)]':'border-slate-700/30'}`}
             style={{backgroundImage:'url(/images/plateau.png)',backgroundSize:'cover',backgroundPosition:'center'}}>
             {board.map((row,r)=>row.map((cell,c)=>(
               <Cell key={`${r}-${c}`} r={r} c={c} card={cell} currentPlayer={currentPlayer} actionsLeft={actionsLeft}
@@ -912,13 +948,24 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
             )))}
           </div>
           <PowerBar game={game} isMyTurn={isMyTurn} targeting={targeting} onActivatePower={type=>setTargeting(type)} onCancelTargeting={()=>setTargeting(null)}/>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3 flex-wrap justify-center">
             <span className={`text-sm font-bold ${currentPlayer===1?'text-blue-400':'text-red-400'}`}>
               Tour — {isAI&&currentPlayer===2?<span className="flex items-center gap-1.5"><Bot size={14} className="inline"/> IA réfléchit… <span className="animate-pulse">▪▪▪</span></span>:`Joueur ${currentPlayer}`}
               {!isAI&&myPlayer&&myPlayer!==currentPlayer&&<span className="text-slate-500 font-normal ml-2">(en attente…)</span>}
             </span>
             {isMyTurn&&!targeting&&!(isAI&&currentPlayer===2)&&(
-              <button onClick={onEndTurn} className="bg-emerald-700 hover:bg-emerald-600 text-white font-bold py-1.5 px-5 rounded-lg text-sm transition-colors">Fin du tour ▶</button>
+              <button onClick={onEndTurn} className="bg-emerald-700 hover:bg-emerald-600 text-white font-bold py-1.5 px-4 rounded-lg text-sm transition-colors">Fin du tour ▶</button>
+            )}
+            {!(isAI&&currentPlayer===2)&&(
+              confirmSurrender?(
+                <span className="flex items-center gap-1.5">
+                  <span className="text-slate-400 text-xs">Capituler ?</span>
+                  <button onClick={()=>{onSurrender(myPlayer??currentPlayer);setConfirmSurrender(false)}} className="bg-red-700 hover:bg-red-600 text-white font-bold py-0.5 px-2 rounded text-xs transition-colors">Oui</button>
+                  <button onClick={()=>setConfirmSurrender(false)} className="bg-slate-700 hover:bg-slate-600 text-white font-bold py-0.5 px-2 rounded text-xs transition-colors">Non</button>
+                </span>
+              ):(
+                <button onClick={()=>setConfirmSurrender(true)} className="text-slate-500 hover:text-red-400 text-xs transition-colors">⚑ Cap.</button>
+              )
             )}
           </div>
         </div>
@@ -1014,8 +1061,13 @@ function OnlineLobbyScreen({onBack,onGameStart}){
   if(waiting)return(<div className="min-h-screen flex flex-col items-center justify-center gap-6" style={{backgroundImage:'url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}><div className="text-4xl animate-spin">⚙</div><p className="text-white text-xl font-bold">Code : <span className="text-purple-400 tracking-widest font-black">{code}</span></p><p className="text-slate-400 animate-pulse">En attente du joueur 2…</p><button onClick={copyCode} className="flex items-center gap-2 text-slate-300 hover:text-white bg-slate-700 hover:bg-slate-600 py-2 px-4 rounded-lg transition-colors text-sm">{copied?<><Check size={14}/> Copié !</>:<><Copy size={14}/> Copier le code</>}</button><button onClick={()=>{setWaiting(false);setMode(null)}} className="text-slate-500 hover:text-slate-300 text-sm">Annuler</button></div>)
   return(<div className="min-h-screen flex flex-col items-center justify-center gap-6 px-4 relative" style={{backgroundImage:'url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}><button onClick={onBack} className="absolute top-4 left-4 text-amber-400/80 hover:text-amber-300 transition-colors"><Home size={20}/></button><h2 className="text-3xl font-black" style={{...CINZEL_DEC,background:'linear-gradient(to bottom,#ffe566,#c9a020)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',filter:'drop-shadow(0 1px 10px rgba(0,0,0,1))'}}>Partie en Ligne</h2>{error&&<p className="text-red-400 text-sm bg-red-900/30 px-4 py-2 rounded-lg text-center max-w-sm">{error}</p>}{!mode&&<div className="flex gap-4"><button onClick={handleCreate} className="bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-6 rounded-xl transition-all hover:scale-105">Créer</button><button onClick={()=>setMode('join')} className="bg-purple-600 hover:bg-purple-500 text-white font-bold py-3 px-6 rounded-xl transition-all hover:scale-105">Rejoindre</button></div>}{mode==='join'&&<div className="bg-slate-800 rounded-2xl p-6 border border-slate-700 w-72"><p className="text-slate-400 text-sm mb-2">Code de la partie :</p><input value={inputCode} onChange={e=>setInputCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,6))} className="bg-slate-700 text-white font-black text-2xl tracking-widest text-center border border-slate-600 rounded-lg px-4 py-2 w-full outline-none focus:border-purple-500 mb-3" placeholder="XXXXXX" maxLength={6}/><button onClick={handleJoin} disabled={inputCode.length!==6} className="w-full bg-purple-600 hover:bg-purple-500 disabled:opacity-40 text-white font-bold py-2 rounded-lg transition-colors">Rejoindre</button><button onClick={()=>setMode(null)} className="w-full text-slate-500 hover:text-slate-300 text-sm mt-2">Retour</button></div>}</div>)
 }
-function GameOverScreen({winner,isAI,onReplay,onMenu}){
-  return(<div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 flex flex-col items-center justify-center gap-5"><div className="text-7xl mb-2 animate-bounce">🏆</div><h2 className="text-4xl font-black text-white"><span className={winner===1?'text-blue-400':'text-red-400'}>{isAI&&winner===2?'L\'IA':`Joueur ${winner}`}</span> gagne !</h2><p className="text-slate-400">{isAI&&winner===2?'L\'IA a éliminé toutes vos cartes.':'L\'adversaire n\'a plus aucune carte.'}</p><div className="flex gap-4 mt-4"><button onClick={onReplay} className="bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-7 rounded-xl transition-all hover:scale-105 flex items-center gap-2 shadow-lg"><Play size={18}/> Rejouer</button><button onClick={onMenu} className="bg-slate-700 hover:bg-slate-600 text-white font-bold py-3 px-7 rounded-xl transition-all hover:scale-105 flex items-center gap-2 shadow-lg"><Home size={18}/> Menu</button></div></div>)
+function GameOverScreen({winner,isAI,surrendered,onReplay,onMenu}){
+  const loser=winner===1?2:1
+  const winLabel=isAI&&winner===2?'L\'IA':`Joueur ${winner}`
+  const msg=surrendered
+    ?`Joueur ${loser} a capitulé.`
+    :isAI&&winner===2?'L\'IA a éliminé toutes vos cartes.':'L\'adversaire n\'a plus aucune carte.'
+  return(<div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 flex flex-col items-center justify-center gap-5"><div className="text-7xl mb-2 animate-bounce">{surrendered?'🏳️':'🏆'}</div><h2 className="text-4xl font-black text-white"><span className={winner===1?'text-blue-400':'text-red-400'}>{winLabel}</span> gagne !</h2><p className="text-slate-400">{msg}</p><div className="flex gap-4 mt-4"><button onClick={onReplay} className="bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-7 rounded-xl transition-all hover:scale-105 flex items-center gap-2 shadow-lg"><Play size={18}/> Rejouer</button><button onClick={onMenu} className="bg-slate-700 hover:bg-slate-600 text-white font-bold py-3 px-7 rounded-xl transition-all hover:scale-105 flex items-center gap-2 shadow-lg"><Home size={18}/> Menu</button></div></div>)
 }
 function SoundToggle({enabled,onToggle}){
   return(<button onClick={onToggle} className="fixed top-3 right-3 z-50 text-slate-400 hover:text-white bg-slate-800/80 backdrop-blur-sm p-2 rounded-lg transition-colors">{enabled?<Volume2 size={18}/>:<VolumeX size={18}/>}</button>)
@@ -1116,6 +1168,14 @@ export default function App(){
     else{setGame(g);if(roomCode)syncOnline(g)}
   }
 
+  function handleSurrender(losingPlayer){
+    if(!game)return
+    const winningPlayer=losingPlayer===1?2:1
+    const f={...game,winner:winningPlayer,surrendered:true}
+    setGame(f);if(roomCode)syncOnline(f)
+    setTimeout(()=>setScreen('gameover'),300)
+  }
+
   function handleEndTurn(){
     if(!game)return
     const next=game.currentPlayer===1?2:1
@@ -1149,8 +1209,8 @@ export default function App(){
       {screen==='menu'     && <MenuScreen onAI={()=>startGame('ai')} onLocal={()=>startGame('local')} onOnline={()=>setScreen('online')} onRules={()=>setScreen('rules')}/>}
       {screen==='rules'    && <RulesScreen onBack={()=>setScreen('menu')}/>}
       {screen==='online'   && <OnlineLobbyScreen onBack={()=>setScreen('menu')} onGameStart={handleOnlineStart}/>}
-      {screen==='game'     && game && <GameScreen game={game} soundEnabled={soundOn} myPlayer={myPlayer} isAI={gameMode==='ai'} onAction={handleAction} onEndTurn={handleEndTurn} onHome={closeGame} onPowerAction={handlePowerAction}/>}
-      {screen==='gameover' && game && <GameOverScreen winner={game.winner} isAI={gameMode==='ai'} onReplay={()=>startGame(gameMode)} onMenu={()=>setScreen('menu')}/>}
+      {screen==='game'     && game && <GameScreen game={game} soundEnabled={soundOn} myPlayer={myPlayer} isAI={gameMode==='ai'} onAction={handleAction} onEndTurn={handleEndTurn} onHome={closeGame} onPowerAction={handlePowerAction} onSurrender={handleSurrender}/>}
+      {screen==='gameover' && game && <GameOverScreen winner={game.winner} isAI={gameMode==='ai'} surrendered={!!game.surrendered} onReplay={()=>startGame(gameMode)} onMenu={()=>setScreen('menu')}/>}
     </>
   )
 }
