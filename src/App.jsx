@@ -740,6 +740,14 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
   const[drag,setDrag]=useState(null)
   const[anims,setAnims]=useState({})
   const[targeting,setTargeting]=useState(null)
+  const[gameScale,setGameScale]=useState(1)
+  useEffect(()=>{
+    const DESIGN_W=592 // 5×108px cells + gaps + padding
+    const update=()=>setGameScale(Math.min(1,window.innerWidth/DESIGN_W))
+    update()
+    window.addEventListener('resize',update)
+    return()=>window.removeEventListener('resize',update)
+  },[])
   const{board,players,currentPlayer,actionsLeft}=game
   const isMyTurn=myPlayer===null||myPlayer===currentPlayer
   const p1pts=playerPts(game,1),p2pts=playerPts(game,2)
@@ -800,7 +808,7 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
   return(
     <div className="game-outer min-h-screen bg-gradient-to-br from-slate-900 via-slate-900 to-slate-800 overflow-y-auto relative">
       <button onClick={onHome} className="absolute top-3 left-3 z-10 text-slate-500 hover:text-white transition-colors"><Home size={18}/></button>
-      <div className="game-inner flex flex-col items-center gap-3 py-4 px-2">
+      <div className="game-inner flex flex-col items-center gap-3 py-4 px-2" style={{zoom:gameScale,transformOrigin:'top center'}}>
 
         {/* J1 hand — top */}
         {renderHand(1,currentPlayer===1&&isMyTurn&&actionsLeft.placement>0&&!targeting)}
@@ -866,19 +874,19 @@ function MenuScreen({onLocal,onAI,onOnline,onRules}){
       style={{backgroundImage:'url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}>
 
       <div className="text-center">
-        <h1 className="text-6xl font-black tracking-wide leading-tight"
+        <h1 className="text-4xl sm:text-6xl font-black tracking-wide leading-tight"
           style={{...CINZEL_DEC,
             background:'linear-gradient(to bottom,#ffe566 0%,#c9a020 55%,#7a5c0a 100%)',
             WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',
             filter:'drop-shadow(0 2px 14px rgba(0,0,0,1)) drop-shadow(0 0 6px rgba(0,0,0,0.9))'}}>
           Tactical Cards
         </h1>
-        <div className="text-amber-600/70 text-lg tracking-widest mt-1 select-none">⸺⸺ ✦ ⸺⸺</div>
+        <div className="text-amber-600/70 text-base sm:text-lg tracking-widest mt-1 select-none">⸺⸺ ✦ ⸺⸺</div>
         <p className="text-amber-300/60 text-xs tracking-[0.25em] uppercase mt-1 drop-shadow-md"
           style={CINZEL}>Jeu de cartes tactique · 2 joueurs</p>
       </div>
 
-      <div className="flex flex-col gap-3 w-64">
+      <div className="flex flex-col gap-3 w-56 sm:w-64">
         <MenuBtn onClick={onAI}     icon={<Bot      size={16}/>} color="#a78bfa">Solo vs IA</MenuBtn>
         <MenuBtn onClick={onLocal}  icon={<Users    size={16}/>} color="#60a5fa">Partie Locale</MenuBtn>
         <MenuBtn onClick={onOnline} icon={<Wifi     size={16}/>} color="#c084fc">Partie en Ligne</MenuBtn>
