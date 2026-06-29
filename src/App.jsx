@@ -292,21 +292,21 @@ function scoreAttack(game,ar,ac,dr,dc,sit){
     s+=180+def.total*2
     if((sit?.oppCards??9)<=2)s+=100
   } else {
-    // Reward each point of damage proportional to how close it brings death
+    // Reward hitting low-value faces — brings them closer to death
     dk.forEach(k=>{
       const v=def.values[k]
-      if(v===1)s+=75
-      else if(v===2)s+=32
-      else if(v===3)s+=12
-      else if(v<=5)s+=4
+      if(v===1)s+=95   // → 0 next attack kills
+      else if(v===2)s+=50
+      else if(v===3)s+=20
+      else if(v<=5)s+=7
     })
   }
-  // Penalise risk to attacker's own faces
+  // Penalise risk to attacker's own faces (slightly relaxed)
   ak.forEach(k=>{
     const v=atk.values[k]
-    if(v===1)s-=55   // face becomes 0 = extremely vulnerable next turn
-    else if(v===2)s-=22
-    else if(v===3)s-=7
+    if(v===1)s-=45   // face becomes 0 = vulnerable next turn
+    else if(v===2)s-=18
+    else if(v===3)s-=6
   })
   // Slight aggression bonus when losing on points
   if((sit?.ptDelta??0)<-20)s+=18
@@ -404,7 +404,7 @@ function scoreMove(game,fr,fc,tr,tc,card,cp){
     ourFaces.forEach(k=>{const v=card.values[k];if(v===0)dangerAfter+=90;else if(v===1)dangerAfter+=45;else if(v===2)dangerAfter+=15})
     // Attack opportunity from target
     const[__,theirFaces]=getContactKeys(tr,tc,nr,nc)
-    theirFaces.forEach(k=>{const v=nb.values[k];if(v===0)atkAfter+=80;else if(v===1)atkAfter+=40;else if(v<=2)atkAfter+=15})
+    theirFaces.forEach(k=>{const v=nb.values[k];if(v===0)atkAfter+=130;else if(v===1)atkAfter+=70;else if(v===2)atkAfter+=35;else if(v<=4)atkAfter+=12})
   }
   let s=dangerBefore-dangerAfter       // reward escaping danger
   s+=atkAfter*0.5                      // bonus for reaching attack position
@@ -497,10 +497,12 @@ function computePowerTarget(game,cp,type,sit){
       }
       if(s>bestS){bestS=s;best={r,c}}
     }
-    return best&&bestS>0?{type:'power',powerType:'switch',...best}:null
+    return best&&bestS>25?{type:'power',powerType:'switch',...best}:null
   }
   if(type==='block'){
-    // Block a cell P1 would want to use: their most threatening empty front cell
+    // Only block once enemy has deployed — no point blocking an empty board
+    const enemyDeployed=game.board.some(row=>row.some(c=>c&&c.owner!==cp))
+    if(!enemyDeployed)return null
     for(const c of[2,1,3,0,4])for(const r of P1_ROWS)
       if(isValidPowerTarget(game,'block',cp,r,c))
         return{type:'power',powerType:'block',r,c}
@@ -537,16 +539,25 @@ function computeAIAction(game){
     if(p)return{type:'place',...p}
   }
 
-  // Non-lethal attack (damage is still useful)
+  // High-value non-lethal attack: take immediately (hitting ≤2 face or strong damage)
   if(al.attack>0){
     const atk=findBestAttack(game,cp,sit)
-    if(atk)return{type:'attack',...atk}
+    if(atk){
+      const s=scoreAttack(game,atk.ar,atk.ac,atk.dr,atk.dc,sit)
+      if(al.moves===0||s>=55)return{type:'attack',...atk}
+    }
   }
 
-  // Move to escape danger or reach a better position
+  // Move first to reach better attack position (target weak faces)
   if(al.moves>0){
     const m=findBestMove(game,cp)
     if(m)return{type:'move',...m}
+  }
+
+  // Any remaining non-lethal attack (moves exhausted)
+  if(al.attack>0){
+    const atk=findBestAttack(game,cp,sit)
+    if(atk)return{type:'attack',...atk}
   }
 
   // Fallback: never idle with remaining actions — force the least-bad option
