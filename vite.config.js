@@ -1,13 +1,15 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
+import { nodePolyfills } from 'vite-plugin-node-polyfills'
 
 export default defineConfig({
   define: {
-    // Firebase and some deps reference `global.crypto` (Node.js style) — map it to browser globalThis
     global: 'globalThis',
   },
   plugins: [
+    // Polyfill Node.js built-ins (crypto, buffer…) for browser — required by Firebase & Workbox deps
+    nodePolyfills({ include: ['crypto', 'buffer'] }),
     react(),
     VitePWA({
       registerType: 'autoUpdate',
