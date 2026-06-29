@@ -667,11 +667,14 @@ const TIER_THEME={
   1:{weak:{border:'border-blue-700/70',bg:'from-blue-950 to-slate-900',glow:'',center:'text-blue-800 text-[8px]',sym:'·'},medium:{border:'border-blue-500',bg:'from-blue-900 to-blue-800',glow:'',center:'text-blue-500/50 text-[9px]',sym:'◆'},strong:{border:'border-cyan-300',bg:'from-blue-700 to-cyan-900',glow:'shadow-[0_0_14px_rgba(34,211,238,0.45)]',center:'text-cyan-300/70 text-sm',sym:'✦'}},
   2:{weak:{border:'border-red-800/70',bg:'from-red-950 to-slate-900',glow:'',center:'text-red-900 text-[8px]',sym:'·'},medium:{border:'border-red-500',bg:'from-red-900 to-red-800',glow:'',center:'text-red-500/50 text-[9px]',sym:'◆'},strong:{border:'border-orange-300',bg:'from-red-700 to-orange-900',glow:'shadow-[0_0_14px_rgba(251,146,60,0.45)]',center:'text-orange-300/70 text-sm',sym:'✦'}},
 }
-function CardFace({card,small=false,draggable=false,onDragStart,onTouchStart,animClass='',isTarget=false}){
+function CardFace({card,small=false,compact=false,draggable=false,onDragStart,onTouchStart,animClass='',isTarget=false}){
   const tier=cardTier(card),theme=TIER_THEME[card.owner][tier]
-  // small=true → placed on board; small=false → in hand (larger)
-  const sz=small?'w-[58px] h-[58px]':'w-[64px] h-[64px]'
-  const fs='text-[9px]'
+  const sz=small
+    ?(compact?'w-[58px] h-[58px]':'w-[80px] h-[80px]')
+    :(compact?'w-[64px] h-[64px]':'w-[118px] h-[118px]')
+  const fs=small
+    ?(compact?'text-[9px]':'text-[12px]')
+    :(compact?'text-[9px]':'text-[15px]')
   const hasImg=!!card.imageUrl
   // Colored outer glow distinguishes players even with full-opacity images
   const playerGlow=card.owner===1
@@ -710,7 +713,7 @@ function CardFace({card,small=false,draggable=false,onDragStart,onTouchStart,ani
 // ═══════════════════════════════════════════════════════════════════════════════
 //  BOARD CELL
 // ═══════════════════════════════════════════════════════════════════════════════
-function Cell({r,c,card,currentPlayer,actionsLeft,onDragStart,onDrop,onCellClick,animKey,targeting,game,onBoardTouchStart}){
+function Cell({r,c,card,currentPlayer,actionsLeft,onDragStart,onDrop,onCellClick,animKey,targeting,game,onBoardTouchStart,compact=false}){
   const[over,setOver]=useState(false)
   const corner=isCorner(r,c),dynBlocked=isDynBlock(game,r,c),blocked=corner||dynBlocked
   const validTarget=targeting?isValidPowerTarget(game,targeting,currentPlayer,r,c):false
@@ -721,9 +724,10 @@ function Cell({r,c,card,currentPlayer,actionsLeft,onDragStart,onDrop,onCellClick
   }
   const canDrag=!targeting&&card&&card.owner===currentPlayer&&(actionsLeft.moves>0||actionsLeft.attack>0)
   const borderColor=blocked?'border-slate-700/30':P1_ROWS.includes(r)?'border-blue-500/70':P2_ROWS.includes(r)?'border-red-500/70':'border-slate-300/50'
+  const cellSz=compact?'w-[68px] h-[68px]':'w-[90px] h-[90px]'
   return(
     <div data-cell={`${r},${c}`}
-      className={`w-[68px] h-[68px] rounded-xl border-2 ${borderColor} ${bg} flex items-center justify-center relative transition-all duration-100 overflow-hidden ${targeting&&validTarget?'cursor-pointer':''}`}
+      className={`${cellSz} rounded-xl border-2 ${borderColor} ${bg} flex items-center justify-center relative transition-all duration-100 overflow-hidden ${targeting&&validTarget?'cursor-pointer':''}`}
       onDragOver={!blocked&&!targeting?e=>{e.preventDefault();setOver(true)}:undefined}
       onDragLeave={!blocked&&!targeting?()=>setOver(false):undefined}
       onDrop={!blocked&&!targeting?e=>{e.preventDefault();setOver(false);onDrop(e,r,c)}:undefined}
@@ -732,7 +736,7 @@ function Cell({r,c,card,currentPlayer,actionsLeft,onDragStart,onDrop,onCellClick
       onClick={targeting&&validTarget?()=>onCellClick(r,c):undefined}>
       {corner&&<span className="text-slate-600/60 text-base select-none">✕</span>}
       {dynBlocked&&<span className="text-rose-700/70 text-3xl select-none" title="Bloqué">⊘</span>}
-      {!blocked&&card&&<CardFace card={card} small draggable={canDrag} onDragStart={e=>onDragStart(e,'board',r,c)} onTouchStart={canDrag?e=>onBoardTouchStart(e,'board',r,c):undefined} animClass={animKey} isTarget={targeting&&validTarget&&!!card}/>}
+      {!blocked&&card&&<CardFace card={card} small compact={compact} draggable={canDrag} onDragStart={e=>onDragStart(e,'board',r,c)} onTouchStart={canDrag?e=>onBoardTouchStart(e,'board',r,c):undefined} animClass={animKey} isTarget={targeting&&validTarget&&!!card}/>}
     </div>
   )
 }
@@ -789,6 +793,7 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
   const[targeting,setTargeting]=useState(null)
   const[confirmSurrender,setConfirmSurrender]=useState(false)
   const[gameScale,setGameScale]=useState(1)
+  const[compact,setCompact]=useState(()=>window.innerWidth<640)
   const touchDragRef=useRef(null)
   const localGameRef=useRef(game)
   const myPlayerRef_=useRef(myPlayer)
@@ -798,8 +803,13 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
   useEffect(()=>{myPlayerRef_.current=myPlayer},[myPlayer])
   useEffect(()=>{targetingRef_.current=targeting},[targeting])
   useEffect(()=>{
-    const DESIGN_W=368 // 5×68px cells + gap-1 + p-1.5
-    const update=()=>setGameScale(Math.min(1,window.innerWidth/DESIGN_W))
+    const update=()=>{
+      const w=window.innerWidth
+      const c=w<640
+      setCompact(c)
+      // zoom only on compact mode: design width = 5×68 + 4×4 + 2×6 = 368
+      setGameScale(c?Math.min(1,w/368):1)
+    }
     update()
     window.addEventListener('resize',update)
     return()=>window.removeEventListener('resize',update)
@@ -912,13 +922,13 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
           {currentPlayer===player&&<span className="w-2 h-2 rounded-full bg-green-400 animate-pulse inline-block"/>}
           <span className={`${activeColor} text-xs font-bold`}>{label} · {pts} pts</span>
         </div>
-        <div className="game-hand-cards flex gap-1.5 justify-center flex-wrap">
+        <div className={`game-hand-cards flex ${compact?'gap-1.5':'gap-3'} justify-center flex-wrap`}>
           {players[player].hand.map((card,i)=>(
             <div key={card.id} className="anim-idle" style={{animationDelay:`${i*0.18}s`}}>
-              <CardFace card={card} draggable={canDrag} onDragStart={e=>handleDragStart(e,'hand',i,player)} onTouchStart={canDrag?e=>handleTouchStart(e,'hand',i,player):undefined}/>
+              <CardFace card={card} compact={compact} draggable={canDrag} onDragStart={e=>handleDragStart(e,'hand',i,player)} onTouchStart={canDrag?e=>handleTouchStart(e,'hand',i,player):undefined}/>
             </div>
           ))}
-          {!players[player].hand.length&&<span className="text-slate-600 text-xs w-[64px] text-center py-3">vide</span>}
+          {!players[player].hand.length&&<span className={`text-slate-600 text-xs ${compact?'w-[64px] py-3':'w-[142px] py-8'} text-center`}>vide</span>}
         </div>
       </div>
     )
@@ -927,24 +937,24 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
   return(
     <div className="game-outer min-h-screen bg-gradient-to-br from-slate-900 via-slate-900 to-slate-800 overflow-y-auto relative">
       <button onClick={onHome} className="absolute top-3 left-3 z-10 text-slate-500 hover:text-white transition-colors"><Home size={18}/></button>
-      <div className="game-inner flex flex-col items-center gap-2 py-2 px-2" style={{zoom:gameScale,transformOrigin:'top center'}}>
+      <div className={`game-inner flex flex-col items-center ${compact?'gap-2 py-2':'gap-3 py-4'} px-2`} style={{zoom:gameScale,transformOrigin:'top center'}}>
 
         {/* J1 hand — top */}
         {renderHand(1,currentPlayer===1&&isMyTurn&&actionsLeft.placement>0&&!targeting)}
 
         {/* Board + controls */}
-        <div className="game-board-area flex flex-col items-center gap-1.5">
+        <div className={`game-board-area flex flex-col items-center ${compact?'gap-1.5':'gap-2'}`}>
           <div className="flex gap-2">
             <span className={badge('Pose',actionsLeft.placement,'green')}>Pose {actionsLeft.placement}</span>
             <span className={badge('Dépl',actionsLeft.moves,'yellow')}>Dépl {actionsLeft.moves}</span>
             <span className={badge('Att',actionsLeft.attack,'red')}>Att {actionsLeft.attack}</span>
           </div>
-          <div className={`grid grid-cols-5 gap-1 p-1.5 rounded-2xl border transition-all ${targeting?'border-purple-600/60 shadow-[0_0_20px_rgba(147,51,234,0.2)]':'border-slate-700/30'}`}
+          <div className={`grid grid-cols-5 ${compact?'gap-1 p-1.5':'gap-1.5 p-2.5'} rounded-2xl border transition-all ${targeting?'border-purple-600/60 shadow-[0_0_20px_rgba(147,51,234,0.2)]':'border-slate-700/30'}`}
             style={{backgroundImage:'url(/images/plateau.png)',backgroundSize:'cover',backgroundPosition:'center'}}>
             {board.map((row,r)=>row.map((cell,c)=>(
               <Cell key={`${r}-${c}`} r={r} c={c} card={cell} currentPlayer={currentPlayer} actionsLeft={actionsLeft}
                 onDragStart={handleDragStart} onDrop={handleDrop} onCellClick={handleCellClick}
-                animKey={anims[`${r},${c}`]||''} targeting={targeting} game={game} onBoardTouchStart={handleTouchStart}/>
+                animKey={anims[`${r},${c}`]||''} targeting={targeting} game={game} onBoardTouchStart={handleTouchStart} compact={compact}/>
             )))}
           </div>
           <PowerBar game={game} isMyTurn={isMyTurn} targeting={targeting} onActivatePower={type=>setTargeting(type)} onCancelTargeting={()=>setTargeting(null)}/>
