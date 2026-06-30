@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Copy, Volume2, VolumeX, Home, BookOpen, Wifi, Play, Users, Check, X, Zap, Bot } from 'lucide-react'
+import { Copy, Volume2, VolumeX, Home, BookOpen, Wifi, Play, Users, Check, X, Zap, Bot, Layers, Plus, Trash2, Star, ImagePlus } from 'lucide-react'
 import { genRoomCode, createRoom, joinRoom, pushState, subscribeRoom } from './firebase.js'
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -49,6 +49,50 @@ function genDeck(owner) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+//  DECK BUILDER — storage & helpers
+// ═══════════════════════════════════════════════════════════════════════════════
+const DECKS_KEY='tacticalcards_decks'
+const DECK_MAX_POINTS=150
+const CARD_MAX_POINTS=40
+const FACE_KEYS=['topLeft','top','topRight','left','right','bottomLeft','bottom','bottomRight']
+
+function loadDecks(){
+  try{return JSON.parse(localStorage.getItem(DECKS_KEY)||'[]')}catch{return[]}
+}
+function saveDecks(decks){
+  try{localStorage.setItem(DECKS_KEY,JSON.stringify(decks))}catch{}
+}
+function emptyCardValues(){
+  return Object.fromEntries(FACE_KEYS.map(k=>[k,0]))
+}
+function newCustomCard(){
+  return{id:`c-${Date.now()}-${Math.random().toString(36).slice(2)}`,values:emptyCardValues(),imageUrl:null}
+}
+function customCardPts(card){
+  return FACE_KEYS.reduce((s,k)=>s+(card.values[k]||0),0)
+}
+function deckTotalPts(deck){
+  return (deck?.cards||[]).reduce((s,c)=>s+customCardPts(c),0)
+}
+function isDeckValid(deck){
+  if(!deck||!deck.cards||deck.cards.length===0)return false
+  if(deck.cards.some(c=>customCardPts(c)>CARD_MAX_POINTS))return false
+  if(deckTotalPts(deck)>DECK_MAX_POINTS)return false
+  return true
+}
+function getDefaultDeck(){
+  const d=loadDecks().find(d=>d.isDefault)
+  return d&&isDeckValid(d)?d:null
+}
+function deckToHandCards(deck,owner){
+  return deck.cards.map((c,i)=>({
+    id:`${owner}-${i}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    owner, total:customCardPts(c), values:{...c.values}, baseValues:{...c.values}, imageUrl:c.imageUrl||null,
+  }))
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════════
 //  POWER DECK
 // ═══════════════════════════════════════════════════════════════════════════════
 const POWER_INFO = {
@@ -90,10 +134,13 @@ function applyPowerAction(game,type,r,c) {
 // ═══════════════════════════════════════════════════════════════════════════════
 //  GAME STATE
 // ═══════════════════════════════════════════════════════════════════════════════
-function newGame() {
+function newGame(p1Deck,p2Deck) {
   return {
     board:Array(5).fill(null).map(()=>Array(5).fill(null)),
-    players:{1:{hand:genDeck(1)},2:{hand:genDeck(2)}},
+    players:{
+      1:{hand:isDeckValid(p1Deck)?deckToHandCards(p1Deck,1):genDeck(1)},
+      2:{hand:isDeckValid(p2Deck)?deckToHandCards(p2Deck,2):genDeck(2)},
+    },
     currentPlayer:1, actionsLeft:{placement:1,moves:2,attack:1},
     winner:null, turn:1,
     powerCardHand:{1:['block','block','switch'],2:['block','block','switch']}, blockedCells:[], boardTiles:genBoardTiles(),
@@ -1015,7 +1062,7 @@ function MenuBtn({onClick, icon, color, children}){
   )
 }
 
-function MenuScreen({onLocal,onAI,onOnline,onRules}){
+function MenuScreen({onLocal,onAI,onOnline,onRules,onDeckBuilder}){
   return(
     <div className="min-h-screen flex flex-col items-center justify-center gap-6 px-4"
       style={{backgroundImage:'url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}>
@@ -1037,6 +1084,7 @@ function MenuScreen({onLocal,onAI,onOnline,onRules}){
         <MenuBtn onClick={onAI}     icon={<Bot      size={16}/>} color="#a78bfa">Solo vs IA</MenuBtn>
         <MenuBtn onClick={onLocal}  icon={<Users    size={16}/>} color="#60a5fa">Partie Locale</MenuBtn>
         <MenuBtn onClick={onOnline} icon={<Wifi     size={16}/>} color="#c084fc">Partie en Ligne</MenuBtn>
+        <MenuBtn onClick={onDeckBuilder} icon={<Layers size={16}/>} color="#34d399">Deck Builder</MenuBtn>
         <MenuBtn onClick={onRules}  icon={<BookOpen size={16}/>} color="#fbbf24">Règles du jeu</MenuBtn>
       </div>
     </div>
@@ -1068,9 +1116,144 @@ function RulesScreen({onBack}){
     </div>
   )
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  DECK BUILDER SCREEN
+// ═══════════════════════════════════════════════════════════════════════════════
+function CardEditor({card,onUpdate,onRemove}){
+  const pts=customCardPts(card),over=pts>CARD_MAX_POINTS
+  function setVal(key,v){
+    const n=Math.max(0,Math.min(9,Number(v)||0))
+    onUpdate({values:{...card.values,[key]:n}})
+  }
+  function handleFile(e){
+    const file=e.target.files?.[0];if(!file)return
+    const reader=new FileReader()
+    reader.onload=()=>onUpdate({imageUrl:reader.result})
+    reader.readAsDataURL(file)
+  }
+  return(
+    <div className={`rounded-xl p-3 border ${over?'border-red-600':'border-amber-900/40'}`} style={{background:'rgba(8,5,2,0.78)'}}>
+      <div className="flex gap-3">
+        <div className="w-[90px] h-[90px] shrink-0 rounded-lg border border-amber-800/50 overflow-hidden relative bg-slate-800">
+          {card.imageUrl&&<img src={card.imageUrl} alt="" className="absolute inset-0 w-full h-full object-cover"/>}
+          <div className="absolute inset-0 grid grid-cols-3 grid-rows-3 text-[11px] p-0.5">
+            {GRID_KEYS.map((row,ri)=>row.map((key,ci)=>(
+              <div key={`${ri}-${ci}`} className="flex items-center justify-center">
+                {key&&<input type="number" min={0} max={9} value={card.values[key]}
+                  onChange={e=>setVal(key,e.target.value)}
+                  className="w-[18px] text-center bg-black/50 text-white font-bold rounded outline-none focus:ring-1 focus:ring-amber-400" style={{padding:0}}/>}
+              </div>
+            )))}
+          </div>
+        </div>
+        <div className="flex-1 flex flex-col gap-1.5 min-w-0">
+          <div className="flex items-center gap-2">
+            <span className={`text-sm font-bold ${over?'text-red-400':'text-amber-300'}`}>{pts} / {CARD_MAX_POINTS} pts</span>
+            {over&&<span className="text-red-400 text-xs">Trop élevée !</span>}
+          </div>
+          <label className="flex items-center gap-1.5 text-xs text-slate-300 cursor-pointer hover:text-white w-fit">
+            <ImagePlus size={13}/> Image de fond
+            <input type="file" accept="image/*" onChange={handleFile} className="hidden"/>
+          </label>
+          <input type="text" placeholder="...ou URL d'image" value={card.imageUrl&&!card.imageUrl.startsWith('data:')?card.imageUrl:''}
+            onChange={e=>onUpdate({imageUrl:e.target.value||null})}
+            className="bg-slate-800 text-slate-200 text-xs border border-slate-700 rounded px-2 py-1 outline-none focus:border-amber-500"/>
+          <button onClick={onRemove} className="flex items-center gap-1 text-red-400/80 hover:text-red-300 text-xs w-fit mt-auto"><Trash2 size={12}/> Supprimer la carte</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+function DeckEditor({deck,onBack,onRename,onAddCard,onRemoveCard,onUpdateCard,onSetDefault}){
+  const total=deckTotalPts(deck),overTotal=total>DECK_MAX_POINTS,valid=isDeckValid(deck)
+  return(
+    <div className="min-h-screen py-8 px-4 flex flex-col items-center overflow-y-auto"
+      style={{backgroundImage:'url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}>
+      <div className="max-w-lg w-full">
+        <button onClick={onBack} className="flex items-center gap-2 text-amber-400/80 hover:text-amber-300 mb-4 transition-colors" style={CINZEL}><Home size={16}/> Decks</button>
+        <input value={deck.name} onChange={e=>onRename(e.target.value)}
+          className="text-2xl font-black bg-transparent border-b border-amber-700/40 text-amber-200 outline-none focus:border-amber-400 mb-2 w-full" style={CINZEL_DEC}/>
+        <div className="flex items-center gap-3 mb-4 flex-wrap">
+          <span className={`text-sm font-bold ${overTotal?'text-red-400':'text-amber-300'}`}>{total} / {DECK_MAX_POINTS} pts</span>
+          <button onClick={onSetDefault} disabled={!valid}
+            className={`flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg border transition-colors ${deck.isDefault?'bg-amber-600/30 border-amber-500 text-amber-300':'border-slate-700 text-slate-400 hover:text-white'} ${!valid?'opacity-40 cursor-not-allowed':''}`}>
+            <Star size={12} fill={deck.isDefault?'currentColor':'none'}/> {deck.isDefault?'Deck par défaut':'Définir par défaut'}
+          </button>
+          {!valid&&<span className="text-red-400 text-xs">Deck invalide (vérifiez les points)</span>}
+        </div>
+        <div className="flex flex-col gap-3 mb-4">
+          {deck.cards.map(c=>(
+            <CardEditor key={c.id} card={c} onUpdate={patch=>onUpdateCard(c.id,patch)} onRemove={()=>onRemoveCard(c.id)}/>
+          ))}
+          {deck.cards.length===0&&<p className="text-slate-500 text-sm text-center py-6">Aucune carte. Ajoutez-en une.</p>}
+        </div>
+        <button onClick={onAddCard} className="w-full flex items-center justify-center gap-2 bg-blue-700 hover:bg-blue-600 text-white font-bold py-2.5 rounded-xl transition-colors"><Plus size={16}/> Ajouter une carte</button>
+      </div>
+    </div>
+  )
+}
+function DeckBuilderScreen({onBack}){
+  const[decks,setDecks]=useState(()=>loadDecks())
+  const[editingId,setEditingId]=useState(null)
+  useEffect(()=>{saveDecks(decks)},[decks])
+  const editing=decks.find(d=>d.id===editingId)
+
+  function createDeck(){
+    const d={id:`d-${Date.now()}`,name:`Deck ${decks.length+1}`,cards:[],isDefault:false}
+    setDecks(p=>[...p,d]);setEditingId(d.id)
+  }
+  function deleteDeck(id){setDecks(p=>p.filter(d=>d.id!==id))}
+  function setDefault(id){setDecks(p=>p.map(d=>({...d,isDefault:d.id===id})))}
+  function renameDeck(id,name){setDecks(p=>p.map(d=>d.id===id?{...d,name}:d))}
+  function addCard(id){setDecks(p=>p.map(d=>d.id===id?{...d,cards:[...d.cards,newCustomCard()]}:d))}
+  function removeCard(id,cardId){setDecks(p=>p.map(d=>d.id===id?{...d,cards:d.cards.filter(c=>c.id!==cardId)}:d))}
+  function updateCard(id,cardId,patch){setDecks(p=>p.map(d=>d.id===id?{...d,cards:d.cards.map(c=>c.id===cardId?{...c,...patch}:c)}:d))}
+
+  if(editing)return(
+    <DeckEditor deck={editing} onBack={()=>setEditingId(null)} onRename={n=>renameDeck(editing.id,n)}
+      onAddCard={()=>addCard(editing.id)} onRemoveCard={cid=>removeCard(editing.id,cid)}
+      onUpdateCard={(cid,patch)=>updateCard(editing.id,cid,patch)} onSetDefault={()=>setDefault(editing.id)}/>
+  )
+
+  return(
+    <div className="min-h-screen py-8 px-4 flex flex-col items-center overflow-y-auto"
+      style={{backgroundImage:'url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}>
+      <div className="max-w-lg w-full">
+        <button onClick={onBack} className="flex items-center gap-2 text-amber-400/80 hover:text-amber-300 mb-6 transition-colors" style={CINZEL}><Home size={16}/> Menu</button>
+        <h2 className="text-3xl font-black mb-5" style={{...CINZEL_DEC,background:'linear-gradient(to bottom,#ffe566,#c9a020)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',filter:'drop-shadow(0 1px 10px rgba(0,0,0,1))'}}>Deck Builder</h2>
+        <div className="flex flex-col gap-3 mb-4">
+          {decks.map(d=>{
+            const total=deckTotalPts(d),valid=isDeckValid(d)
+            return(
+              <div key={d.id} className="rounded-xl p-4 border border-amber-900/40 flex items-center gap-3" style={{background:'rgba(8,5,2,0.78)'}}>
+                <button onClick={()=>setEditingId(d.id)} className="flex-1 text-left min-w-0">
+                  <div className="flex items-center gap-2">
+                    {d.isDefault&&<Star size={14} className="text-amber-400 shrink-0" fill="currentColor"/>}
+                    <span className="text-amber-200 font-bold truncate" style={CINZEL}>{d.name}</span>
+                  </div>
+                  <span className={`text-xs ${valid?'text-slate-400':'text-red-400'}`}>{d.cards.length} carte(s) · {total}/{DECK_MAX_POINTS} pts{!valid?' · invalide':''}</span>
+                </button>
+                <button onClick={()=>setDefault(d.id)} disabled={!valid} title="Définir par défaut"
+                  className={`p-1.5 rounded-lg transition-colors ${d.isDefault?'text-amber-400':'text-slate-500 hover:text-amber-300'} ${!valid?'opacity-30 cursor-not-allowed':''}`}>
+                  <Star size={16} fill={d.isDefault?'currentColor':'none'}/>
+                </button>
+                <button onClick={()=>deleteDeck(d.id)} className="p-1.5 rounded-lg text-slate-500 hover:text-red-400 transition-colors"><Trash2 size={16}/></button>
+              </div>
+            )
+          })}
+          {decks.length===0&&<p className="text-slate-500 text-sm text-center py-6">Aucun deck. Créez votre premier deck personnalisé.</p>}
+        </div>
+        <button onClick={createDeck} className="w-full flex items-center justify-center gap-2 bg-emerald-700 hover:bg-emerald-600 text-white font-bold py-2.5 rounded-xl transition-colors"><Plus size={16}/> Nouveau deck</button>
+        <p className="text-slate-500 text-xs mt-4 text-center">Max {CARD_MAX_POINTS} pts/carte · Max {DECK_MAX_POINTS} pts/deck · Le deck par défaut est utilisé en partie Locale et Solo vs IA.</p>
+      </div>
+    </div>
+  )
+}
+
 function OnlineLobbyScreen({onBack,onGameStart}){
   const[mode,setMode]=useState(null);const[code,setCode]=useState('');const[inputCode,setInputCode]=useState('');const[waiting,setWaiting]=useState(false);const[error,setError]=useState('');const[copied,setCopied]=useState(false)
-  const[initialGame]=useState(()=>newGame());const unsubRef=useRef(null)
+  const[initialGame]=useState(()=>newGame(getDefaultDeck(),null));const unsubRef=useRef(null)
   useEffect(()=>()=>{if(unsubRef.current)unsubRef.current()},[])
   async function handleCreate(){setError('');const c=genRoomCode();setCode(c);setMode('create');try{await createRoom(c,initialGame);setWaiting(true);unsubRef.current=subscribeRoom(c,data=>{if(data.player2Joined){if(unsubRef.current){unsubRef.current();unsubRef.current=null}onGameStart(data.state??initialGame,c,1)}})}catch(e){setError('Firebase non configuré — renseignez src/firebase.js')}}
   async function handleJoin(){setError('');const c=inputCode.trim().toUpperCase();if(c.length!==6){setError('Code invalide.');return}try{const state=await joinRoom(c);if(!state){setError('Partie introuvable.');return}setCode(c);setWaiting(true);unsubRef.current=subscribeRoom(c,data=>{if(data.state){if(unsubRef.current){unsubRef.current();unsubRef.current=null}onGameStart(data.state,c,2)}})}catch(e){setError('Firebase non configuré — renseignez src/firebase.js')}}
@@ -1202,7 +1385,9 @@ export default function App(){
 
   function startGame(mode){
     if(aiTimerRef.current){clearTimeout(aiTimerRef.current);aiTimerRef.current=null}
-    setGameMode(mode);setRoomCode(null);setMyPlayer(mode==='ai'?1:null);setGame(newGame());setScreen('game')
+    const defaultDeck=getDefaultDeck()
+    const p1Deck=defaultDeck,p2Deck=mode==='local'?defaultDeck:null
+    setGameMode(mode);setRoomCode(null);setMyPlayer(mode==='ai'?1:null);setGame(newGame(p1Deck,p2Deck));setScreen('game')
   }
 
   function handleOnlineStart(state,code,player){
@@ -1223,8 +1408,9 @@ export default function App(){
   return(
     <>
       <SoundToggle enabled={soundOn} onToggle={()=>setSoundOn(v=>!v)}/>
-      {screen==='menu'     && <MenuScreen onAI={()=>startGame('ai')} onLocal={()=>startGame('local')} onOnline={()=>setScreen('online')} onRules={()=>setScreen('rules')}/>}
+      {screen==='menu'     && <MenuScreen onAI={()=>startGame('ai')} onLocal={()=>startGame('local')} onOnline={()=>setScreen('online')} onRules={()=>setScreen('rules')} onDeckBuilder={()=>setScreen('deckbuilder')}/>}
       {screen==='rules'    && <RulesScreen onBack={()=>setScreen('menu')}/>}
+      {screen==='deckbuilder' && <DeckBuilderScreen onBack={()=>setScreen('menu')}/>}
       {screen==='online'   && <OnlineLobbyScreen onBack={()=>setScreen('menu')} onGameStart={handleOnlineStart}/>}
       {screen==='game'     && game && <GameScreen game={game} soundEnabled={soundOn} myPlayer={myPlayer} isAI={gameMode==='ai'} onAction={handleAction} onEndTurn={handleEndTurn} onHome={closeGame} onPowerAction={handlePowerAction} onSurrender={handleSurrender}/>}
       {screen==='gameover' && game && <GameOverScreen winner={game.winner} isAI={gameMode==='ai'} surrendered={!!game.surrendered} onReplay={()=>startGame(gameMode)} onMenu={()=>setScreen('menu')}/>}
