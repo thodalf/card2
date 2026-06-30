@@ -930,12 +930,12 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
           <span className={`${activeColor} text-xs font-bold`}>{label} · {pts} pts</span>
         </div>
         <div className={`game-hand-cards flex ${compact?'gap-1.5':'gap-3'} justify-center flex-wrap`}>
-          {players[player].hand.map((card,i)=>(
+          {(players[player]?.hand??[]).map((card,i)=>(
             <div key={card.id} className="anim-idle" style={{animationDelay:`${i*0.18}s`}}>
               <CardFace card={card} compact={compact} draggable={canDrag} onDragStart={e=>handleDragStart(e,'hand',i,player)} onTouchStart={canDrag?e=>handleTouchStart(e,'hand',i,player):undefined}/>
             </div>
           ))}
-          {!players[player].hand.length&&<span className={`text-slate-600 text-xs ${compact?'w-[64px] py-3':'w-[142px] py-8'} text-center`}>vide</span>}
+          {!(players[player]?.hand?.length)&&<span className={`text-slate-600 text-xs ${compact?'w-[64px] py-3':'w-[142px] py-8'} text-center`}>vide</span>}
         </div>
       </div>
     )
