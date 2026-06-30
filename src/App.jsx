@@ -101,8 +101,8 @@ function newGame() {
 }
 const cardPts  = c => Object.values(c.values).reduce((a,b)=>a+b,0)
 const cardTier = c => c.total<=20?'weak':c.total<=28?'medium':'strong'
-function playerPts(game,p){let pts=game.players[p].hand.reduce((a,c)=>a+cardPts(c),0);for(const row of game.board)for(const cell of row)if(cell?.owner===p)pts+=cardPts(cell);return pts}
-function cardCount(game,p){let n=game.players[p].hand.length;for(const row of game.board)for(const cell of row)if(cell?.owner===p)n++;return n}
+function playerPts(game,p){let pts=game.players[p].hand?.reduce((a,c)=>a+cardPts(c),0);for(const row of game.board)for(const cell of row)if(cell?.owner===p)pts+=cardPts(cell);return pts}
+function cardCount(game,p){let n=game.players[p].hand?.length;for(const row of game.board)for(const cell of row)if(cell?.owner===p)n++;return n}
 function checkWin(game){if(cardCount(game,1)===0)return 2;if(cardCount(game,2)===0)return 1;return null}
 
 // ═══════════════════════════════════════════════════════════════════════════════
