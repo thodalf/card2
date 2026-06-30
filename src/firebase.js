@@ -49,9 +49,19 @@ function serializeState(state) {
   return { ...state, board: serializeBoard(state.board) }
 }
 
+function deserializePlayers(players) {
+  const result = { 1: { hand: [] }, 2: { hand: [] } }
+  if (!players) return result
+  for (const id of Object.keys(players)) {
+    const p = players[id] || {}
+    result[id] = { ...p, hand: Array.isArray(p.hand) ? p.hand : Object.values(p.hand ?? {}) }
+  }
+  return result
+}
+
 function deserializeState(raw) {
   if (!raw) return null
-  return { ...raw, board: deserializeBoard(raw.board) }
+  return { ...raw, board: deserializeBoard(raw.board), players: deserializePlayers(raw.players) }
 }
 
 export async function createRoom(code, state) {
