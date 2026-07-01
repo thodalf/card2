@@ -5,7 +5,7 @@
 // "Email/Password" and "Google" sign-in providers.
 
 import { initializeApp } from 'firebase/app'
-import { getDatabase, ref, set, get, onValue, update, remove } from 'firebase/database'
+import { getDatabase, ref, set, get, onValue, update, remove, runTransaction, onDisconnect } from 'firebase/database'
 import {
   getAuth, onAuthStateChanged,
   createUserWithEmailAndPassword, signInWithEmailAndPassword,
@@ -183,4 +183,53 @@ export function subscribeRoom(code, callback) {
 export async function removeRoom(code) {
   if (!db) return
   await remove(ref(db, `rooms/${code}`))
+}
+
+// ─── Matchmaking — single-slot queue + per-player mailbox ──────
+// One shared "waiting" slot: the first player to arrive claims it and
+// waits; the next player to arrive finds it occupied, clears it (atomic
+// transaction — Realtime Database has no server functions here) and
+// becomes the room host, notifying the original waiter via their mailbox.
+const MM_WAITING_PATH = 'matchmaking/waiting'
+const mmResultPath = id => `matchmaking/results/${id}`
+
+export async function joinMatchmaking(myId, attempt = 0) {
+  if (!db) throw new Error('Firebase not configured')
+  const waitingRef = ref(db, MM_WAITING_PATH)
+  let opponentId = null
+  const result = await runTransaction(waitingRef, current => {
+    if (!current || !current.id) return { id: myId, ts: Date.now() }
+    if (current.id === myId) return current
+    opponentId = current.id
+    return null
+  })
+  if (opponentId) return { role: 'host', opponentId }
+  if (result.committed && result.snapshot.val()?.id === myId) {
+    onDisconnect(waitingRef).remove()
+    return { role: 'waiting' }
+  }
+  if (attempt >= 3) return { role: 'waiting' }
+  return joinMatchmaking(myId, attempt + 1)
+}
+
+export async function leaveMatchmaking(myId) {
+  if (!db) return
+  const waitingRef = ref(db, MM_WAITING_PATH)
+  onDisconnect(waitingRef).cancel()
+  await runTransaction(waitingRef, current => (current && current.id === myId ? null : current))
+}
+
+export async function publishMatchResult(opponentId, code) {
+  if (!db) return
+  await set(ref(db, mmResultPath(opponentId)), { code, at: Date.now() })
+}
+
+export function subscribeMatchResult(myId, callback) {
+  if (!db) return () => {}
+  return onValue(ref(db, mmResultPath(myId)), snap => { if (snap.exists()) callback(snap.val()) })
+}
+
+export async function clearMatchResult(myId) {
+  if (!db) return
+  await remove(ref(db, mmResultPath(myId)))
 }
