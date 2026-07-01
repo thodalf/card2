@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { Copy, Volume2, VolumeX, Home, BookOpen, Wifi, Play, Users, Check, X, Zap, Bot, Layers, Plus, Trash2, Star, ImagePlus, UserCircle, LogIn, LogOut, Mail, Lock, RefreshCw, Swords, Gift, ArrowRightLeft, Sparkles } from 'lucide-react'
 import {
-  genRoomCode, createRoom, joinRoom, pushState, subscribeRoom,
+  genRoomCode, createRoom, joinRoom, pushState, subscribeRoom, removeRoom,
   onAuthChange, registerWithEmail, loginWithEmail, loginWithGoogle, logout,
   loadCloudDecks, saveCloudDecks, subscribeStats, recordGameResult,
   joinMatchmaking, leaveMatchmaking, publishMatchResult, subscribeMatchResult, clearMatchResult,
@@ -1194,7 +1194,10 @@ function MenuScreen({onLocal,onAI,onOnline,onRules,onDeckBuilder,onAccount,onBoo
         <MenuBtn onClick={onLocal}  icon={<Users    size={16}/>} color="#60a5fa">Partie Locale</MenuBtn>
         <MenuBtn onClick={onOnline} icon={<Wifi     size={16}/>} color="#c084fc">Partie en Ligne</MenuBtn>
         <MenuBtn onClick={onDeckBuilder} icon={<Layers size={16}/>} color="#34d399">Deck Builder</MenuBtn>
-        <MenuBtn onClick={onBooster} icon={<Gift size={16}/>} color="#f472b6">Booster de Cartes</MenuBtn>
+        {user
+          ?<MenuBtn onClick={onBooster} icon={<Gift size={16}/>} color="#f472b6">Booster de Cartes</MenuBtn>
+          :<MenuBtn onClick={onAccount} icon={<Lock size={14}/>} color="#64748b">Booster (connexion requise)</MenuBtn>
+        }
         <MenuBtn onClick={onRules}  icon={<BookOpen size={16}/>} color="#fbbf24">Règles du jeu</MenuBtn>
         <MenuBtn onClick={onAccount} icon={<UserCircle size={16}/>} color="#38bdf8">{user?(user.displayName||user.email):'Mon Compte'}</MenuBtn>
       </div>
@@ -1509,6 +1512,15 @@ function BoosterScreen({onBack,user}){
   }
 
   const bg={backgroundImage:'linear-gradient(rgba(6,6,10,0.32),rgba(6,6,10,0.32)),url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}
+
+  if(!user)return(
+    <div className="min-h-screen flex flex-col items-center justify-center gap-5 px-4" style={bg}>
+      <div className="text-6xl select-none">🔒</div>
+      <p className="text-amber-300 font-bold text-xl text-center drop-shadow-[0_1px_4px_rgba(0,0,0,0.9)]" style={CINZEL}>Connexion requise</p>
+      <p className="text-slate-300 text-sm text-center max-w-xs drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">Connectez-vous pour accéder aux boosters de cartes quotidiens et sauvegarder votre collection.</p>
+      <MedBtn onClick={onBack} color="#c9a020" icon={<Home size={14}/>}>Retour au menu</MedBtn>
+    </div>
+  )
 
   return(
     <div className="min-h-screen py-8 px-4 flex flex-col items-center overflow-y-auto" style={bg}>
@@ -1929,8 +1941,11 @@ export default function App(){
       }
     }
     const winner=checkWin(g)
-    if(winner){const f={...g,winner};setGame(f);if(roomCode)syncOnline(f);setTimeout(()=>setScreen('gameover'),650)}
-    else{setGame(g);if(roomCode)syncOnline(g)}
+    if(winner){
+      const f={...g,winner};setGame(f)
+      if(roomCode){syncOnline(f);setTimeout(()=>removeRoom(roomCode).catch(()=>{}),4000)}
+      setTimeout(()=>setScreen('gameover'),650)
+    }else{setGame(g);if(roomCode)syncOnline(g)}
     return animResult
   }
 
@@ -1946,7 +1961,8 @@ export default function App(){
     if(!game)return
     const winningPlayer=losingPlayer===1?2:1
     const f={...game,winner:winningPlayer,surrendered:true}
-    setGame(f);if(roomCode)syncOnline(f)
+    setGame(f)
+    if(roomCode){syncOnline(f);setTimeout(()=>removeRoom(roomCode).catch(()=>{}),4000)}
     setTimeout(()=>setScreen('gameover'),300)
   }
 
