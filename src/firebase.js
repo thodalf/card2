@@ -89,6 +89,25 @@ export async function saveCloudDecks(uid, decks) {
   if (!db) return
   await set(ref(db, `users/${uid}/decks`), decks)
 }
+export async function loadCloudCollection(uid) {
+  if (!db) return null
+  const snap = await get(ref(db, `users/${uid}/collection`))
+  if (!snap.exists()) return null
+  return toArray(snap.val())
+}
+export async function saveCloudCollection(uid, cards) {
+  if (!db) return
+  await set(ref(db, `users/${uid}/collection`), cards)
+}
+export async function loadCloudLastBooster(uid) {
+  if (!db) return null
+  const snap = await get(ref(db, `users/${uid}/lastBoosterAt`))
+  return snap.exists() ? snap.val() : null
+}
+export async function saveCloudLastBooster(uid, ts) {
+  if (!db) return
+  await set(ref(db, `users/${uid}/lastBoosterAt`), ts)
+}
 export function subscribeStats(uid, callback) {
   if (!db) { callback({ gamesPlayed: 0, wins: 0, losses: 0 }); return () => {} }
   const r = ref(db, `users/${uid}/stats`)

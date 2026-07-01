@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef } from 'react'
-import { Copy, Volume2, VolumeX, Home, BookOpen, Wifi, Play, Users, Check, X, Zap, Bot, Layers, Plus, Trash2, Star, ImagePlus, UserCircle, LogIn, LogOut, Mail, Lock, RefreshCw, Swords } from 'lucide-react'
+import { Copy, Volume2, VolumeX, Home, BookOpen, Wifi, Play, Users, Check, X, Zap, Bot, Layers, Plus, Trash2, Star, ImagePlus, UserCircle, LogIn, LogOut, Mail, Lock, RefreshCw, Swords, Gift, ArrowRightLeft, Sparkles } from 'lucide-react'
 import {
   genRoomCode, createRoom, joinRoom, pushState, subscribeRoom,
   onAuthChange, registerWithEmail, loginWithEmail, loginWithGoogle, logout,
   loadCloudDecks, saveCloudDecks, subscribeStats, recordGameResult,
   joinMatchmaking, leaveMatchmaking, publishMatchResult, subscribeMatchResult, clearMatchResult,
+  loadCloudCollection, saveCloudCollection, loadCloudLastBooster, saveCloudLastBooster,
 } from './firebase.js'
 
 // Nukes any service-worker cache so a stale PWA build can't keep serving old code
@@ -29,6 +30,9 @@ async function forceClearCacheAndReload() {
 const CORNERS   = [[0,0],[0,4],[4,0],[4,4]]
 const P1_ROWS   = [0, 1]
 const P2_ROWS   = [3, 4]
+const FRESH_ACTIONS = {placement:1,moves:2,attack:1}
+// A turn must include at least one placement, move or attack before it can end
+const hasActedThisTurn = al => al.placement<FRESH_ACTIONS.placement||al.moves<FRESH_ACTIONS.moves||al.attack<FRESH_ACTIONS.attack
 const GRID_KEYS = [
   ['topLeft','top','topRight'],
   ['left',null,'right'],
@@ -106,7 +110,9 @@ function deckTotalPts(deck){
 }
 function isDeckValid(deck){
   if(!deck||!deck.cards||deck.cards.length===0)return false
-  if(deck.cards.some(c=>customCardPts(c)>CARD_MAX_POINTS))return false
+  // Booster-sourced cards (c.rarity set) are exempt from the per-card cap — that's
+  // the whole point of a rare pull. The deck total cap still keeps things balanced.
+  if(deck.cards.some(c=>!c.rarity&&customCardPts(c)>CARD_MAX_POINTS))return false
   if(deckTotalPts(deck)>DECK_MAX_POINTS)return false
   return true
 }
@@ -126,6 +132,48 @@ function deckToHandCards(deck,owner){
   })
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+//  CARD COLLECTION & BOOSTER PACKS
+// ═══════════════════════════════════════════════════════════════════════════════
+const COLLECTION_KEY='tacticalcards_collection'
+const LAST_BOOSTER_KEY='tacticalcards_last_booster'
+const BOOSTER_COOLDOWN_MS=24*60*60*1000
+
+function loadCollection(){
+  try{return JSON.parse(localStorage.getItem(COLLECTION_KEY)||'[]')}catch{return[]}
+}
+function saveCollection(cards){
+  try{localStorage.setItem(COLLECTION_KEY,JSON.stringify(cards))}catch{}
+}
+function loadLastBoosterAt(){
+  try{return Number(localStorage.getItem(LAST_BOOSTER_KEY)||0)}catch{return 0}
+}
+function saveLastBoosterAt(ts){
+  try{localStorage.setItem(LAST_BOOSTER_KEY,String(ts))}catch{}
+}
+function msUntilNextBooster(lastAt){
+  return Math.max(0,BOOSTER_COOLDOWN_MS-(Date.now()-(lastAt||0)))
+}
+function boosterCardRarity(total){
+  return total>CARD_MAX_POINTS?'legendary':total>=33?'rare':total>=25?'uncommon':'common'
+}
+function genBoosterCardTotal(){
+  const roll=Math.random()
+  if(roll<0.007)return rnd(41,64)  // legendary — breaks the normal 40-pt cap, <1% chance
+  if(roll<0.10)return rnd(33,40)   // rare
+  if(roll<0.35)return rnd(25,32)   // uncommon
+  return rnd(8,24)                 // common
+}
+function genBoosterCard(){
+  const total=genBoosterCardTotal()
+  const values=genValues(total)
+  const rarity=boosterCardRarity(total)
+  const imageUrl=total<=20?'/images/gnome.png':total<=28?'/images/elf.png':'/images/dragon.png'
+  return{id:`bc-${Date.now()}-${Math.random().toString(36).slice(2)}`,values,imageUrl,rarity,total,obtainedAt:Date.now()}
+}
+function openBoosterPack(){
+  return Array.from({length:4},()=>genBoosterCard())
+}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 //  POWER DECK
@@ -176,7 +224,7 @@ function newGame(p1Deck,p2Deck) {
       1:{hand:isDeckValid(p1Deck)?deckToHandCards(p1Deck,1):genDeck(1)},
       2:{hand:isDeckValid(p2Deck)?deckToHandCards(p2Deck,2):genDeck(2)},
     },
-    currentPlayer:1, actionsLeft:{placement:1,moves:2,attack:1},
+    currentPlayer:1, actionsLeft:{...FRESH_ACTIONS},
     winner:null, turn:1,
     powerCardHand:{1:['block','block','switch'],2:['block','block','switch']}, blockedCells:[], boardTiles:genBoardTiles(),
   }
@@ -362,9 +410,11 @@ function scoreAttack(game,ar,ac,dr,dc,sit){
   // Hard rules — never suicide for nothing
   if(aDies&&!dDies) return -99999
   if(aDies&&dDies){
-    if((sit?.myCards??9)<=2) return -99999           // can't afford card loss
+    if((sit?.myCards??9)<=2) return -99999           // can't afford card loss right now
+    const stillValuable=cardPts(atk)>20               // our card still carries a lot of points
+    if(!stillValuable) return 200+def.total*2         // take the kill even though we lose our card
     const gain=def.total-atk.total
-    if(gain<10) return -99999                         // not worth equal trade
+    if(gain<10) return -99999                         // don't sacrifice a valuable card for a bad trade
     return gain*3                                     // only if clearly outvalued
   }
 
@@ -705,7 +755,7 @@ function applyAIActionDirect(g,action){
   if(!g||!action)return null
   const cp=g.currentPlayer,al=g.actionsLeft
   switch(action.type){
-    case 'endTurn':return{...g,currentPlayer:1,actionsLeft:{placement:1,moves:2,attack:1},turn:g.turn+1}
+    case 'endTurn':return{...g,currentPlayer:1,actionsLeft:{...FRESH_ACTIONS},turn:g.turn+1}
     case 'power':return applyPowerAction(g,action.powerType,action.r,action.c)
     case 'attack':{
       const{ar,ac,dr,dc}=action
@@ -905,6 +955,7 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
   },[])
   const{board,players,currentPlayer,actionsLeft}=game
   const isMyTurn=myPlayer===null||myPlayer===currentPlayer
+  const canEndTurn=hasActedThisTurn(actionsLeft)
   const p1pts=playerPts(game,1),p2pts=playerPts(game,2)
 
   function triggerAnim(r,c,cls,dur=420){
@@ -1053,7 +1104,14 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
               {!isAI&&myPlayer&&myPlayer!==currentPlayer&&<span className="text-slate-500 font-normal ml-2">(en attente…)</span>}
             </span>
             {isMyTurn&&!targeting&&!(isAI&&currentPlayer===2)&&(
-              <button onClick={onEndTurn} className="bg-emerald-700 hover:bg-emerald-600 text-white font-bold py-1.5 px-4 rounded-lg text-sm transition-colors">Fin du tour ▶</button>
+              <button onClick={onEndTurn} disabled={!canEndTurn}
+                title={canEndTurn?undefined:'Effectuez au moins une action (pose, déplacement ou attaque) avant de terminer votre tour.'}
+                className={`font-bold py-1.5 px-4 rounded-lg text-sm transition-colors ${canEndTurn?'bg-emerald-700 hover:bg-emerald-600 text-white':'bg-slate-700 text-slate-400 cursor-not-allowed opacity-60'}`}>
+                Fin du tour ▶
+              </button>
+            )}
+            {isMyTurn&&!canEndTurn&&!targeting&&!(isAI&&currentPlayer===2)&&(
+              <span className="text-amber-400/80 text-xs">Effectuez au moins une action pour terminer le tour.</span>
             )}
             {!(isAI&&currentPlayer===2)&&(
               confirmSurrender?(
@@ -1113,7 +1171,7 @@ function MedBtn({onClick, icon, color='#c9a020', children, className='', disable
   )
 }
 
-function MenuScreen({onLocal,onAI,onOnline,onRules,onDeckBuilder,onAccount,user}){
+function MenuScreen({onLocal,onAI,onOnline,onRules,onDeckBuilder,onAccount,onBooster,user}){
   return(
     <div className="min-h-screen flex flex-col items-center justify-center gap-6 px-4"
       style={{backgroundImage:'linear-gradient(rgba(6,6,10,0.32),rgba(6,6,10,0.32)),url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}>
@@ -1136,6 +1194,7 @@ function MenuScreen({onLocal,onAI,onOnline,onRules,onDeckBuilder,onAccount,user}
         <MenuBtn onClick={onLocal}  icon={<Users    size={16}/>} color="#60a5fa">Partie Locale</MenuBtn>
         <MenuBtn onClick={onOnline} icon={<Wifi     size={16}/>} color="#c084fc">Partie en Ligne</MenuBtn>
         <MenuBtn onClick={onDeckBuilder} icon={<Layers size={16}/>} color="#34d399">Deck Builder</MenuBtn>
+        <MenuBtn onClick={onBooster} icon={<Gift size={16}/>} color="#f472b6">Booster de Cartes</MenuBtn>
         <MenuBtn onClick={onRules}  icon={<BookOpen size={16}/>} color="#fbbf24">Règles du jeu</MenuBtn>
         <MenuBtn onClick={onAccount} icon={<UserCircle size={16}/>} color="#38bdf8">{user?(user.displayName||user.email):'Mon Compte'}</MenuBtn>
       </div>
@@ -1172,7 +1231,7 @@ function RulesScreen({onBack}){
 // ═══════════════════════════════════════════════════════════════════════════════
 //  DECK BUILDER SCREEN
 // ═══════════════════════════════════════════════════════════════════════════════
-function CardEditor({card,onUpdate,onRemove}){
+function CardEditor({card,onUpdate,onRemove,otherDecks,onMoveCard}){
   const pts=customCardPts(card),over=pts>CARD_MAX_POINTS
   function setVal(key,v){
     const n=Math.max(0,Math.min(9,Number(v)||0))
@@ -1213,12 +1272,23 @@ function CardEditor({card,onUpdate,onRemove}){
             onChange={e=>onUpdate({imageUrl:e.target.value||null})}
             className="bg-slate-800 text-slate-200 text-xs border border-slate-700 rounded px-2 py-1.5 outline-none focus:border-amber-500"/>
           <MedBtn onClick={onRemove} color="#ef4444" icon={<Trash2 size={13}/>} className="w-fit mt-auto">Supprimer la carte</MedBtn>
+          {otherDecks&&otherDecks.length>0&&(
+            <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-slate-700/50">
+              <span className="text-slate-400 text-[11px] flex items-center gap-1"><ArrowRightLeft size={11}/> Déplacer vers :</span>
+              {otherDecks.map(d=>(
+                <button key={d.id} onClick={()=>onMoveCard(d.id)}
+                  className="text-[11px] px-2 py-0.5 rounded-md border border-slate-600 text-slate-300 hover:border-amber-500 hover:text-amber-300 transition-colors">
+                  {d.name}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>
   )
 }
-function DeckEditor({deck,onBack,onRename,onAddCard,onRemoveCard,onUpdateCard,onSetDefault}){
+function DeckEditor({deck,onBack,onRename,onAddCard,onRemoveCard,onUpdateCard,onSetDefault,otherDecks,onMoveCard}){
   const total=deckTotalPts(deck),overTotal=total>DECK_MAX_POINTS,valid=isDeckValid(deck)
   return(
     <div className="min-h-screen py-8 px-4 flex flex-col items-center overflow-y-auto"
@@ -1244,7 +1314,8 @@ function DeckEditor({deck,onBack,onRename,onAddCard,onRemoveCard,onUpdateCard,on
         </div>
         <div className="flex flex-col gap-3 mb-4">
           {deck.cards.map(c=>(
-            <CardEditor key={c.id} card={c} onUpdate={patch=>onUpdateCard(c.id,patch)} onRemove={()=>onRemoveCard(c.id)}/>
+            <CardEditor key={c.id} card={c} onUpdate={patch=>onUpdateCard(c.id,patch)} onRemove={()=>onRemoveCard(c.id)}
+              otherDecks={otherDecks} onMoveCard={toDeckId=>onMoveCard(c.id,toDeckId)}/>
           ))}
           {deck.cards.length===0&&<p className="text-slate-300 text-sm text-center py-6 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">Aucune carte. Ajoutez-en une.</p>}
         </div>
@@ -1280,11 +1351,24 @@ function DeckBuilderScreen({onBack,user}){
   function addCard(id){setDecks(p=>p.map(d=>d.id===id?{...d,cards:[...d.cards,newCustomCard()]}:d))}
   function removeCard(id,cardId){setDecks(p=>p.map(d=>d.id===id?{...d,cards:d.cards.filter(c=>c.id!==cardId)}:d))}
   function updateCard(id,cardId,patch){setDecks(p=>p.map(d=>d.id===id?{...d,cards:d.cards.map(c=>c.id===cardId?{...c,...patch}:c)}:d))}
+  function moveCardToDeck(fromId,cardId,toId){
+    setDecks(p=>{
+      const from=p.find(d=>d.id===fromId);const card=from?.cards.find(c=>c.id===cardId)
+      if(!card)return p
+      return p.map(d=>{
+        if(d.id===fromId)return{...d,cards:d.cards.filter(c=>c.id!==cardId)}
+        if(d.id===toId)return{...d,cards:[...d.cards,card]}
+        return d
+      })
+    })
+  }
 
   if(editing)return(
     <DeckEditor deck={editing} onBack={()=>setEditingId(null)} onRename={n=>renameDeck(editing.id,n)}
       onAddCard={()=>addCard(editing.id)} onRemoveCard={cid=>removeCard(editing.id,cid)}
-      onUpdateCard={(cid,patch)=>updateCard(editing.id,cid,patch)} onSetDefault={()=>setDefault(editing.id)}/>
+      onUpdateCard={(cid,patch)=>updateCard(editing.id,cid,patch)} onSetDefault={()=>setDefault(editing.id)}
+      otherDecks={decks.filter(d=>d.id!==editing.id).map(d=>({id:d.id,name:d.name}))}
+      onMoveCard={(cardId,toId)=>moveCardToDeck(editing.id,cardId,toId)}/>
   )
 
   return(
@@ -1318,6 +1402,178 @@ function DeckBuilderScreen({onBack,user}){
         </div>
         <MedBtn onClick={createDeck} color="#34d399" icon={<Plus size={16}/>} className="w-full">Nouveau deck</MedBtn>
         <p className="text-slate-300 text-xs mt-4 text-center drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">Max {CARD_MAX_POINTS} pts/carte · Max {DECK_MAX_POINTS} pts/deck · Le deck par défaut est utilisé en partie Locale et Solo vs IA.</p>
+      </div>
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  BOOSTER SCREEN — daily pack opening + card collection
+// ═══════════════════════════════════════════════════════════════════════════════
+const RARITY_THEME={
+  common:   {label:'Commune',     color:'#94a3b8'},
+  uncommon: {label:'Peu commune', color:'#34d399'},
+  rare:     {label:'Rare',        color:'#60a5fa'},
+  legendary:{label:'Légendaire',  color:'#fbbf24'},
+}
+function BoosterCardFace({card,animate=false,revealed=true}){
+  const rarity=card.rarity||'common'
+  const theme=RARITY_THEME[rarity]
+  const isRare=rarity==='rare'||rarity==='legendary'
+  const pts=FACE_KEYS.reduce((s,k)=>s+(card.values[k]||0),0)
+  const animClass=animate?(revealed?(isRare?'card-reveal-rare':'card-reveal'):'opacity-0'):(isRare?'rare-glow':'')
+  return(
+    <div className={`w-[104px] h-[104px] rounded-xl border-2 relative overflow-hidden shrink-0 ${animClass}`}
+      style={{borderColor:theme.color,background:'#1e293b'}}>
+      <img src={card.imageUrl||DEFAULT_CARD_IMAGE} alt="" className="absolute inset-0 w-full h-full object-cover"/>
+      <div className="absolute inset-0 bg-black/25"/>
+      <div className="absolute inset-0 grid grid-cols-3 grid-rows-3 text-[11px] p-0.5">
+        {GRID_KEYS.map((row,ri)=>row.map((key,ci)=>(
+          <div key={`${ri}-${ci}`} className="flex items-center justify-center">
+            {key&&<span className="font-black text-white" style={{textShadow:'0 1px 4px #000,0 0 3px #000'}}>{card.values[key]}</span>}
+          </div>
+        )))}
+      </div>
+      <div className="absolute bottom-0 left-0 right-0 text-center text-[9px] font-black py-0.5"
+        style={{color:theme.color,background:'rgba(0,0,0,0.55)',textShadow:'0 1px 2px #000'}}>
+        {theme.label} · {pts}pts
+      </div>
+    </div>
+  )
+}
+function formatDuration(ms){
+  const h=Math.floor(ms/3600000),m=Math.floor((ms%3600000)/60000),s=Math.floor((ms%60000)/1000)
+  return `${h}h ${String(m).padStart(2,'0')}m ${String(s).padStart(2,'0')}s`
+}
+function BoosterScreen({onBack,user}){
+  const[collection,setCollection]=useState(()=>loadCollection())
+  const[decks,setDecks]=useState(()=>loadDecks())
+  const[lastBoosterAt,setLastBoosterAt]=useState(()=>loadLastBoosterAt())
+  const[opening,setOpening]=useState(false)
+  const[pendingCards,setPendingCards]=useState(null)
+  const[revealCount,setRevealCount]=useState(0)
+  const[,setNow]=useState(()=>Date.now())
+  const timersRef=useRef([])
+
+  useEffect(()=>{
+    saveCollection(collection)
+    if(user)saveCloudCollection(user.uid,collection).catch(()=>{})
+  },[collection])
+  useEffect(()=>{
+    saveDecks(decks)
+    if(user)saveCloudDecks(user.uid,decks).catch(()=>{})
+  },[decks])
+  useEffect(()=>{
+    if(!user)return
+    Promise.all([loadCloudCollection(user.uid),loadCloudDecks(user.uid),loadCloudLastBooster(user.uid)]).then(([cCollection,cDecks,cLast])=>{
+      if(cCollection&&cCollection.length>0)setCollection(cCollection)
+      else if(collection.length>0)saveCloudCollection(user.uid,collection).catch(()=>{})
+      if(cDecks&&cDecks.length>0)setDecks(cDecks)
+      if(cLast)setLastBoosterAt(prev=>Math.max(prev,cLast))
+    }).catch(()=>{})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[user?.uid])
+  useEffect(()=>{
+    const t=setInterval(()=>setNow(Date.now()),1000)
+    return()=>clearInterval(t)
+  },[])
+  useEffect(()=>()=>{timersRef.current.forEach(clearTimeout)},[])
+
+  const remainingMs=msUntilNextBooster(lastBoosterAt)
+  const canOpen=remainingMs<=0&&!opening&&!pendingCards
+  const allRevealed=pendingCards&&revealCount>=pendingCards.length
+  const displayCollection=pendingCards?collection.filter(c=>!pendingCards.some(p=>p.id===c.id)):collection
+
+  function handleOpenBooster(){
+    if(!canOpen)return
+    setOpening(true)
+    timersRef.current.push(setTimeout(()=>{
+      const cards=openBoosterPack()
+      setPendingCards(cards)
+      setCollection(c=>[...c,...cards]) // persist immediately — nothing lost if the user navigates away mid-reveal
+      setOpening(false)
+      setRevealCount(0)
+      cards.forEach((_,i)=>{
+        timersRef.current.push(setTimeout(()=>setRevealCount(n=>Math.max(n,i+1)),i*650))
+      })
+      const ts=Date.now()
+      setLastBoosterAt(ts);saveLastBoosterAt(ts)
+      if(user)saveCloudLastBooster(user.uid,ts).catch(()=>{})
+    },900))
+  }
+  function handleCloseReveal(){setPendingCards(null);setRevealCount(0)}
+  function handleAssignToDeck(cardId,deckId){
+    const card=collection.find(c=>c.id===cardId);if(!card)return
+    setCollection(c=>c.filter(x=>x.id!==cardId))
+    setDecks(ds=>ds.map(d=>d.id===deckId?{...d,cards:[...d.cards,card]}:d))
+  }
+
+  const bg={backgroundImage:'linear-gradient(rgba(6,6,10,0.32),rgba(6,6,10,0.32)),url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}
+
+  return(
+    <div className="min-h-screen py-8 px-4 flex flex-col items-center overflow-y-auto" style={bg}>
+      <div className="max-w-lg w-full">
+        <button onClick={onBack} className="flex items-center gap-2 text-amber-400/80 hover:text-amber-300 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)] mb-6 transition-colors" style={CINZEL}><Home size={16}/> Menu</button>
+        <h2 className="text-3xl font-black mb-1" style={{...CINZEL_DEC,background:'linear-gradient(to bottom,#ffe566,#c9a020)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',filter:'drop-shadow(0 1px 10px rgba(0,0,0,1))'}}>Booster de Cartes</h2>
+        <p className="text-xs mb-5 text-slate-300 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">
+          Un booster gratuit de 4 cartes chaque jour. Très rarement (&lt;1%), une carte peut dépasser les {CARD_MAX_POINTS} pts habituels !
+        </p>
+
+        <div className="rounded-xl p-6 mb-6 border border-amber-900/40 flex flex-col items-center gap-4 min-h-[220px] justify-center" style={{background:'rgba(8,5,2,0.78)'}}>
+          {!pendingCards&&(
+            <>
+              <button onClick={handleOpenBooster} disabled={!canOpen}
+                className={`relative w-28 h-36 rounded-2xl border-4 flex items-center justify-center transition-transform ${
+                  opening?'border-amber-400 booster-pack-opening'
+                    :canOpen?'border-amber-400 booster-pack-idle cursor-pointer hover:scale-105'
+                    :'border-slate-700 opacity-50 cursor-not-allowed'}`}
+                style={{background:'linear-gradient(135deg,#3b0764,#1e1b4b)'}}>
+                <Gift size={44} className={canOpen||opening?'text-amber-300':'text-slate-500'}/>
+              </button>
+              {canOpen
+                ?<p className="text-amber-300 font-bold" style={CINZEL}>Ouvrir le booster du jour</p>
+                :<p className="text-slate-400 text-sm">Prochain booster dans {formatDuration(remainingMs)}</p>}
+            </>
+          )}
+          {pendingCards&&(
+            <>
+              <div className="flex gap-3 flex-wrap justify-center">
+                {pendingCards.map((c,i)=>(
+                  <BoosterCardFace key={c.id} card={c} animate revealed={i<revealCount}/>
+                ))}
+              </div>
+              {allRevealed&&<MedBtn onClick={handleCloseReveal} color="#34d399" icon={<Sparkles size={14}/>}>Continuer</MedBtn>}
+            </>
+          )}
+        </div>
+
+        <h3 className="text-amber-300 font-bold mb-3" style={CINZEL}>Ma Collection ({displayCollection.length})</h3>
+        {displayCollection.length===0
+          ?<p className="text-slate-300 text-sm text-center py-6 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">Aucune carte en attente. Ouvrez un booster pour en obtenir !</p>
+          :(
+            <div className="flex flex-col gap-3">
+              {displayCollection.map(c=>(
+                <div key={c.id} className="rounded-xl p-3 border border-amber-900/40 flex gap-3" style={{background:'rgba(8,5,2,0.78)'}}>
+                  <BoosterCardFace card={c}/>
+                  <div className="flex-1 min-w-0 flex flex-col gap-1.5 justify-center">
+                    {decks.length>0?(
+                      <>
+                        <span className="text-slate-400 text-[11px]">Ajouter à un deck :</span>
+                        <div className="flex flex-wrap gap-1.5">
+                          {decks.map(d=>(
+                            <button key={d.id} onClick={()=>handleAssignToDeck(c.id,d.id)}
+                              className="text-[11px] px-2 py-0.5 rounded-md border border-slate-600 text-slate-300 hover:border-emerald-500 hover:text-emerald-300 transition-colors">
+                              {d.name}
+                            </button>
+                          ))}
+                        </div>
+                      </>
+                    ):<span className="text-slate-500 text-xs">Créez un deck dans le Deck Builder pour y ajouter cette carte.</span>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
       </div>
     </div>
   )
@@ -1614,7 +1870,7 @@ export default function App(){
   // ── Music ─────────────────────────────────────────────────────
   useEffect(()=>{
     if(screen==='game') startMusic(soundOn, false)
-    else if(['menu','rules','online','deckselect','account'].includes(screen)) startMusic(soundOn, true)
+    else if(['menu','rules','online','deckselect','account','booster'].includes(screen)) startMusic(soundOn, true)
     else stopMusic()
   },[screen,soundOn])
   useEffect(()=>()=>stopMusic(),[])
@@ -1633,7 +1889,7 @@ export default function App(){
       const sfx=soundForAIAction(action,current)
       const newState=applyAIActionDirect(current,action)
       if(!newState){
-        setGame(prev=>({...prev,currentPlayer:1,actionsLeft:{placement:1,moves:2,attack:1},turn:(prev?.turn||1)+1}))
+        setGame(prev=>({...prev,currentPlayer:1,actionsLeft:{...FRESH_ACTIONS},turn:(prev?.turn||1)+1}))
         return
       }
       if(sfx)snd(sfx,soundOnRef.current)
@@ -1695,9 +1951,9 @@ export default function App(){
   }
 
   function handleEndTurn(){
-    if(!game)return
+    if(!game||!hasActedThisTurn(game.actionsLeft))return
     const next=game.currentPlayer===1?2:1
-    const g={...game,currentPlayer:next,actionsLeft:{placement:1,moves:2,attack:1},turn:game.turn+1}
+    const g={...game,currentPlayer:next,actionsLeft:{...FRESH_ACTIONS},turn:game.turn+1}
     setGame(g);if(roomCode)syncOnline(g)
   }
 
@@ -1732,9 +1988,10 @@ export default function App(){
   return(
     <>
       <SoundToggle enabled={soundOn} onToggle={()=>setSoundOn(v=>!v)}/>
-      {screen==='menu'     && <MenuScreen onAI={()=>goToDeckSelect('ai')} onLocal={()=>goToDeckSelect('local')} onOnline={()=>goToDeckSelect('online')} onRules={()=>setScreen('rules')} onDeckBuilder={()=>setScreen('deckbuilder')} onAccount={()=>setScreen('account')} user={user}/>}
+      {screen==='menu'     && <MenuScreen onAI={()=>goToDeckSelect('ai')} onLocal={()=>goToDeckSelect('local')} onOnline={()=>goToDeckSelect('online')} onRules={()=>setScreen('rules')} onDeckBuilder={()=>setScreen('deckbuilder')} onAccount={()=>setScreen('account')} onBooster={()=>setScreen('booster')} user={user}/>}
       {screen==='rules'    && <RulesScreen onBack={()=>setScreen('menu')}/>}
       {screen==='deckbuilder' && <DeckBuilderScreen onBack={()=>setScreen('menu')} user={user}/>}
+      {screen==='booster'  && <BoosterScreen onBack={()=>setScreen('menu')} user={user}/>}
       {screen==='deckselect' && <DeckSelectScreen mode={pendingMode} onBack={()=>setScreen('menu')} onSelect={handleDeckChosen}/>}
       {screen==='account'  && <AccountScreen onBack={()=>setScreen('menu')} user={user} stats={stats}/>}
       {screen==='online'   && <OnlineLobbyScreen onBack={()=>setScreen('menu')} onGameStart={handleOnlineStart} deck={chosenDeck}/>}
