@@ -81,15 +81,20 @@ function isDeckValid(deck){
   if(deckTotalPts(deck)>DECK_MAX_POINTS)return false
   return true
 }
-function getDefaultDeck(){
-  const d=loadDecks().find(d=>d.isDefault)
-  return d&&isDeckValid(d)?d:null
+function invertValues180(v){
+  return {top:v.bottom,bottom:v.top,left:v.right,right:v.left,topLeft:v.bottomRight,bottomRight:v.topLeft,topRight:v.bottomLeft,bottomLeft:v.topRight}
 }
 function deckToHandCards(deck,owner){
-  return deck.cards.map((c,i)=>({
-    id:`${owner}-${i}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-    owner, total:customCardPts(c), values:{...c.values}, baseValues:{...c.values}, imageUrl:c.imageUrl||null,
-  }))
+  // Cards are designed in the Deck Builder facing "down" (Player 1's orientation).
+  // Player 2 sits on the opposite side of the board, so their custom cards are
+  // rotated 180° here to keep the designed front-facing values pointed at the enemy.
+  return deck.cards.map((c,i)=>{
+    const values=owner===2?invertValues180(c.values):{...c.values}
+    return{
+      id:`${owner}-${i}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      owner, total:customCardPts(c), values, baseValues:{...values}, imageUrl:c.imageUrl||null,
+    }
+  })
 }
 
 
@@ -1200,6 +1205,13 @@ function DeckEditor({deck,onBack,onRename,onAddCard,onRemoveCard,onUpdateCard,on
           </MedBtn>
           {!valid&&<span className="text-red-400 text-xs">Deck invalide (vérifiez les points)</span>}
         </div>
+        <div className="rounded-xl p-3 mb-4 border border-amber-900/40 flex items-start gap-2" style={{background:'rgba(8,5,2,0.78)'}}>
+          <span className="text-amber-400 text-base leading-none">↕</span>
+          <p className="text-slate-300 text-xs leading-relaxed">
+            Les cartes sont conçues orientées <strong className="text-amber-300">vers le bas</strong>, comme si vous étiez le <strong className="text-blue-300">Joueur 1</strong>.
+            Si vous jouez en tant que <strong className="text-red-300">Joueur 2</strong>, elles seront automatiquement <strong className="text-amber-300">inversées (rotation 180°)</strong> en partie pour rester tournées vers l'adversaire.
+          </p>
+        </div>
         <div className="flex flex-col gap-3 mb-4">
           {deck.cards.map(c=>(
             <CardEditor key={c.id} card={c} onUpdate={patch=>onUpdateCard(c.id,patch)} onRemove={()=>onRemoveCard(c.id)}/>
@@ -1267,9 +1279,46 @@ function DeckBuilderScreen({onBack}){
   )
 }
 
-function OnlineLobbyScreen({onBack,onGameStart}){
+const DECKSELECT_SUBTITLE={
+  ai:"Vous affronterez l'IA avec ce deck (l'IA joue avec un deck aléatoire).",
+  local:'Ce deck sera utilisé par les deux joueurs de cette partie locale.',
+  online:'Deck utilisé pour la partie que vous hébergez.',
+}
+function DeckSelectScreen({mode,onBack,onSelect}){
+  const[decks]=useState(()=>loadDecks().filter(isDeckValid))
+  return(
+    <div className="min-h-screen py-8 px-4 flex flex-col items-center overflow-y-auto"
+      style={{backgroundImage:'url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}>
+      <div className="max-w-lg w-full">
+        <button onClick={onBack} className="flex items-center gap-2 text-amber-400/80 hover:text-amber-300 mb-6 transition-colors" style={CINZEL}><Home size={16}/> Menu</button>
+        <h2 className="text-3xl font-black mb-2" style={{...CINZEL_DEC,background:'linear-gradient(to bottom,#ffe566,#c9a020)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',filter:'drop-shadow(0 1px 10px rgba(0,0,0,1))'}}>Choisissez votre deck</h2>
+        {DECKSELECT_SUBTITLE[mode]&&<p className="text-slate-400 text-sm mb-5">{DECKSELECT_SUBTITLE[mode]}</p>}
+        <div className="flex flex-col gap-3">
+          <button onClick={()=>onSelect(null)} className="rounded-xl p-4 border border-amber-900/40 text-left transition-colors hover:border-amber-500" style={{background:'rgba(8,5,2,0.78)'}}>
+            <span className="text-amber-200 font-bold" style={CINZEL}>Deck aléatoire</span>
+            <p className="text-slate-400 text-xs mt-0.5">6 cartes générées aléatoirement (2 faibles, 2 moyennes, 2 fortes)</p>
+          </button>
+          {decks.map(d=>{
+            const total=deckTotalPts(d)
+            return(
+              <button key={d.id} onClick={()=>onSelect(d)} className="rounded-xl p-4 border border-amber-900/40 text-left transition-colors hover:border-amber-500 flex items-center gap-2" style={{background:'rgba(8,5,2,0.78)'}}>
+                {d.isDefault&&<Star size={14} className="text-amber-400 shrink-0" fill="currentColor"/>}
+                <div className="min-w-0">
+                  <span className="text-amber-200 font-bold truncate block" style={CINZEL}>{d.name}</span>
+                  <span className="text-slate-400 text-xs">{d.cards.length} carte(s) · {total}/{DECK_MAX_POINTS} pts</span>
+                </div>
+              </button>
+            )
+          })}
+          {decks.length===0&&<p className="text-slate-500 text-sm text-center py-6">Aucun deck valide. Créez-en un dans le Deck Builder, ou jouez avec un deck aléatoire.</p>}
+        </div>
+      </div>
+    </div>
+  )
+}
+function OnlineLobbyScreen({onBack,onGameStart,deck}){
   const[mode,setMode]=useState(null);const[code,setCode]=useState('');const[inputCode,setInputCode]=useState('');const[waiting,setWaiting]=useState(false);const[error,setError]=useState('');const[copied,setCopied]=useState(false)
-  const[initialGame]=useState(()=>newGame(getDefaultDeck(),null));const unsubRef=useRef(null)
+  const[initialGame]=useState(()=>newGame(deck,null));const unsubRef=useRef(null)
   useEffect(()=>()=>{if(unsubRef.current)unsubRef.current()},[])
   async function handleCreate(){setError('');const c=genRoomCode();setCode(c);setMode('create');try{await createRoom(c,initialGame);setWaiting(true);unsubRef.current=subscribeRoom(c,data=>{if(data.player2Joined){if(unsubRef.current){unsubRef.current();unsubRef.current=null}onGameStart(data.state??initialGame,c,1)}})}catch(e){setError('Firebase non configuré — renseignez src/firebase.js')}}
   async function handleJoin(){setError('');const c=inputCode.trim().toUpperCase();if(c.length!==6){setError('Code invalide.');return}try{const state=await joinRoom(c);if(!state){setError('Partie introuvable.');return}setCode(c);setWaiting(true);unsubRef.current=subscribeRoom(c,data=>{if(data.state){if(unsubRef.current){unsubRef.current();unsubRef.current=null}onGameStart(data.state,c,2)}})}catch(e){setError('Firebase non configuré — renseignez src/firebase.js')}}
@@ -1299,6 +1348,8 @@ export default function App(){
   const[gameMode,setGameMode]=useState('local') // 'local'|'ai'|'online'
   const[roomCode,setRoomCode]=useState(null)
   const[myPlayer,setMyPlayer]=useState(null)
+  const[pendingMode,setPendingMode]=useState(null) // mode awaiting a deck choice
+  const[chosenDeck,setChosenDeck]=useState(null) // deck selected for the next match (null = random)
   const ignoreNextRef=useRef(false)
   const unsubRef=useRef(null)
   const gameRef=useRef(game)
@@ -1312,7 +1363,7 @@ export default function App(){
   // ── Music ─────────────────────────────────────────────────────
   useEffect(()=>{
     if(screen==='game') startMusic(soundOn, false)
-    else if(['menu','rules','online'].includes(screen)) startMusic(soundOn, true)
+    else if(['menu','rules','online','deckselect'].includes(screen)) startMusic(soundOn, true)
     else stopMusic()
   },[screen,soundOn])
   useEffect(()=>()=>stopMusic(),[])
@@ -1399,11 +1450,17 @@ export default function App(){
     setGame(g);if(roomCode)syncOnline(g)
   }
 
-  function startGame(mode){
+  function startGame(mode,deck=chosenDeck){
     if(aiTimerRef.current){clearTimeout(aiTimerRef.current);aiTimerRef.current=null}
-    const defaultDeck=getDefaultDeck()
-    const p1Deck=defaultDeck,p2Deck=mode==='local'?defaultDeck:null
+    const p1Deck=deck,p2Deck=mode==='local'?deck:null
     setGameMode(mode);setRoomCode(null);setMyPlayer(mode==='ai'?1:null);setGame(newGame(p1Deck,p2Deck));setScreen('game')
+  }
+
+  function goToDeckSelect(mode){setPendingMode(mode);setScreen('deckselect')}
+  function handleDeckChosen(deck){
+    setChosenDeck(deck)
+    if(pendingMode==='online')setScreen('online')
+    else startGame(pendingMode,deck)
   }
 
   function handleOnlineStart(state,code,player){
@@ -1424,10 +1481,11 @@ export default function App(){
   return(
     <>
       <SoundToggle enabled={soundOn} onToggle={()=>setSoundOn(v=>!v)}/>
-      {screen==='menu'     && <MenuScreen onAI={()=>startGame('ai')} onLocal={()=>startGame('local')} onOnline={()=>setScreen('online')} onRules={()=>setScreen('rules')} onDeckBuilder={()=>setScreen('deckbuilder')}/>}
+      {screen==='menu'     && <MenuScreen onAI={()=>goToDeckSelect('ai')} onLocal={()=>goToDeckSelect('local')} onOnline={()=>goToDeckSelect('online')} onRules={()=>setScreen('rules')} onDeckBuilder={()=>setScreen('deckbuilder')}/>}
       {screen==='rules'    && <RulesScreen onBack={()=>setScreen('menu')}/>}
       {screen==='deckbuilder' && <DeckBuilderScreen onBack={()=>setScreen('menu')}/>}
-      {screen==='online'   && <OnlineLobbyScreen onBack={()=>setScreen('menu')} onGameStart={handleOnlineStart}/>}
+      {screen==='deckselect' && <DeckSelectScreen mode={pendingMode} onBack={()=>setScreen('menu')} onSelect={handleDeckChosen}/>}
+      {screen==='online'   && <OnlineLobbyScreen onBack={()=>setScreen('menu')} onGameStart={handleOnlineStart} deck={chosenDeck}/>}
       {screen==='game'     && game && <GameScreen game={game} soundEnabled={soundOn} myPlayer={myPlayer} isAI={gameMode==='ai'} onAction={handleAction} onEndTurn={handleEndTurn} onHome={closeGame} onPowerAction={handlePowerAction} onSurrender={handleSurrender}/>}
       {screen==='gameover' && game && <GameOverScreen winner={game.winner} isAI={gameMode==='ai'} surrendered={!!game.surrendered} onReplay={()=>startGame(gameMode)} onMenu={()=>setScreen('menu')}/>}
     </>
