@@ -1115,7 +1115,7 @@ function MedBtn({onClick, icon, color='#c9a020', children, className='', disable
 function MenuScreen({onLocal,onAI,onOnline,onRules,onDeckBuilder,onAccount,user}){
   return(
     <div className="min-h-screen flex flex-col items-center justify-center gap-6 px-4"
-      style={{backgroundImage:'linear-gradient(rgba(6,6,10,0.55),rgba(6,6,10,0.55)),url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}>
+      style={{backgroundImage:'linear-gradient(rgba(6,6,10,0.32),rgba(6,6,10,0.32)),url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}>
 
       <div className="text-center">
         <h1 className="charta-title text-4xl sm:text-6xl font-black tracking-wide leading-tight"
@@ -1153,9 +1153,9 @@ function RulesScreen({onBack}){
   ]
   return(
     <div className="min-h-screen py-8 px-4 flex flex-col items-center overflow-y-auto"
-      style={{backgroundImage:'linear-gradient(rgba(6,6,10,0.55),rgba(6,6,10,0.55)),url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}>
+      style={{backgroundImage:'linear-gradient(rgba(6,6,10,0.32),rgba(6,6,10,0.32)),url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}>
       <div className="max-w-lg w-full">
-        <button onClick={onBack} className="flex items-center gap-2 text-amber-400/80 hover:text-amber-300 mb-6 transition-colors" style={CINZEL}><Home size={16}/> Menu</button>
+        <button onClick={onBack} className="flex items-center gap-2 text-amber-400/80 hover:text-amber-300 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)] mb-6 transition-colors" style={CINZEL}><Home size={16}/> Menu</button>
         <h2 className="text-3xl font-black mb-5" style={{...CINZEL_DEC,background:'linear-gradient(to bottom,#ffe566,#c9a020)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',filter:'drop-shadow(0 1px 10px rgba(0,0,0,1))'}}>Règles du jeu</h2>
         {S.map(([t,d])=>(
           <div key={t} className="rounded-xl p-4 mb-3 border border-amber-900/40" style={{background:'rgba(8,5,2,0.78)'}}>
@@ -1221,9 +1221,9 @@ function DeckEditor({deck,onBack,onRename,onAddCard,onRemoveCard,onUpdateCard,on
   const total=deckTotalPts(deck),overTotal=total>DECK_MAX_POINTS,valid=isDeckValid(deck)
   return(
     <div className="min-h-screen py-8 px-4 flex flex-col items-center overflow-y-auto"
-      style={{backgroundImage:'linear-gradient(rgba(6,6,10,0.55),rgba(6,6,10,0.55)),url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}>
+      style={{backgroundImage:'linear-gradient(rgba(6,6,10,0.32),rgba(6,6,10,0.32)),url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}>
       <div className="max-w-lg w-full">
-        <button onClick={onBack} className="flex items-center gap-2 text-amber-400/80 hover:text-amber-300 mb-4 transition-colors" style={CINZEL}><Home size={16}/> Decks</button>
+        <button onClick={onBack} className="flex items-center gap-2 text-amber-400/80 hover:text-amber-300 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)] mb-4 transition-colors" style={CINZEL}><Home size={16}/> Decks</button>
         <input value={deck.name} onChange={e=>onRename(e.target.value)}
           className="text-2xl font-black bg-transparent border-b border-amber-700/40 text-amber-200 outline-none focus:border-amber-400 mb-2 w-full" style={CINZEL_DEC}/>
         <div className="flex items-center gap-3 mb-4 flex-wrap">
@@ -1245,7 +1245,7 @@ function DeckEditor({deck,onBack,onRename,onAddCard,onRemoveCard,onUpdateCard,on
           {deck.cards.map(c=>(
             <CardEditor key={c.id} card={c} onUpdate={patch=>onUpdateCard(c.id,patch)} onRemove={()=>onRemoveCard(c.id)}/>
           ))}
-          {deck.cards.length===0&&<p className="text-slate-500 text-sm text-center py-6">Aucune carte. Ajoutez-en une.</p>}
+          {deck.cards.length===0&&<p className="text-slate-300 text-sm text-center py-6 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">Aucune carte. Ajoutez-en une.</p>}
         </div>
         <MedBtn onClick={onAddCard} color="#34d399" icon={<Plus size={16}/>} className="w-full">Ajouter une carte</MedBtn>
       </div>
@@ -1288,11 +1288,11 @@ function DeckBuilderScreen({onBack,user}){
 
   return(
     <div className="min-h-screen py-8 px-4 flex flex-col items-center overflow-y-auto"
-      style={{backgroundImage:'linear-gradient(rgba(6,6,10,0.55),rgba(6,6,10,0.55)),url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}>
+      style={{backgroundImage:'linear-gradient(rgba(6,6,10,0.32),rgba(6,6,10,0.32)),url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}>
       <div className="max-w-lg w-full">
-        <button onClick={onBack} className="flex items-center gap-2 text-amber-400/80 hover:text-amber-300 mb-6 transition-colors" style={CINZEL}><Home size={16}/> Menu</button>
+        <button onClick={onBack} className="flex items-center gap-2 text-amber-400/80 hover:text-amber-300 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)] mb-6 transition-colors" style={CINZEL}><Home size={16}/> Menu</button>
         <h2 className="text-3xl font-black mb-1" style={{...CINZEL_DEC,background:'linear-gradient(to bottom,#ffe566,#c9a020)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',filter:'drop-shadow(0 1px 10px rgba(0,0,0,1))'}}>Deck Builder</h2>
-        <p className="text-xs mb-5 text-slate-400">
+        <p className="text-xs mb-5 text-slate-300 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">
           {user?`☁ Connecté (${user.displayName||user.email}) — decks synchronisés dans le cloud.`:'Connectez-vous depuis le menu (Mon Compte) pour synchroniser vos decks dans le cloud.'}
         </p>
         <div className="flex flex-col gap-3 mb-4">
@@ -1313,10 +1313,10 @@ function DeckBuilderScreen({onBack,user}){
               </div>
             )
           })}
-          {decks.length===0&&<p className="text-slate-500 text-sm text-center py-6">Aucun deck. Créez votre premier deck personnalisé.</p>}
+          {decks.length===0&&<p className="text-slate-300 text-sm text-center py-6 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">Aucun deck. Créez votre premier deck personnalisé.</p>}
         </div>
         <MedBtn onClick={createDeck} color="#34d399" icon={<Plus size={16}/>} className="w-full">Nouveau deck</MedBtn>
-        <p className="text-slate-500 text-xs mt-4 text-center">Max {CARD_MAX_POINTS} pts/carte · Max {DECK_MAX_POINTS} pts/deck · Le deck par défaut est utilisé en partie Locale et Solo vs IA.</p>
+        <p className="text-slate-300 text-xs mt-4 text-center drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">Max {CARD_MAX_POINTS} pts/carte · Max {DECK_MAX_POINTS} pts/deck · Le deck par défaut est utilisé en partie Locale et Solo vs IA.</p>
       </div>
     </div>
   )
@@ -1331,11 +1331,11 @@ function DeckSelectScreen({mode,onBack,onSelect}){
   const[decks]=useState(()=>loadDecks().filter(isDeckValid))
   return(
     <div className="min-h-screen py-8 px-4 flex flex-col items-center overflow-y-auto"
-      style={{backgroundImage:'linear-gradient(rgba(6,6,10,0.55),rgba(6,6,10,0.55)),url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}>
+      style={{backgroundImage:'linear-gradient(rgba(6,6,10,0.32),rgba(6,6,10,0.32)),url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}>
       <div className="max-w-lg w-full">
-        <button onClick={onBack} className="flex items-center gap-2 text-amber-400/80 hover:text-amber-300 mb-6 transition-colors" style={CINZEL}><Home size={16}/> Menu</button>
+        <button onClick={onBack} className="flex items-center gap-2 text-amber-400/80 hover:text-amber-300 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)] mb-6 transition-colors" style={CINZEL}><Home size={16}/> Menu</button>
         <h2 className="text-3xl font-black mb-2" style={{...CINZEL_DEC,background:'linear-gradient(to bottom,#ffe566,#c9a020)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',filter:'drop-shadow(0 1px 10px rgba(0,0,0,1))'}}>Choisissez votre deck</h2>
-        {DECKSELECT_SUBTITLE[mode]&&<p className="text-slate-400 text-sm mb-5">{DECKSELECT_SUBTITLE[mode]}</p>}
+        {DECKSELECT_SUBTITLE[mode]&&<p className="text-slate-300 text-sm mb-5 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">{DECKSELECT_SUBTITLE[mode]}</p>}
         <div className="flex flex-col gap-3">
           <button onClick={()=>onSelect(null)} className="rounded-xl p-4 border border-amber-900/40 text-left transition-colors hover:border-amber-500" style={{background:'rgba(8,5,2,0.78)'}}>
             <span className="text-amber-200 font-bold" style={CINZEL}>Deck aléatoire</span>
@@ -1353,7 +1353,7 @@ function DeckSelectScreen({mode,onBack,onSelect}){
               </button>
             )
           })}
-          {decks.length===0&&<p className="text-slate-500 text-sm text-center py-6">Aucun deck valide. Créez-en un dans le Deck Builder, ou jouez avec un deck aléatoire.</p>}
+          {decks.length===0&&<p className="text-slate-300 text-sm text-center py-6 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">Aucun deck valide. Créez-en un dans le Deck Builder, ou jouez avec un deck aléatoire.</p>}
         </div>
       </div>
     </div>
@@ -1382,9 +1382,9 @@ function AccountScreen({onBack,user,stats}){
   const total=stats?.gamesPlayed||0
   return(
     <div className="min-h-screen py-8 px-4 flex flex-col items-center overflow-y-auto"
-      style={{backgroundImage:'linear-gradient(rgba(6,6,10,0.55),rgba(6,6,10,0.55)),url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}>
+      style={{backgroundImage:'linear-gradient(rgba(6,6,10,0.32),rgba(6,6,10,0.32)),url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}>
       <div className="max-w-sm w-full">
-        <button onClick={onBack} className="flex items-center gap-2 text-amber-400/80 hover:text-amber-300 mb-6 transition-colors" style={CINZEL}><Home size={16}/> Menu</button>
+        <button onClick={onBack} className="flex items-center gap-2 text-amber-400/80 hover:text-amber-300 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)] mb-6 transition-colors" style={CINZEL}><Home size={16}/> Menu</button>
         <h2 className="text-3xl font-black mb-5" style={{...CINZEL_DEC,background:'linear-gradient(to bottom,#ffe566,#c9a020)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',filter:'drop-shadow(0 1px 10px rgba(0,0,0,1))'}}>Mon Compte</h2>
 
         {user?(
@@ -1443,8 +1443,8 @@ function OnlineLobbyScreen({onBack,onGameStart,deck}){
   async function handleCreate(){setError('');const c=genRoomCode();setCode(c);setMode('create');try{await createRoom(c,initialGame);setWaiting(true);unsubRef.current=subscribeRoom(c,data=>{if(data.player2Joined){if(unsubRef.current){unsubRef.current();unsubRef.current=null}onGameStart(data.state??initialGame,c,1)}})}catch(e){setError('Firebase non configuré — renseignez src/firebase.js')}}
   async function handleJoin(){setError('');const c=inputCode.trim().toUpperCase();if(c.length!==6){setError('Code invalide.');return}try{const state=await joinRoom(c);if(!state){setError('Partie introuvable.');return}setCode(c);setWaiting(true);unsubRef.current=subscribeRoom(c,data=>{if(data.state){if(unsubRef.current){unsubRef.current();unsubRef.current=null}onGameStart(data.state,c,2)}})}catch(e){setError('Firebase non configuré — renseignez src/firebase.js')}}
   function copyCode(){navigator.clipboard.writeText(code).then(()=>{setCopied(true);setTimeout(()=>setCopied(false),2000)})}
-  if(waiting)return(<div className="min-h-screen flex flex-col items-center justify-center gap-6" style={{backgroundImage:'linear-gradient(rgba(6,6,10,0.55),rgba(6,6,10,0.55)),url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}><div className="text-4xl animate-spin">⚙</div><p className="text-white text-xl font-bold">Code : <span className="text-purple-400 tracking-widest font-black">{code}</span></p><p className="text-slate-400 animate-pulse">En attente du joueur 2…</p><button onClick={copyCode} className="flex items-center gap-2 text-slate-300 hover:text-white bg-slate-700 hover:bg-slate-600 py-2 px-4 rounded-lg transition-colors text-sm">{copied?<><Check size={14}/> Copié !</>:<><Copy size={14}/> Copier le code</>}</button><button onClick={()=>{setWaiting(false);setMode(null)}} className="text-slate-500 hover:text-slate-300 text-sm">Annuler</button></div>)
-  return(<div className="min-h-screen flex flex-col items-center justify-center gap-6 px-4 relative" style={{backgroundImage:'linear-gradient(rgba(6,6,10,0.55),rgba(6,6,10,0.55)),url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}><button onClick={onBack} className="absolute top-4 left-4 text-amber-400/80 hover:text-amber-300 transition-colors"><Home size={20}/></button><h2 className="text-3xl font-black" style={{...CINZEL_DEC,background:'linear-gradient(to bottom,#ffe566,#c9a020)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',filter:'drop-shadow(0 1px 10px rgba(0,0,0,1))'}}>Partie en Ligne</h2>{error&&<p className="text-red-400 text-sm bg-red-900/30 px-4 py-2 rounded-lg text-center max-w-sm">{error}</p>}{!mode&&<div className="flex gap-4"><button onClick={handleCreate} className="bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-6 rounded-xl transition-all hover:scale-105">Créer</button><button onClick={()=>setMode('join')} className="bg-purple-600 hover:bg-purple-500 text-white font-bold py-3 px-6 rounded-xl transition-all hover:scale-105">Rejoindre</button></div>}{mode==='join'&&<div className="bg-slate-800 rounded-2xl p-6 border border-slate-700 w-72"><p className="text-slate-400 text-sm mb-2">Code de la partie :</p><input value={inputCode} onChange={e=>setInputCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,6))} className="bg-slate-700 text-white font-black text-2xl tracking-widest text-center border border-slate-600 rounded-lg px-4 py-2 w-full outline-none focus:border-purple-500 mb-3" placeholder="XXXXXX" maxLength={6}/><button onClick={handleJoin} disabled={inputCode.length!==6} className="w-full bg-purple-600 hover:bg-purple-500 disabled:opacity-40 text-white font-bold py-2 rounded-lg transition-colors">Rejoindre</button><button onClick={()=>setMode(null)} className="w-full text-slate-500 hover:text-slate-300 text-sm mt-2">Retour</button></div>}</div>)
+  if(waiting)return(<div className="min-h-screen flex flex-col items-center justify-center gap-6" style={{backgroundImage:'linear-gradient(rgba(6,6,10,0.32),rgba(6,6,10,0.32)),url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}><div className="text-4xl animate-spin">⚙</div><p className="text-white text-xl font-bold drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">Code : <span className="text-purple-400 tracking-widest font-black">{code}</span></p><p className="text-slate-300 animate-pulse drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">En attente du joueur 2…</p><button onClick={copyCode} className="flex items-center gap-2 text-slate-300 hover:text-white bg-slate-700 hover:bg-slate-600 py-2 px-4 rounded-lg transition-colors text-sm">{copied?<><Check size={14}/> Copié !</>:<><Copy size={14}/> Copier le code</>}</button><button onClick={()=>{setWaiting(false);setMode(null)}} className="text-slate-300 hover:text-slate-100 text-sm drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">Annuler</button></div>)
+  return(<div className="min-h-screen flex flex-col items-center justify-center gap-6 px-4 relative" style={{backgroundImage:'linear-gradient(rgba(6,6,10,0.32),rgba(6,6,10,0.32)),url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}><button onClick={onBack} className="absolute top-4 left-4 text-amber-400/80 hover:text-amber-300 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)] transition-colors"><Home size={20}/></button><h2 className="text-3xl font-black" style={{...CINZEL_DEC,background:'linear-gradient(to bottom,#ffe566,#c9a020)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',filter:'drop-shadow(0 1px 10px rgba(0,0,0,1))'}}>Partie en Ligne</h2>{error&&<p className="text-red-400 text-sm bg-red-900/30 px-4 py-2 rounded-lg text-center max-w-sm">{error}</p>}{!mode&&<div className="flex gap-4"><button onClick={handleCreate} className="bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-6 rounded-xl transition-all hover:scale-105">Créer</button><button onClick={()=>setMode('join')} className="bg-purple-600 hover:bg-purple-500 text-white font-bold py-3 px-6 rounded-xl transition-all hover:scale-105">Rejoindre</button></div>}{mode==='join'&&<div className="bg-slate-800 rounded-2xl p-6 border border-slate-700 w-72"><p className="text-slate-400 text-sm mb-2">Code de la partie :</p><input value={inputCode} onChange={e=>setInputCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,6))} className="bg-slate-700 text-white font-black text-2xl tracking-widest text-center border border-slate-600 rounded-lg px-4 py-2 w-full outline-none focus:border-purple-500 mb-3" placeholder="XXXXXX" maxLength={6}/><button onClick={handleJoin} disabled={inputCode.length!==6} className="w-full bg-purple-600 hover:bg-purple-500 disabled:opacity-40 text-white font-bold py-2 rounded-lg transition-colors">Rejoindre</button><button onClick={()=>setMode(null)} className="w-full text-slate-500 hover:text-slate-300 text-sm mt-2">Retour</button></div>}</div>)
 }
 function GameOverScreen({winner,isAI,surrendered,onReplay,onMenu}){
   const loser=winner===1?2:1
