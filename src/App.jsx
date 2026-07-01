@@ -1422,25 +1422,28 @@ const RARITY_THEME={
   rare:     {label:'Rare',        color:'#60a5fa'},
   legendary:{label:'Légendaire',  color:'#fbbf24'},
 }
-function BoosterCardFace({card,animate=false,revealed=true}){
+function BoosterCardFace({card,animate=false,revealed=true,size='normal',onClick}){
   const rarity=card.rarity||'common'
   const theme=RARITY_THEME[rarity]
   const isRare=rarity==='rare'||rarity==='legendary'
   const pts=FACE_KEYS.reduce((s,k)=>s+(card.values[k]||0),0)
   const animClass=animate?(revealed?(isRare?'card-reveal-rare':'card-reveal'):'opacity-0'):(isRare?'rare-glow':'')
+  const dim=size==='small'?'w-[68px] h-[68px]':size==='large'?'w-[210px] h-[210px]':'w-[104px] h-[104px]'
+  const textSz=size==='small'?'text-[9px]':size==='large'?'text-[22px]':'text-[11px]'
+  const labelSz=size==='small'?'text-[7px]':size==='large'?'text-sm':'text-[9px]'
   return(
-    <div className={`w-[104px] h-[104px] rounded-xl border-2 relative overflow-hidden shrink-0 ${animClass}`}
+    <div onClick={onClick} className={`${dim} rounded-xl border-2 relative overflow-hidden shrink-0 ${animClass} ${onClick?'cursor-zoom-in':''}`}
       style={{borderColor:theme.color,background:'#1e293b'}}>
       <img src={card.imageUrl||DEFAULT_CARD_IMAGE} alt="" className="absolute inset-0 w-full h-full object-cover"/>
       <div className="absolute inset-0 bg-black/25"/>
-      <div className="absolute inset-0 grid grid-cols-3 grid-rows-3 text-[11px] p-0.5">
+      <div className={`absolute inset-0 grid grid-cols-3 grid-rows-3 ${textSz} p-0.5`}>
         {GRID_KEYS.map((row,ri)=>row.map((key,ci)=>(
           <div key={`${ri}-${ci}`} className="flex items-center justify-center">
             {key&&<span className="font-black text-white" style={{textShadow:'0 1px 4px #000,0 0 3px #000'}}>{card.values[key]}</span>}
           </div>
         )))}
       </div>
-      <div className="absolute bottom-0 left-0 right-0 text-center text-[9px] font-black py-0.5"
+      <div className={`absolute bottom-0 left-0 right-0 text-center ${labelSz} font-black py-0.5`}
         style={{color:theme.color,background:'rgba(0,0,0,0.55)',textShadow:'0 1px 2px #000'}}>
         {theme.label} · {pts}pts
       </div>
@@ -1459,6 +1462,7 @@ function BoosterScreen({onBack,user}){
   const[pendingCards,setPendingCards]=useState(null)
   const[revealCount,setRevealCount]=useState(0)
   const[,setNow]=useState(()=>Date.now())
+  const[zoomedCard,setZoomedCard]=useState(null)
   const timersRef=useRef([])
   const cloudReadyRef=useRef(false)
 
@@ -1529,9 +1533,21 @@ function BoosterScreen({onBack,user}){
   )
 
   return(
-    <div className="min-h-screen py-8 px-4 flex flex-col items-center overflow-y-auto" style={bg}>
+    <div className="min-h-screen pt-14 pb-8 px-4 flex flex-col items-center overflow-y-auto" style={bg}>
+      {/* Fixed back button */}
+      <button onClick={onBack} className="fixed top-3 left-3 z-20 flex items-center gap-1.5 text-amber-400/90 hover:text-amber-300 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)] transition-colors rounded-lg px-2.5 py-1.5" style={{...CINZEL,background:'rgba(0,0,0,0.55)',backdropFilter:'blur(6px)'}}><Home size={15}/> Menu</button>
+
+      {/* Zoom overlay */}
+      {zoomedCard&&(
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm" onClick={()=>setZoomedCard(null)}>
+          <div className="flex flex-col items-center gap-3 select-none">
+            <BoosterCardFace card={zoomedCard} size='large'/>
+            <span className="text-slate-400 text-xs">Appuyer pour fermer</span>
+          </div>
+        </div>
+      )}
+
       <div className="max-w-lg w-full">
-        <button onClick={onBack} className="flex items-center gap-2 text-amber-400/80 hover:text-amber-300 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)] mb-6 transition-colors" style={CINZEL}><Home size={16}/> Menu</button>
         <h2 className="text-3xl font-black mb-1" style={{...CINZEL_DEC,background:'linear-gradient(to bottom,#ffe566,#c9a020)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',filter:'drop-shadow(0 1px 10px rgba(0,0,0,1))'}}>Booster de Cartes</h2>
         <p className="text-xs mb-5 text-slate-300 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">
           Un booster gratuit de 4 cartes chaque jour. Très rarement (&lt;1%), une carte peut dépasser les {CARD_MAX_POINTS} pts habituels !
@@ -1557,7 +1573,7 @@ function BoosterScreen({onBack,user}){
             <>
               <div className="flex gap-3 flex-wrap justify-center">
                 {pendingCards.map((c,i)=>(
-                  <BoosterCardFace key={c.id} card={c} animate revealed={i<revealCount}/>
+                  <BoosterCardFace key={c.id} card={c} animate revealed={i<revealCount} onClick={i<revealCount?()=>setZoomedCard(c):undefined}/>
                 ))}
               </div>
               {allRevealed&&<MedBtn onClick={handleCloseReveal} color="#34d399" icon={<Sparkles size={14}/>}>Continuer</MedBtn>}
@@ -1569,10 +1585,13 @@ function BoosterScreen({onBack,user}){
         {displayCollection.length===0
           ?<p className="text-slate-300 text-sm text-center py-6 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">Aucune carte en attente. Ouvrez un booster pour en obtenir !</p>
           :(
-            <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-2">
               {displayCollection.map(c=>(
-                <div key={c.id} className="rounded-xl p-3 border border-amber-900/40 flex gap-3" style={{background:'rgba(8,5,2,0.78)'}}>
-                  <BoosterCardFace card={c}/>
+                <div key={c.id} className="rounded-xl p-2.5 border border-amber-900/40 flex gap-3 items-center" style={{background:'rgba(8,5,2,0.78)'}}>
+                  <div className="shrink-0 transition-transform duration-150 hover:scale-110 active:scale-110"
+                    onClick={()=>setZoomedCard(c)}>
+                    <BoosterCardFace card={c} size='small' onClick={()=>setZoomedCard(c)}/>
+                  </div>
                   <div className="flex-1 min-w-0 flex flex-col gap-1.5 justify-center">
                     {decks.length>0?(
                       <>
