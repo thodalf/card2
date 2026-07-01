@@ -1,6 +1,26 @@
 import { useState, useEffect, useRef } from 'react'
-import { Copy, Volume2, VolumeX, Home, BookOpen, Wifi, Play, Users, Check, X, Zap, Bot, Layers, Plus, Trash2, Star, ImagePlus } from 'lucide-react'
-import { genRoomCode, createRoom, joinRoom, pushState, subscribeRoom } from './firebase.js'
+import { Copy, Volume2, VolumeX, Home, BookOpen, Wifi, Play, Users, Check, X, Zap, Bot, Layers, Plus, Trash2, Star, ImagePlus, UserCircle, LogIn, LogOut, Mail, Lock, RefreshCw } from 'lucide-react'
+import {
+  genRoomCode, createRoom, joinRoom, pushState, subscribeRoom,
+  onAuthChange, registerWithEmail, loginWithEmail, loginWithGoogle, logout,
+  loadCloudDecks, saveCloudDecks, subscribeStats, recordGameResult,
+} from './firebase.js'
+
+// Nukes any service-worker cache so a stale PWA build can't keep serving old code
+async function forceClearCacheAndReload() {
+  try {
+    if ('serviceWorker' in navigator) {
+      const regs = await navigator.serviceWorker.getRegistrations()
+      await Promise.all(regs.map(r => r.unregister()))
+    }
+    if ('caches' in window) {
+      const keys = await caches.keys()
+      await Promise.all(keys.map(k => caches.delete(k)))
+    }
+  } finally {
+    window.location.reload()
+  }
+}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 //  CONSTANTS
@@ -1084,7 +1104,7 @@ function MedBtn({onClick, icon, color='#c9a020', children, className='', disable
   )
 }
 
-function MenuScreen({onLocal,onAI,onOnline,onRules,onDeckBuilder}){
+function MenuScreen({onLocal,onAI,onOnline,onRules,onDeckBuilder,onAccount,user}){
   return(
     <div className="min-h-screen flex flex-col items-center justify-center gap-6 px-4"
       style={{backgroundImage:'url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}>
@@ -1108,6 +1128,7 @@ function MenuScreen({onLocal,onAI,onOnline,onRules,onDeckBuilder}){
         <MenuBtn onClick={onOnline} icon={<Wifi     size={16}/>} color="#c084fc">Partie en Ligne</MenuBtn>
         <MenuBtn onClick={onDeckBuilder} icon={<Layers size={16}/>} color="#34d399">Deck Builder</MenuBtn>
         <MenuBtn onClick={onRules}  icon={<BookOpen size={16}/>} color="#fbbf24">Règles du jeu</MenuBtn>
+        <MenuBtn onClick={onAccount} icon={<UserCircle size={16}/>} color="#38bdf8">{user?(user.displayName||user.email):'Mon Compte'}</MenuBtn>
       </div>
     </div>
   )
@@ -1223,10 +1244,21 @@ function DeckEditor({deck,onBack,onRename,onAddCard,onRemoveCard,onUpdateCard,on
     </div>
   )
 }
-function DeckBuilderScreen({onBack}){
+function DeckBuilderScreen({onBack,user}){
   const[decks,setDecks]=useState(()=>loadDecks())
   const[editingId,setEditingId]=useState(null)
-  useEffect(()=>{saveDecks(decks)},[decks])
+  useEffect(()=>{
+    saveDecks(decks)
+    if(user)saveCloudDecks(user.uid,decks).catch(()=>{})
+  },[decks])
+  useEffect(()=>{
+    if(!user)return
+    loadCloudDecks(user.uid).then(cloud=>{
+      if(cloud&&cloud.length>0)setDecks(cloud)
+      else if(decks.length>0)saveCloudDecks(user.uid,decks).catch(()=>{})
+    }).catch(()=>{})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[user?.uid])
   const editing=decks.find(d=>d.id===editingId)
 
   function createDeck(){
@@ -1251,7 +1283,10 @@ function DeckBuilderScreen({onBack}){
       style={{backgroundImage:'url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}>
       <div className="max-w-lg w-full">
         <button onClick={onBack} className="flex items-center gap-2 text-amber-400/80 hover:text-amber-300 mb-6 transition-colors" style={CINZEL}><Home size={16}/> Menu</button>
-        <h2 className="text-3xl font-black mb-5" style={{...CINZEL_DEC,background:'linear-gradient(to bottom,#ffe566,#c9a020)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',filter:'drop-shadow(0 1px 10px rgba(0,0,0,1))'}}>Deck Builder</h2>
+        <h2 className="text-3xl font-black mb-1" style={{...CINZEL_DEC,background:'linear-gradient(to bottom,#ffe566,#c9a020)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',filter:'drop-shadow(0 1px 10px rgba(0,0,0,1))'}}>Deck Builder</h2>
+        <p className="text-xs mb-5 text-slate-400">
+          {user?`☁ Connecté (${user.displayName||user.email}) — decks synchronisés dans le cloud.`:'Connectez-vous depuis le menu (Mon Compte) pour synchroniser vos decks dans le cloud.'}
+        </p>
         <div className="flex flex-col gap-3 mb-4">
           {decks.map(d=>{
             const total=deckTotalPts(d),valid=isDeckValid(d)
@@ -1316,6 +1351,83 @@ function DeckSelectScreen({mode,onBack,onSelect}){
     </div>
   )
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  ACCOUNT SCREEN — email/password + Google auth, stats, cache reset
+// ═══════════════════════════════════════════════════════════════════════════════
+function AccountScreen({onBack,user,stats}){
+  const[authMode,setAuthMode]=useState('login') // 'login'|'register'
+  const[email,setEmail]=useState('');const[password,setPassword]=useState('')
+  const[error,setError]=useState('');const[loading,setLoading]=useState(false)
+
+  async function handleEmailSubmit(e){
+    e.preventDefault();setError('');setLoading(true)
+    try{authMode==='register'?await registerWithEmail(email,password):await loginWithEmail(email,password)}
+    catch(err){setError(err.message)}
+    setLoading(false)
+  }
+  async function handleGoogle(){
+    setError('');setLoading(true)
+    try{await loginWithGoogle()}catch(err){setError(err.message)}
+    setLoading(false)
+  }
+  const total=stats?.gamesPlayed||0
+  return(
+    <div className="min-h-screen py-8 px-4 flex flex-col items-center overflow-y-auto"
+      style={{backgroundImage:'url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}>
+      <div className="max-w-sm w-full">
+        <button onClick={onBack} className="flex items-center gap-2 text-amber-400/80 hover:text-amber-300 mb-6 transition-colors" style={CINZEL}><Home size={16}/> Menu</button>
+        <h2 className="text-3xl font-black mb-5" style={{...CINZEL_DEC,background:'linear-gradient(to bottom,#ffe566,#c9a020)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',filter:'drop-shadow(0 1px 10px rgba(0,0,0,1))'}}>Mon Compte</h2>
+
+        {user?(
+          <div className="rounded-xl p-4 mb-4 border border-amber-900/40" style={{background:'rgba(8,5,2,0.78)'}}>
+            <div className="flex items-center gap-2 mb-4">
+              <UserCircle size={22} className="text-amber-400 shrink-0"/>
+              <span className="text-amber-200 font-bold truncate" style={CINZEL}>{user.displayName||user.email}</span>
+            </div>
+            <div className="grid grid-cols-3 gap-2 text-center mb-4">
+              <div><div className="text-xl font-black text-amber-300">{total}</div><div className="text-[10px] text-slate-400 uppercase tracking-wide">Parties</div></div>
+              <div><div className="text-xl font-black text-emerald-400">{stats?.wins||0}</div><div className="text-[10px] text-slate-400 uppercase tracking-wide">Victoires</div></div>
+              <div><div className="text-xl font-black text-red-400">{stats?.losses||0}</div><div className="text-[10px] text-slate-400 uppercase tracking-wide">Défaites</div></div>
+            </div>
+            <MedBtn onClick={()=>logout()} color="#ef4444" icon={<LogOut size={14}/>} className="w-full">Se déconnecter</MedBtn>
+          </div>
+        ):(
+          <div className="rounded-xl p-4 mb-4 border border-amber-900/40" style={{background:'rgba(8,5,2,0.78)'}}>
+            <div className="flex gap-2 mb-3">
+              <button type="button" onClick={()=>setAuthMode('login')}
+                className={`flex-1 text-xs font-bold py-1.5 rounded-lg transition-colors ${authMode==='login'?'bg-amber-600/30 text-amber-300':'text-slate-400 hover:text-white'}`} style={CINZEL}>Connexion</button>
+              <button type="button" onClick={()=>setAuthMode('register')}
+                className={`flex-1 text-xs font-bold py-1.5 rounded-lg transition-colors ${authMode==='register'?'bg-amber-600/30 text-amber-300':'text-slate-400 hover:text-white'}`} style={CINZEL}>Créer un compte</button>
+            </div>
+            <form onSubmit={handleEmailSubmit} className="flex flex-col gap-2 mb-3">
+              <label className="flex items-center gap-2 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 focus-within:border-amber-500">
+                <Mail size={14} className="text-slate-500 shrink-0"/>
+                <input type="email" required autoComplete="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="Email" className="bg-transparent text-slate-200 text-sm outline-none flex-1 min-w-0"/>
+              </label>
+              <label className="flex items-center gap-2 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 focus-within:border-amber-500">
+                <Lock size={14} className="text-slate-500 shrink-0"/>
+                <input type="password" required minLength={6} autoComplete={authMode==='register'?'new-password':'current-password'} value={password} onChange={e=>setPassword(e.target.value)} placeholder="Mot de passe" className="bg-transparent text-slate-200 text-sm outline-none flex-1 min-w-0"/>
+              </label>
+              {error&&<p className="text-red-400 text-xs">{error}</p>}
+              <MedBtn color="#60a5fa" icon={<LogIn size={14}/>} className="w-full" disabled={loading}>
+                {authMode==='register'?'Créer mon compte':'Se connecter'}
+              </MedBtn>
+            </form>
+            <div className="flex items-center gap-2 my-3"><div className="flex-1 h-px bg-slate-700"/><span className="text-slate-500 text-[10px] uppercase">ou</span><div className="flex-1 h-px bg-slate-700"/></div>
+            <MedBtn onClick={handleGoogle} disabled={loading} color="#e5e7eb" icon={<span className="text-sm font-black">G</span>} className="w-full">Continuer avec Google</MedBtn>
+          </div>
+        )}
+
+        <div className="rounded-xl p-4 border border-amber-900/40" style={{background:'rgba(8,5,2,0.78)'}}>
+          <h3 className="text-amber-300 font-bold mb-1 text-sm" style={CINZEL}>Application</h3>
+          <p className="text-slate-400 text-xs mb-3">En cas d'affichage figé après une mise à jour du jeu, videz le cache pour forcer le rechargement de la dernière version.</p>
+          <MedBtn onClick={forceClearCacheAndReload} color="#fbbf24" icon={<RefreshCw size={14}/>} className="w-full">Vider le cache & recharger</MedBtn>
+        </div>
+      </div>
+    </div>
+  )
+}
 function OnlineLobbyScreen({onBack,onGameStart,deck}){
   const[mode,setMode]=useState(null);const[code,setCode]=useState('');const[inputCode,setInputCode]=useState('');const[waiting,setWaiting]=useState(false);const[error,setError]=useState('');const[copied,setCopied]=useState(false)
   const[initialGame]=useState(()=>newGame(deck,null));const unsubRef=useRef(null)
@@ -1350,20 +1462,41 @@ export default function App(){
   const[myPlayer,setMyPlayer]=useState(null)
   const[pendingMode,setPendingMode]=useState(null) // mode awaiting a deck choice
   const[chosenDeck,setChosenDeck]=useState(null) // deck selected for the next match (null = random)
+  const[user,setUser]=useState(null)
+  const[stats,setStats]=useState(null)
   const ignoreNextRef=useRef(false)
   const unsubRef=useRef(null)
   const gameRef=useRef(game)
   const soundOnRef=useRef(soundOn)
   const aiTimerRef=useRef(null)
+  const statsRecordedRef=useRef(false)
 
   useEffect(()=>{gameRef.current=game},[game])
   useEffect(()=>{soundOnRef.current=soundOn},[soundOn])
   useEffect(()=>()=>{if(unsubRef.current)unsubRef.current()},[])
 
+  // ── Account ───────────────────────────────────────────────────
+  useEffect(()=>onAuthChange(setUser),[])
+  useEffect(()=>{
+    if(!user){setStats(null);return}
+    return subscribeStats(user.uid,setStats)
+  },[user?.uid])
+  // Record win/loss once a match tied to a real opponent (AI or online) ends
+  useEffect(()=>{
+    if(screen==='gameover'&&game?.winner&&!statsRecordedRef.current){
+      statsRecordedRef.current=true
+      if(user&&(gameMode==='ai'||gameMode==='online')){
+        const iWon=gameMode==='ai'?game.winner===1:game.winner===myPlayer
+        recordGameResult(user.uid,iWon).catch(()=>{})
+      }
+    }
+    if(screen!=='gameover')statsRecordedRef.current=false
+  },[screen])
+
   // ── Music ─────────────────────────────────────────────────────
   useEffect(()=>{
     if(screen==='game') startMusic(soundOn, false)
-    else if(['menu','rules','online','deckselect'].includes(screen)) startMusic(soundOn, true)
+    else if(['menu','rules','online','deckselect','account'].includes(screen)) startMusic(soundOn, true)
     else stopMusic()
   },[screen,soundOn])
   useEffect(()=>()=>stopMusic(),[])
@@ -1481,10 +1614,11 @@ export default function App(){
   return(
     <>
       <SoundToggle enabled={soundOn} onToggle={()=>setSoundOn(v=>!v)}/>
-      {screen==='menu'     && <MenuScreen onAI={()=>goToDeckSelect('ai')} onLocal={()=>goToDeckSelect('local')} onOnline={()=>goToDeckSelect('online')} onRules={()=>setScreen('rules')} onDeckBuilder={()=>setScreen('deckbuilder')}/>}
+      {screen==='menu'     && <MenuScreen onAI={()=>goToDeckSelect('ai')} onLocal={()=>goToDeckSelect('local')} onOnline={()=>goToDeckSelect('online')} onRules={()=>setScreen('rules')} onDeckBuilder={()=>setScreen('deckbuilder')} onAccount={()=>setScreen('account')} user={user}/>}
       {screen==='rules'    && <RulesScreen onBack={()=>setScreen('menu')}/>}
-      {screen==='deckbuilder' && <DeckBuilderScreen onBack={()=>setScreen('menu')}/>}
+      {screen==='deckbuilder' && <DeckBuilderScreen onBack={()=>setScreen('menu')} user={user}/>}
       {screen==='deckselect' && <DeckSelectScreen mode={pendingMode} onBack={()=>setScreen('menu')} onSelect={handleDeckChosen}/>}
+      {screen==='account'  && <AccountScreen onBack={()=>setScreen('menu')} user={user} stats={stats}/>}
       {screen==='online'   && <OnlineLobbyScreen onBack={()=>setScreen('menu')} onGameStart={handleOnlineStart} deck={chosenDeck}/>}
       {screen==='game'     && game && <GameScreen game={game} soundEnabled={soundOn} myPlayer={myPlayer} isAI={gameMode==='ai'} onAction={handleAction} onEndTurn={handleEndTurn} onHome={closeGame} onPowerAction={handlePowerAction} onSurrender={handleSurrender}/>}
       {screen==='gameover' && game && <GameOverScreen winner={game.winner} isAI={gameMode==='ai'} surrendered={!!game.surrendered} onReplay={()=>startGame(gameMode)} onMenu={()=>setScreen('menu')}/>}
