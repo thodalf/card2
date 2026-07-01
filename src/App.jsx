@@ -65,6 +65,7 @@ function saveDecks(decks){
 function emptyCardValues(){
   return Object.fromEntries(FACE_KEYS.map(k=>[k,0]))
 }
+const DEFAULT_CARD_IMAGE='/images/gnome.png'
 function newCustomCard(){
   return{id:`c-${Date.now()}-${Math.random().toString(36).slice(2)}`,values:emptyCardValues(),imageUrl:null}
 }
@@ -1062,6 +1063,22 @@ function MenuBtn({onClick, icon, color, children}){
   )
 }
 
+// Small medieval-styled action button reused across the Deck Builder
+function MedBtn({onClick, icon, color='#c9a020', children, className='', disabled=false, title, as='button'}){
+  const Tag = as
+  return(
+    <Tag onClick={onClick} title={title} disabled={as==='button'?disabled:undefined}
+      className={`inline-flex items-center justify-center gap-2 rounded-lg transition-all duration-200 select-none ${disabled?'opacity-40 cursor-not-allowed':'hover:scale-105 active:scale-95 cursor-pointer'} ${className}`}
+      style={{...CINZEL, fontSize:'0.8rem', letterSpacing:'0.06em', padding:'0.55rem 1.1rem',
+        background:'linear-gradient(135deg,rgba(12,8,3,0.90),rgba(28,18,6,0.88))',
+        border:`2px solid ${color}`, color,
+        textShadow:`0 0 8px ${color}99`,
+        boxShadow:`0 3px 14px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.06), 0 0 6px ${color}33`}}>
+      {icon}{children&&<span>{children}</span>}
+    </Tag>
+  )
+}
+
 function MenuScreen({onLocal,onAI,onOnline,onRules,onDeckBuilder}){
   return(
     <div className="min-h-screen flex flex-col items-center justify-center gap-6 px-4"
@@ -1134,32 +1151,33 @@ function CardEditor({card,onUpdate,onRemove}){
   }
   return(
     <div className={`rounded-xl p-3 border ${over?'border-red-600':'border-amber-900/40'}`} style={{background:'rgba(8,5,2,0.78)'}}>
-      <div className="flex gap-3">
-        <div className="w-[90px] h-[90px] shrink-0 rounded-lg border border-amber-800/50 overflow-hidden relative bg-slate-800">
-          {card.imageUrl&&<img src={card.imageUrl} alt="" className="absolute inset-0 w-full h-full object-cover"/>}
-          <div className="absolute inset-0 grid grid-cols-3 grid-rows-3 text-[11px] p-0.5">
+      <div className="flex gap-4">
+        <div className="w-[150px] h-[150px] shrink-0 rounded-lg border-2 border-amber-800/50 overflow-hidden relative bg-slate-800">
+          <img src={card.imageUrl||DEFAULT_CARD_IMAGE} alt="" className="absolute inset-0 w-full h-full object-cover"/>
+          <div className="absolute inset-0 bg-black/25"/>
+          <div className="absolute inset-0 grid grid-cols-3 grid-rows-3 gap-0.5 p-1">
             {GRID_KEYS.map((row,ri)=>row.map((key,ci)=>(
               <div key={`${ri}-${ci}`} className="flex items-center justify-center">
                 {key&&<input type="number" min={0} max={9} value={card.values[key]}
                   onChange={e=>setVal(key,e.target.value)}
-                  className="w-[18px] text-center bg-black/50 text-white font-bold rounded outline-none focus:ring-1 focus:ring-amber-400" style={{padding:0}}/>}
+                  className="w-9 h-8 text-center text-base bg-black/60 text-white font-bold rounded-md outline-none border border-amber-800/40 focus:ring-2 focus:ring-amber-400" style={{padding:0}}/>}
               </div>
             )))}
           </div>
         </div>
-        <div className="flex-1 flex flex-col gap-1.5 min-w-0">
+        <div className="flex-1 flex flex-col gap-2 min-w-0">
           <div className="flex items-center gap-2">
             <span className={`text-sm font-bold ${over?'text-red-400':'text-amber-300'}`}>{pts} / {CARD_MAX_POINTS} pts</span>
             {over&&<span className="text-red-400 text-xs">Trop élevée !</span>}
           </div>
-          <label className="flex items-center gap-1.5 text-xs text-slate-300 cursor-pointer hover:text-white w-fit">
-            <ImagePlus size={13}/> Image de fond
+          <MedBtn as="label" color="#60a5fa" icon={<ImagePlus size={14}/>} className="w-fit">
+            Image de fond
             <input type="file" accept="image/*" onChange={handleFile} className="hidden"/>
-          </label>
+          </MedBtn>
           <input type="text" placeholder="...ou URL d'image" value={card.imageUrl&&!card.imageUrl.startsWith('data:')?card.imageUrl:''}
             onChange={e=>onUpdate({imageUrl:e.target.value||null})}
-            className="bg-slate-800 text-slate-200 text-xs border border-slate-700 rounded px-2 py-1 outline-none focus:border-amber-500"/>
-          <button onClick={onRemove} className="flex items-center gap-1 text-red-400/80 hover:text-red-300 text-xs w-fit mt-auto"><Trash2 size={12}/> Supprimer la carte</button>
+            className="bg-slate-800 text-slate-200 text-xs border border-slate-700 rounded px-2 py-1.5 outline-none focus:border-amber-500"/>
+          <MedBtn onClick={onRemove} color="#ef4444" icon={<Trash2 size={13}/>} className="w-fit mt-auto">Supprimer la carte</MedBtn>
         </div>
       </div>
     </div>
@@ -1176,10 +1194,10 @@ function DeckEditor({deck,onBack,onRename,onAddCard,onRemoveCard,onUpdateCard,on
           className="text-2xl font-black bg-transparent border-b border-amber-700/40 text-amber-200 outline-none focus:border-amber-400 mb-2 w-full" style={CINZEL_DEC}/>
         <div className="flex items-center gap-3 mb-4 flex-wrap">
           <span className={`text-sm font-bold ${overTotal?'text-red-400':'text-amber-300'}`}>{total} / {DECK_MAX_POINTS} pts</span>
-          <button onClick={onSetDefault} disabled={!valid}
-            className={`flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg border transition-colors ${deck.isDefault?'bg-amber-600/30 border-amber-500 text-amber-300':'border-slate-700 text-slate-400 hover:text-white'} ${!valid?'opacity-40 cursor-not-allowed':''}`}>
-            <Star size={12} fill={deck.isDefault?'currentColor':'none'}/> {deck.isDefault?'Deck par défaut':'Définir par défaut'}
-          </button>
+          <MedBtn onClick={onSetDefault} disabled={!valid} color={deck.isDefault?'#fbbf24':'#71717a'}
+            icon={<Star size={13} fill={deck.isDefault?'currentColor':'none'}/>}>
+            {deck.isDefault?'Deck par défaut':'Définir par défaut'}
+          </MedBtn>
           {!valid&&<span className="text-red-400 text-xs">Deck invalide (vérifiez les points)</span>}
         </div>
         <div className="flex flex-col gap-3 mb-4">
@@ -1188,7 +1206,7 @@ function DeckEditor({deck,onBack,onRename,onAddCard,onRemoveCard,onUpdateCard,on
           ))}
           {deck.cards.length===0&&<p className="text-slate-500 text-sm text-center py-6">Aucune carte. Ajoutez-en une.</p>}
         </div>
-        <button onClick={onAddCard} className="w-full flex items-center justify-center gap-2 bg-blue-700 hover:bg-blue-600 text-white font-bold py-2.5 rounded-xl transition-colors"><Plus size={16}/> Ajouter une carte</button>
+        <MedBtn onClick={onAddCard} color="#34d399" icon={<Plus size={16}/>} className="w-full">Ajouter une carte</MedBtn>
       </div>
     </div>
   )
@@ -1234,17 +1252,15 @@ function DeckBuilderScreen({onBack}){
                   </div>
                   <span className={`text-xs ${valid?'text-slate-400':'text-red-400'}`}>{d.cards.length} carte(s) · {total}/{DECK_MAX_POINTS} pts{!valid?' · invalide':''}</span>
                 </button>
-                <button onClick={()=>setDefault(d.id)} disabled={!valid} title="Définir par défaut"
-                  className={`p-1.5 rounded-lg transition-colors ${d.isDefault?'text-amber-400':'text-slate-500 hover:text-amber-300'} ${!valid?'opacity-30 cursor-not-allowed':''}`}>
-                  <Star size={16} fill={d.isDefault?'currentColor':'none'}/>
-                </button>
-                <button onClick={()=>deleteDeck(d.id)} className="p-1.5 rounded-lg text-slate-500 hover:text-red-400 transition-colors"><Trash2 size={16}/></button>
+                <MedBtn onClick={()=>setDefault(d.id)} disabled={!valid} title="Définir par défaut"
+                  color={d.isDefault?'#fbbf24':'#71717a'} icon={<Star size={16} fill={d.isDefault?'currentColor':'none'}/>} className="!p-2"/>
+                <MedBtn onClick={()=>deleteDeck(d.id)} color="#ef4444" icon={<Trash2 size={16}/>} className="!p-2"/>
               </div>
             )
           })}
           {decks.length===0&&<p className="text-slate-500 text-sm text-center py-6">Aucun deck. Créez votre premier deck personnalisé.</p>}
         </div>
-        <button onClick={createDeck} className="w-full flex items-center justify-center gap-2 bg-emerald-700 hover:bg-emerald-600 text-white font-bold py-2.5 rounded-xl transition-colors"><Plus size={16}/> Nouveau deck</button>
+        <MedBtn onClick={createDeck} color="#34d399" icon={<Plus size={16}/>} className="w-full">Nouveau deck</MedBtn>
         <p className="text-slate-500 text-xs mt-4 text-center">Max {CARD_MAX_POINTS} pts/carte · Max {DECK_MAX_POINTS} pts/deck · Le deck par défaut est utilisé en partie Locale et Solo vs IA.</p>
       </div>
     </div>
