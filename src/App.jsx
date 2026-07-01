@@ -1330,16 +1330,19 @@ function DeckEditor({deck,onBack,onRename,onAddCard,onRemoveCard,onUpdateCard,on
 function DeckBuilderScreen({onBack,user}){
   const[decks,setDecks]=useState(()=>loadDecks())
   const[editingId,setEditingId]=useState(null)
+  const cloudReadyRef=useRef(false)
   useEffect(()=>{
     saveDecks(decks)
-    if(user)saveCloudDecks(user.uid,decks).catch(()=>{})
+    if(user&&cloudReadyRef.current)saveCloudDecks(user.uid,decks).catch(()=>{})
   },[decks])
   useEffect(()=>{
-    if(!user)return
+    cloudReadyRef.current=false
+    if(!user){cloudReadyRef.current=true;return}
     loadCloudDecks(user.uid).then(cloud=>{
+      cloudReadyRef.current=true
       if(cloud&&cloud.length>0)setDecks(cloud)
       else if(decks.length>0)saveCloudDecks(user.uid,decks).catch(()=>{})
-    }).catch(()=>{})
+    }).catch(()=>{cloudReadyRef.current=true})
     // eslint-disable-next-line react-hooks/exhaustive-deps
   },[user?.uid])
   const editing=decks.find(d=>d.id===editingId)
@@ -1457,23 +1460,26 @@ function BoosterScreen({onBack,user}){
   const[revealCount,setRevealCount]=useState(0)
   const[,setNow]=useState(()=>Date.now())
   const timersRef=useRef([])
+  const cloudReadyRef=useRef(false)
 
   useEffect(()=>{
     saveCollection(collection)
-    if(user)saveCloudCollection(user.uid,collection).catch(()=>{})
+    if(user&&cloudReadyRef.current)saveCloudCollection(user.uid,collection).catch(()=>{})
   },[collection])
   useEffect(()=>{
     saveDecks(decks)
-    if(user)saveCloudDecks(user.uid,decks).catch(()=>{})
+    if(user&&cloudReadyRef.current)saveCloudDecks(user.uid,decks).catch(()=>{})
   },[decks])
   useEffect(()=>{
-    if(!user)return
+    cloudReadyRef.current=false
+    if(!user){cloudReadyRef.current=true;return}
     Promise.all([loadCloudCollection(user.uid),loadCloudDecks(user.uid),loadCloudLastBooster(user.uid)]).then(([cCollection,cDecks,cLast])=>{
+      cloudReadyRef.current=true
       if(cCollection&&cCollection.length>0)setCollection(cCollection)
       else if(collection.length>0)saveCloudCollection(user.uid,collection).catch(()=>{})
       if(cDecks&&cDecks.length>0)setDecks(cDecks)
       if(cLast)setLastBoosterAt(prev=>Math.max(prev,cLast))
-    }).catch(()=>{})
+    }).catch(()=>{cloudReadyRef.current=true})
     // eslint-disable-next-line react-hooks/exhaustive-deps
   },[user?.uid])
   useEffect(()=>{
