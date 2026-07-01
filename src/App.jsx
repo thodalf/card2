@@ -82,6 +82,14 @@ function loadDecks(){
 function saveDecks(decks){
   try{localStorage.setItem(DECKS_KEY,JSON.stringify(decks))}catch{}
 }
+
+const SOUND_PREF_KEY='tacticalcards_sound_on'
+function loadSoundPref(){
+  try{const v=localStorage.getItem(SOUND_PREF_KEY);return v===null?true:v==='1'}catch{return true}
+}
+function saveSoundPref(on){
+  try{localStorage.setItem(SOUND_PREF_KEY,on?'1':'0')}catch{}
+}
 function emptyCardValues(){
   return Object.fromEntries(FACE_KEYS.map(k=>[k,0]))
 }
@@ -1107,18 +1115,18 @@ function MedBtn({onClick, icon, color='#c9a020', children, className='', disable
 function MenuScreen({onLocal,onAI,onOnline,onRules,onDeckBuilder,onAccount,user}){
   return(
     <div className="min-h-screen flex flex-col items-center justify-center gap-6 px-4"
-      style={{backgroundImage:'url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}>
+      style={{backgroundImage:'linear-gradient(rgba(6,6,10,0.55),rgba(6,6,10,0.55)),url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}>
 
       <div className="text-center">
-        <h1 className="text-4xl sm:text-6xl font-black tracking-wide leading-tight"
+        <h1 className="charta-title text-4xl sm:text-6xl font-black tracking-wide leading-tight"
           style={{...CINZEL_DEC,
-            background:'linear-gradient(to bottom,#ffe566 0%,#c9a020 55%,#7a5c0a 100%)',
-            WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',
-            filter:'drop-shadow(0 2px 14px rgba(0,0,0,1)) drop-shadow(0 0 6px rgba(0,0,0,0.9))'}}>
-          Tactical Cards
+            background:'linear-gradient(115deg,#7a5c0a 0%,#ffe566 20%,#fff8dc 32%,#ffe566 44%,#c9a020 60%,#7a5c0a 100%)',
+            backgroundSize:'250% auto',
+            WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent'}}>
+          Charta Logica
         </h1>
         <div className="text-amber-600/70 text-base sm:text-lg tracking-widest mt-1 select-none">⸺⸺ ✦ ⸺⸺</div>
-        <p className="text-amber-300/60 text-xs tracking-[0.25em] uppercase mt-1 drop-shadow-md"
+        <p className="text-amber-200/90 text-xs tracking-[0.25em] uppercase mt-1 drop-shadow-[0_1px_4px_rgba(0,0,0,0.9)]"
           style={CINZEL}>Jeu de cartes tactique · 2 joueurs</p>
       </div>
 
@@ -1145,7 +1153,7 @@ function RulesScreen({onBack}){
   ]
   return(
     <div className="min-h-screen py-8 px-4 flex flex-col items-center overflow-y-auto"
-      style={{backgroundImage:'url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}>
+      style={{backgroundImage:'linear-gradient(rgba(6,6,10,0.55),rgba(6,6,10,0.55)),url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}>
       <div className="max-w-lg w-full">
         <button onClick={onBack} className="flex items-center gap-2 text-amber-400/80 hover:text-amber-300 mb-6 transition-colors" style={CINZEL}><Home size={16}/> Menu</button>
         <h2 className="text-3xl font-black mb-5" style={{...CINZEL_DEC,background:'linear-gradient(to bottom,#ffe566,#c9a020)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',filter:'drop-shadow(0 1px 10px rgba(0,0,0,1))'}}>Règles du jeu</h2>
@@ -1213,7 +1221,7 @@ function DeckEditor({deck,onBack,onRename,onAddCard,onRemoveCard,onUpdateCard,on
   const total=deckTotalPts(deck),overTotal=total>DECK_MAX_POINTS,valid=isDeckValid(deck)
   return(
     <div className="min-h-screen py-8 px-4 flex flex-col items-center overflow-y-auto"
-      style={{backgroundImage:'url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}>
+      style={{backgroundImage:'linear-gradient(rgba(6,6,10,0.55),rgba(6,6,10,0.55)),url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}>
       <div className="max-w-lg w-full">
         <button onClick={onBack} className="flex items-center gap-2 text-amber-400/80 hover:text-amber-300 mb-4 transition-colors" style={CINZEL}><Home size={16}/> Decks</button>
         <input value={deck.name} onChange={e=>onRename(e.target.value)}
@@ -1280,7 +1288,7 @@ function DeckBuilderScreen({onBack,user}){
 
   return(
     <div className="min-h-screen py-8 px-4 flex flex-col items-center overflow-y-auto"
-      style={{backgroundImage:'url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}>
+      style={{backgroundImage:'linear-gradient(rgba(6,6,10,0.55),rgba(6,6,10,0.55)),url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}>
       <div className="max-w-lg w-full">
         <button onClick={onBack} className="flex items-center gap-2 text-amber-400/80 hover:text-amber-300 mb-6 transition-colors" style={CINZEL}><Home size={16}/> Menu</button>
         <h2 className="text-3xl font-black mb-1" style={{...CINZEL_DEC,background:'linear-gradient(to bottom,#ffe566,#c9a020)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',filter:'drop-shadow(0 1px 10px rgba(0,0,0,1))'}}>Deck Builder</h2>
@@ -1323,7 +1331,7 @@ function DeckSelectScreen({mode,onBack,onSelect}){
   const[decks]=useState(()=>loadDecks().filter(isDeckValid))
   return(
     <div className="min-h-screen py-8 px-4 flex flex-col items-center overflow-y-auto"
-      style={{backgroundImage:'url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}>
+      style={{backgroundImage:'linear-gradient(rgba(6,6,10,0.55),rgba(6,6,10,0.55)),url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}>
       <div className="max-w-lg w-full">
         <button onClick={onBack} className="flex items-center gap-2 text-amber-400/80 hover:text-amber-300 mb-6 transition-colors" style={CINZEL}><Home size={16}/> Menu</button>
         <h2 className="text-3xl font-black mb-2" style={{...CINZEL_DEC,background:'linear-gradient(to bottom,#ffe566,#c9a020)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',filter:'drop-shadow(0 1px 10px rgba(0,0,0,1))'}}>Choisissez votre deck</h2>
@@ -1374,7 +1382,7 @@ function AccountScreen({onBack,user,stats}){
   const total=stats?.gamesPlayed||0
   return(
     <div className="min-h-screen py-8 px-4 flex flex-col items-center overflow-y-auto"
-      style={{backgroundImage:'url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}>
+      style={{backgroundImage:'linear-gradient(rgba(6,6,10,0.55),rgba(6,6,10,0.55)),url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}>
       <div className="max-w-sm w-full">
         <button onClick={onBack} className="flex items-center gap-2 text-amber-400/80 hover:text-amber-300 mb-6 transition-colors" style={CINZEL}><Home size={16}/> Menu</button>
         <h2 className="text-3xl font-black mb-5" style={{...CINZEL_DEC,background:'linear-gradient(to bottom,#ffe566,#c9a020)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',filter:'drop-shadow(0 1px 10px rgba(0,0,0,1))'}}>Mon Compte</h2>
@@ -1435,8 +1443,8 @@ function OnlineLobbyScreen({onBack,onGameStart,deck}){
   async function handleCreate(){setError('');const c=genRoomCode();setCode(c);setMode('create');try{await createRoom(c,initialGame);setWaiting(true);unsubRef.current=subscribeRoom(c,data=>{if(data.player2Joined){if(unsubRef.current){unsubRef.current();unsubRef.current=null}onGameStart(data.state??initialGame,c,1)}})}catch(e){setError('Firebase non configuré — renseignez src/firebase.js')}}
   async function handleJoin(){setError('');const c=inputCode.trim().toUpperCase();if(c.length!==6){setError('Code invalide.');return}try{const state=await joinRoom(c);if(!state){setError('Partie introuvable.');return}setCode(c);setWaiting(true);unsubRef.current=subscribeRoom(c,data=>{if(data.state){if(unsubRef.current){unsubRef.current();unsubRef.current=null}onGameStart(data.state,c,2)}})}catch(e){setError('Firebase non configuré — renseignez src/firebase.js')}}
   function copyCode(){navigator.clipboard.writeText(code).then(()=>{setCopied(true);setTimeout(()=>setCopied(false),2000)})}
-  if(waiting)return(<div className="min-h-screen flex flex-col items-center justify-center gap-6" style={{backgroundImage:'url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}><div className="text-4xl animate-spin">⚙</div><p className="text-white text-xl font-bold">Code : <span className="text-purple-400 tracking-widest font-black">{code}</span></p><p className="text-slate-400 animate-pulse">En attente du joueur 2…</p><button onClick={copyCode} className="flex items-center gap-2 text-slate-300 hover:text-white bg-slate-700 hover:bg-slate-600 py-2 px-4 rounded-lg transition-colors text-sm">{copied?<><Check size={14}/> Copié !</>:<><Copy size={14}/> Copier le code</>}</button><button onClick={()=>{setWaiting(false);setMode(null)}} className="text-slate-500 hover:text-slate-300 text-sm">Annuler</button></div>)
-  return(<div className="min-h-screen flex flex-col items-center justify-center gap-6 px-4 relative" style={{backgroundImage:'url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}><button onClick={onBack} className="absolute top-4 left-4 text-amber-400/80 hover:text-amber-300 transition-colors"><Home size={20}/></button><h2 className="text-3xl font-black" style={{...CINZEL_DEC,background:'linear-gradient(to bottom,#ffe566,#c9a020)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',filter:'drop-shadow(0 1px 10px rgba(0,0,0,1))'}}>Partie en Ligne</h2>{error&&<p className="text-red-400 text-sm bg-red-900/30 px-4 py-2 rounded-lg text-center max-w-sm">{error}</p>}{!mode&&<div className="flex gap-4"><button onClick={handleCreate} className="bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-6 rounded-xl transition-all hover:scale-105">Créer</button><button onClick={()=>setMode('join')} className="bg-purple-600 hover:bg-purple-500 text-white font-bold py-3 px-6 rounded-xl transition-all hover:scale-105">Rejoindre</button></div>}{mode==='join'&&<div className="bg-slate-800 rounded-2xl p-6 border border-slate-700 w-72"><p className="text-slate-400 text-sm mb-2">Code de la partie :</p><input value={inputCode} onChange={e=>setInputCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,6))} className="bg-slate-700 text-white font-black text-2xl tracking-widest text-center border border-slate-600 rounded-lg px-4 py-2 w-full outline-none focus:border-purple-500 mb-3" placeholder="XXXXXX" maxLength={6}/><button onClick={handleJoin} disabled={inputCode.length!==6} className="w-full bg-purple-600 hover:bg-purple-500 disabled:opacity-40 text-white font-bold py-2 rounded-lg transition-colors">Rejoindre</button><button onClick={()=>setMode(null)} className="w-full text-slate-500 hover:text-slate-300 text-sm mt-2">Retour</button></div>}</div>)
+  if(waiting)return(<div className="min-h-screen flex flex-col items-center justify-center gap-6" style={{backgroundImage:'linear-gradient(rgba(6,6,10,0.55),rgba(6,6,10,0.55)),url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}><div className="text-4xl animate-spin">⚙</div><p className="text-white text-xl font-bold">Code : <span className="text-purple-400 tracking-widest font-black">{code}</span></p><p className="text-slate-400 animate-pulse">En attente du joueur 2…</p><button onClick={copyCode} className="flex items-center gap-2 text-slate-300 hover:text-white bg-slate-700 hover:bg-slate-600 py-2 px-4 rounded-lg transition-colors text-sm">{copied?<><Check size={14}/> Copié !</>:<><Copy size={14}/> Copier le code</>}</button><button onClick={()=>{setWaiting(false);setMode(null)}} className="text-slate-500 hover:text-slate-300 text-sm">Annuler</button></div>)
+  return(<div className="min-h-screen flex flex-col items-center justify-center gap-6 px-4 relative" style={{backgroundImage:'linear-gradient(rgba(6,6,10,0.55),rgba(6,6,10,0.55)),url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}><button onClick={onBack} className="absolute top-4 left-4 text-amber-400/80 hover:text-amber-300 transition-colors"><Home size={20}/></button><h2 className="text-3xl font-black" style={{...CINZEL_DEC,background:'linear-gradient(to bottom,#ffe566,#c9a020)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',filter:'drop-shadow(0 1px 10px rgba(0,0,0,1))'}}>Partie en Ligne</h2>{error&&<p className="text-red-400 text-sm bg-red-900/30 px-4 py-2 rounded-lg text-center max-w-sm">{error}</p>}{!mode&&<div className="flex gap-4"><button onClick={handleCreate} className="bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-6 rounded-xl transition-all hover:scale-105">Créer</button><button onClick={()=>setMode('join')} className="bg-purple-600 hover:bg-purple-500 text-white font-bold py-3 px-6 rounded-xl transition-all hover:scale-105">Rejoindre</button></div>}{mode==='join'&&<div className="bg-slate-800 rounded-2xl p-6 border border-slate-700 w-72"><p className="text-slate-400 text-sm mb-2">Code de la partie :</p><input value={inputCode} onChange={e=>setInputCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,6))} className="bg-slate-700 text-white font-black text-2xl tracking-widest text-center border border-slate-600 rounded-lg px-4 py-2 w-full outline-none focus:border-purple-500 mb-3" placeholder="XXXXXX" maxLength={6}/><button onClick={handleJoin} disabled={inputCode.length!==6} className="w-full bg-purple-600 hover:bg-purple-500 disabled:opacity-40 text-white font-bold py-2 rounded-lg transition-colors">Rejoindre</button><button onClick={()=>setMode(null)} className="w-full text-slate-500 hover:text-slate-300 text-sm mt-2">Retour</button></div>}</div>)
 }
 function GameOverScreen({winner,isAI,surrendered,onReplay,onMenu}){
   const loser=winner===1?2:1
@@ -1456,7 +1464,7 @@ function SoundToggle({enabled,onToggle}){
 export default function App(){
   const[screen,setScreen]=useState('menu')
   const[game,setGame]=useState(null)
-  const[soundOn,setSoundOn]=useState(true)
+  const[soundOn,setSoundOn]=useState(loadSoundPref)
   const[gameMode,setGameMode]=useState('local') // 'local'|'ai'|'online'
   const[roomCode,setRoomCode]=useState(null)
   const[myPlayer,setMyPlayer]=useState(null)
@@ -1472,7 +1480,7 @@ export default function App(){
   const statsRecordedRef=useRef(false)
 
   useEffect(()=>{gameRef.current=game},[game])
-  useEffect(()=>{soundOnRef.current=soundOn},[soundOn])
+  useEffect(()=>{soundOnRef.current=soundOn;saveSoundPref(soundOn)},[soundOn])
   useEffect(()=>()=>{if(unsubRef.current)unsubRef.current()},[])
 
   // ── Account ───────────────────────────────────────────────────

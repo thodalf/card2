@@ -12,8 +12,8 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png'],
       manifest: {
-        name: 'Tactical Card Game',
-        short_name: 'Card Game',
+        name: 'Charta Logica',
+        short_name: 'Charta Logica',
         description: 'Jeu de cartes tactique 2 joueurs',
         theme_color: '#0f172a',
         background_color: '#0f172a',
