@@ -4,6 +4,9 @@
 
 * { box-sizing: border-box; }
 
+.scrollbar-hide { scrollbar-width: none; -ms-overflow-style: none; }
+.scrollbar-hide::-webkit-scrollbar { display: none; }
+
 @keyframes card-place {
   from { transform: scale(0) rotate(360deg); opacity: 0; }
   to   { transform: scale(1) rotate(0deg);   opacity: 1; }

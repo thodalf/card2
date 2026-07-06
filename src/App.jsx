@@ -97,7 +97,8 @@ function loadDecks(){
   try{return JSON.parse(localStorage.getItem(DECKS_KEY)||'[]')}catch{return[]}
 }
 function saveDecks(decks){
-  try{localStorage.setItem(DECKS_KEY,JSON.stringify(decks))}catch{}
+  try{localStorage.setItem(DECKS_KEY,JSON.stringify(decks))}
+  catch(e){console.error('saveDecks failed — deck changes (including card images) were NOT persisted:',e)}
 }
 
 const SOUND_PREF_KEY='tacticalcards_sound_on'
@@ -1216,10 +1217,24 @@ const MENU_EMBERS = Array.from({length:18},(_,i)=>({
   drift: (i%2===0?1:-1)*(12+(i%3)*10),
 }))
 
+function MenuIconBtn({onClick, icon, label, color, delay, title}){
+  return(
+    <button onClick={onClick} title={title}
+      className="menu-fade-up flex-1 min-w-0 flex flex-col items-center gap-1 py-2 rounded-lg transition-all duration-200 hover:scale-110 active:scale-90 select-none cursor-pointer"
+      style={{animationDelay:delay}}>
+      <span className="w-10 h-10 flex items-center justify-center rounded-full border-2"
+        style={{borderColor:color, color, background:'rgba(10,7,3,0.8)', boxShadow:`0 0 10px ${color}55, inset 0 1px 0 rgba(255,255,255,0.06)`}}>
+        {icon}
+      </span>
+      <span className="text-[10px] font-bold tracking-wide truncate max-w-full" style={{...CINZEL, color}}>{label}</span>
+    </button>
+  )
+}
+
 function MenuScreen({onLocal,onAI,onOnline,onRules,onDeckBuilder,onAccount,onBooster,user}){
   return(
-    <div className="menu-screen relative flex flex-col items-center justify-center gap-5 sm:gap-6 px-4 overflow-hidden"
-      style={{backgroundImage:'linear-gradient(rgba(6,6,10,0.32),rgba(6,6,10,0.32)),url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}>
+    <div className="menu-screen relative flex flex-col items-center gap-4 px-4 overflow-hidden"
+      style={{backgroundImage:'linear-gradient(rgba(6,6,10,0.20),rgba(6,6,10,0.20)),url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}>
 
       <div className="menu-embers" aria-hidden="true">
         {MENU_EMBERS.map((e,i)=>(
@@ -1232,56 +1247,64 @@ function MenuScreen({onLocal,onAI,onOnline,onRules,onDeckBuilder,onAccount,onBoo
       </div>
       <div className="menu-vignette-pulse" aria-hidden="true"/>
 
-      <div className="relative z-10 text-center menu-fade-up" style={{animationDelay:'0s'}}>
-        <h1 className="charta-title text-5xl sm:text-6xl font-black tracking-wide leading-tight"
-          style={{...CINZEL_DEC,
-            background:'linear-gradient(115deg,#7a5c0a 0%,#ffe566 20%,#fff8dc 32%,#ffe566 44%,#c9a020 60%,#7a5c0a 100%)',
-            backgroundSize:'250% auto',
-            WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent'}}>
-          Charta Logica
-        </h1>
-        <div className="text-amber-600/70 text-base sm:text-lg tracking-widest mt-1 select-none">⸺⸺ ✦ ⸺⸺</div>
-        <p className="text-amber-200/90 text-xs tracking-[0.25em] uppercase mt-1 drop-shadow-[0_1px_4px_rgba(0,0,0,0.9)]"
-          style={CINZEL}>Jeu de cartes tactique · 2 joueurs</p>
+      <div className="relative z-10 flex-1 flex flex-col items-center justify-center gap-8 sm:gap-10 w-full">
+        <div className="text-center menu-fade-up" style={{animationDelay:'0s'}}>
+          <h1 className="charta-title text-5xl sm:text-6xl font-black tracking-wide leading-tight"
+            style={{...CINZEL_DEC,
+              background:'linear-gradient(115deg,#7a5c0a 0%,#ffe566 20%,#fff8dc 32%,#ffe566 44%,#c9a020 60%,#7a5c0a 100%)',
+              backgroundSize:'250% auto',
+              WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent'}}>
+            Charta Logica
+          </h1>
+          <div className="text-amber-600/70 text-base sm:text-lg tracking-widest mt-1 select-none">⸺⸺ ✦ ⸺⸺</div>
+          <p className="inline-block mt-2 px-3 py-1 rounded-full text-slate-100 text-[13px] sm:text-sm tracking-[0.06em] bg-black/45 border border-amber-700/40 shadow-[0_2px_10px_rgba(0,0,0,0.5)]"
+            style={CINZEL}>Jeu de cartes tactique · 2 joueurs</p>
+        </div>
+
+        <div className="flex flex-col gap-3 w-full max-w-[17rem] sm:w-64">
+          <MenuBtn onClick={onAI}     icon={<Bot   size={16}/>} color="#a78bfa" delay="0.05s">Solo vs IA</MenuBtn>
+          <MenuBtn onClick={onLocal}  icon={<Users size={16}/>} color="#60a5fa" delay="0.10s">Partie Locale</MenuBtn>
+          <MenuBtn onClick={onOnline} icon={<Wifi  size={16}/>} color="#c084fc" delay="0.15s">Partie en Ligne</MenuBtn>
+        </div>
       </div>
 
-      <div className="relative z-10 flex flex-col gap-3 w-full max-w-[17rem] sm:w-64">
-        <MenuBtn onClick={onAI}     icon={<Bot      size={16}/>} color="#a78bfa" delay="0.05s">Solo vs IA</MenuBtn>
-        <MenuBtn onClick={onLocal}  icon={<Users    size={16}/>} color="#60a5fa" delay="0.10s">Partie Locale</MenuBtn>
-        <MenuBtn onClick={onOnline} icon={<Wifi     size={16}/>} color="#c084fc" delay="0.15s">Partie en Ligne</MenuBtn>
-        <MenuBtn onClick={onDeckBuilder} icon={<Layers size={16}/>} color="#34d399" delay="0.20s">Deck Builder</MenuBtn>
+      <div className="relative z-10 w-full max-w-md flex items-stretch justify-around gap-1 pb-1">
+        <MenuIconBtn onClick={onDeckBuilder} icon={<Layers size={18}/>} label="Decks" color="#34d399" delay="0.20s"/>
         {user
-          ?<MenuBtn onClick={onBooster} icon={<Gift size={16}/>} color="#f472b6" delay="0.25s">Booster de Cartes</MenuBtn>
-          :<MenuBtn onClick={onAccount} icon={<Lock size={14}/>} color="#64748b" delay="0.25s">Booster (connexion requise)</MenuBtn>
+          ?<MenuIconBtn onClick={onBooster} icon={<Gift size={18}/>} label="Booster" color="#f472b6" delay="0.25s"/>
+          :<MenuIconBtn onClick={onAccount} icon={<Lock size={16}/>} label="Booster" color="#64748b" delay="0.25s"/>
         }
-        <MenuBtn onClick={onRules}  icon={<BookOpen size={16}/>} color="#fbbf24" delay="0.30s">Règles du jeu</MenuBtn>
-        <MenuBtn onClick={onAccount} icon={<UserCircle size={16}/>} color="#38bdf8" delay="0.35s">{user?(user.displayName||user.email):'Mon Compte'}</MenuBtn>
+        <MenuIconBtn onClick={onRules}   icon={<BookOpen size={18}/>}   label="Règles" color="#fbbf24" delay="0.30s"/>
+        <MenuIconBtn onClick={onAccount} icon={<UserCircle size={18}/>} label={user?'Compte':'Connexion'} color="#38bdf8" delay="0.35s" title={user?(user.displayName||user.email):undefined}/>
       </div>
     </div>
   )
 }
 function RulesScreen({onBack}){
   const S=[
-    ['🎴 Les cartes','8 valeurs (0–9) par carte. Deck = 6 cartes, total 150 pts (2 faibles 15–20, 2 moyennes 24–28, 2 fortes 32–42). Possibilité d\'ajouter une illustration via imageUrl.'],
-    ['🎲 Le plateau','Grille 5×5, coins bloqués. J1 (bleu) démarre en haut (lignes 1–2). J2 (rouge) en bas (lignes 4–5).'],
-    ['⚡ Actions / tour','1 Pose (dans sa zone), 2 Déplacements (diagonales OK), 1 Attaque (cardinal seulement). + Actions Pouvoir gratuites.'],
-    ['💥 Combat','Les valeurs des 3 faces qui se touchent perdent chacune 1 pt. Valeur à –1 = carte détruite.'],
-    ['🃏 Deck Pouvoir','12 cartes communes, max 3 pioches par joueur. Gratuit (hors actions normales). ⬆ Ampli : +1 sur carte alliée. ↩ Rappel : retour en main. ⟳ Rotation : rotation 90° des valeurs. ⊘ Barrage : bloque une case vide.'],
-    ['🤖 IA','En mode Solo, J2 est joué par l\'IA. Elle place, attaque, déplace et utilise les cartes pouvoir automatiquement.'],
-    ['🏆 Victoire','Plus aucune carte (main + plateau = 0) = défaite.'],
+    ['🎴 Les cartes','Chaque carte a un chiffre sur chacune de ses 8 faces (haut, bas, les côtés, et les diagonales). Votre deck compte 6 cartes : deux plutôt faibles, deux moyennes et deux très puissantes. Vous pouvez créer les vôtres dans le Deck Builder, avec vos propres chiffres et même votre propre image.'],
+    ['🎲 Le plateau','On joue sur une grille de 5 cases sur 5. Les 4 coins sont bloqués : personne ne peut y poser de carte. Vous démarrez en haut du plateau, votre adversaire en bas.'],
+    ['⚡ Pendant votre tour','À chaque tour, vous pouvez poser une carte depuis votre main dans votre camp, déplacer deux cartes déjà en jeu (les déplacements en diagonale sont autorisés), et attaquer une fois une carte adverse juste à côté de la vôtre (seulement en haut, en bas, à gauche ou à droite — pas en diagonale). Vos pouvoirs spéciaux sont gratuits et ne comptent pas dans ces actions.'],
+    ['💥 Le combat','Quand vous attaquez une carte voisine, vos deux cartes s\'affrontent sur les faces qui se touchent : chacune y perd 1 point. Si un chiffre tombe sous zéro, la carte est détruite.'],
+    ['🃏 Les pouvoirs','En plus de vos cartes classiques, vous disposez de pouvoirs gratuits, à utiliser quand vous le souhaitez : Amplification renforce une carte alliée, Rappel la ramène dans votre main, Rotation fait tourner ses chiffres, et Barrage bloque définitivement une case vide du plateau.'],
+    ['🤖 Face à l\'ordinateur','En mode Solo, votre adversaire est joué par une intelligence artificielle : elle pose, déplace, attaque et utilise ses pouvoirs toute seule.'],
+    ['🏆 Comment gagner','Dès qu\'un joueur n\'a plus aucune carte, ni en main ni sur le plateau, la partie s\'arrête et son adversaire remporte la victoire.'],
   ]
   return(
-    <div className="min-h-screen py-8 px-4 flex flex-col items-center overflow-y-auto"
-      style={{backgroundImage:'linear-gradient(rgba(6,6,10,0.32),rgba(6,6,10,0.32)),url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}>
-      <div className="max-w-lg w-full">
-        <button onClick={onBack} className="flex items-center gap-2 text-amber-400/80 hover:text-amber-300 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)] mb-6 transition-colors" style={CINZEL}><Home size={16}/> Menu</button>
-        <h2 className="text-3xl font-black mb-5" style={{...CINZEL_DEC,background:'linear-gradient(to bottom,#ffe566,#c9a020)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',filter:'drop-shadow(0 1px 10px rgba(0,0,0,1))'}}>Règles du jeu</h2>
-        {S.map(([t,d])=>(
-          <div key={t} className="rounded-xl p-4 mb-3 border border-amber-900/40" style={{background:'rgba(8,5,2,0.78)'}}>
-            <h3 className="text-amber-300 font-bold mb-1" style={CINZEL}>{t}</h3>
-            <p className="text-slate-300 text-sm leading-relaxed">{d}</p>
-          </div>
-        ))}
+    <div className="relative min-h-screen">
+      <div className="fixed inset-0" aria-hidden="true"
+        style={{backgroundImage:'linear-gradient(rgba(6,6,10,0.20),rgba(6,6,10,0.20)),url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}/>
+      <div className="relative scrollbar-hide min-h-screen overflow-y-auto py-8 px-4 flex flex-col items-center">
+        <div className="max-w-lg w-full">
+          <button onClick={onBack} className="flex items-center gap-2 text-amber-400/80 hover:text-amber-300 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)] mb-6 transition-colors" style={CINZEL}><Home size={16}/> Menu</button>
+          <h2 className="text-3xl font-black mb-5" style={{...CINZEL_DEC,background:'linear-gradient(to bottom,#ffe566,#c9a020)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',filter:'drop-shadow(0 1px 10px rgba(0,0,0,1))'}}>Règles du jeu</h2>
+          {S.map(([t,d])=>(
+            <div key={t} className="rounded-xl p-4 mb-3 border border-amber-900/40" style={{background:'rgba(8,5,2,0.78)'}}>
+              <h3 className="text-amber-300 font-bold mb-1" style={CINZEL}>{t}</h3>
+              <p className="text-slate-300 text-sm leading-relaxed">{d}</p>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   )
@@ -1384,7 +1407,7 @@ function DeckEditor({deck,onBack,onRename,onAddCard,onRemoveCard,onUpdateCard,on
   const[zoomedCard,setZoomedCard]=useState(null)
   return(
     <div className="min-h-screen py-8 px-4 flex flex-col items-center overflow-y-auto"
-      style={{backgroundImage:'linear-gradient(rgba(6,6,10,0.32),rgba(6,6,10,0.32)),url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}>
+      style={{backgroundImage:'linear-gradient(rgba(6,6,10,0.20),rgba(6,6,10,0.20)),url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}>
       <CardZoomOverlay card={zoomedCard} onClose={()=>setZoomedCard(null)}/>
       <div className="max-w-lg w-full">
         <button onClick={onBack} className="flex items-center gap-2 text-amber-400/80 hover:text-amber-300 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)] mb-4 transition-colors" style={CINZEL}><Home size={16}/> Decks</button>
@@ -1476,7 +1499,7 @@ function DeckBuilderScreen({onBack,user}){
 
   return(
     <div className="min-h-screen py-8 px-4 flex flex-col items-center overflow-y-auto"
-      style={{backgroundImage:'linear-gradient(rgba(6,6,10,0.32),rgba(6,6,10,0.32)),url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}>
+      style={{backgroundImage:'linear-gradient(rgba(6,6,10,0.20),rgba(6,6,10,0.20)),url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}>
       <div className="max-w-lg w-full">
         <button onClick={onBack} className="flex items-center gap-2 text-amber-400/80 hover:text-amber-300 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)] mb-6 transition-colors" style={CINZEL}><Home size={16}/> Menu</button>
         <h2 className="text-3xl font-black mb-1" style={{...CINZEL_DEC,background:'linear-gradient(to bottom,#ffe566,#c9a020)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',filter:'drop-shadow(0 1px 10px rgba(0,0,0,1))'}}>Deck Builder</h2>
@@ -1649,7 +1672,7 @@ function BoosterScreen({onBack,user}){
     setDecks(ds=>ds.map(d=>d.id===deckId?{...d,cards:[...d.cards,card]}:d))
   }
 
-  const bg={backgroundImage:'linear-gradient(rgba(6,6,10,0.32),rgba(6,6,10,0.32)),url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}
+  const bg={backgroundImage:'linear-gradient(rgba(6,6,10,0.20),rgba(6,6,10,0.20)),url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}
 
   if(!user)return(
     <div className="min-h-screen flex flex-col items-center justify-center gap-5 px-4" style={bg}>
@@ -1748,7 +1771,7 @@ function DeckSelectScreen({mode,onBack,onSelect}){
   const[decks]=useState(()=>loadDecks().filter(isDeckValid))
   return(
     <div className="min-h-screen py-8 px-4 flex flex-col items-center overflow-y-auto"
-      style={{backgroundImage:'linear-gradient(rgba(6,6,10,0.32),rgba(6,6,10,0.32)),url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}>
+      style={{backgroundImage:'linear-gradient(rgba(6,6,10,0.20),rgba(6,6,10,0.20)),url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}>
       <div className="max-w-lg w-full">
         <button onClick={onBack} className="flex items-center gap-2 text-amber-400/80 hover:text-amber-300 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)] mb-6 transition-colors" style={CINZEL}><Home size={16}/> Menu</button>
         <h2 className="text-3xl font-black mb-2" style={{...CINZEL_DEC,background:'linear-gradient(to bottom,#ffe566,#c9a020)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',filter:'drop-shadow(0 1px 10px rgba(0,0,0,1))'}}>Choisissez votre deck</h2>
@@ -1799,7 +1822,7 @@ function AccountScreen({onBack,user,stats}){
   const total=stats?.gamesPlayed||0
   return(
     <div className="min-h-screen py-8 px-4 flex flex-col items-center overflow-y-auto"
-      style={{backgroundImage:'linear-gradient(rgba(6,6,10,0.32),rgba(6,6,10,0.32)),url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}>
+      style={{backgroundImage:'linear-gradient(rgba(6,6,10,0.20),rgba(6,6,10,0.20)),url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}>
       <div className="max-w-sm w-full">
         <button onClick={onBack} className="flex items-center gap-2 text-amber-400/80 hover:text-amber-300 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)] mb-6 transition-colors" style={CINZEL}><Home size={16}/> Menu</button>
         <h2 className="text-3xl font-black mb-5" style={{...CINZEL_DEC,background:'linear-gradient(to bottom,#ffe566,#c9a020)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',filter:'drop-shadow(0 1px 10px rgba(0,0,0,1))'}}>Mon Compte</h2>
@@ -1925,7 +1948,7 @@ function OnlineLobbyScreen({onBack,onGameStart,deck}){
   function handleCancelMatchmaking(){stopMatchmaking();setMode(null)}
   function copyCode(){navigator.clipboard.writeText(code).then(()=>{setCopied(true);setTimeout(()=>setCopied(false),2000)})}
 
-  const bg={backgroundImage:'linear-gradient(rgba(6,6,10,0.32),rgba(6,6,10,0.32)),url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}
+  const bg={backgroundImage:'linear-gradient(rgba(6,6,10,0.20),rgba(6,6,10,0.20)),url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}
 
   if(waiting)return(
     <div className="min-h-screen flex flex-col items-center justify-center gap-6" style={bg}>
@@ -2033,7 +2056,7 @@ export default function App(){
   // ── Music ─────────────────────────────────────────────────────
   useEffect(()=>{
     if(screen==='game') startMusic(soundOn, false)
-    else if(['menu','rules','online','deckselect','account','booster'].includes(screen)) startMusic(soundOn, true)
+    else if(['menu','rules','online','deckselect','account','booster','deckbuilder'].includes(screen)) startMusic(soundOn, true)
     else stopMusic()
   },[screen,soundOn])
   useEffect(()=>()=>stopMusic(),[])
