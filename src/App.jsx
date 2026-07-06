@@ -813,14 +813,18 @@ const TIER_THEME={
   1:{weak:{border:'border-blue-700/70',bg:'from-blue-950 to-slate-900',glow:'',center:'text-blue-800 text-[8px]',sym:'·'},medium:{border:'border-blue-500',bg:'from-blue-900 to-blue-800',glow:'',center:'text-blue-500/50 text-[9px]',sym:'◆'},strong:{border:'border-cyan-300',bg:'from-blue-700 to-cyan-900',glow:'shadow-[0_0_14px_rgba(34,211,238,0.45)]',center:'text-cyan-300/70 text-sm',sym:'✦'}},
   2:{weak:{border:'border-red-800/70',bg:'from-red-950 to-slate-900',glow:'',center:'text-red-900 text-[8px]',sym:'·'},medium:{border:'border-red-500',bg:'from-red-900 to-red-800',glow:'',center:'text-red-500/50 text-[9px]',sym:'◆'},strong:{border:'border-orange-300',bg:'from-red-700 to-orange-900',glow:'shadow-[0_0_14px_rgba(251,146,60,0.45)]',center:'text-orange-300/70 text-sm',sym:'✦'}},
 }
-function CardFace({card,small=false,compact=false,draggable=false,onDragStart,onTouchStart,animClass='',isTarget=false}){
+function CardFace({card,small=false,compact=false,zoom=false,draggable=false,onDragStart,onTouchStart,onClick,animClass='',isTarget=false}){
   const tier=cardTier(card),theme=TIER_THEME[card.owner][tier]
-  const sz=small
-    ?(compact?'w-[58px] h-[58px]':'w-[80px] h-[80px]')
-    :(compact?'w-[64px] h-[64px]':'w-[118px] h-[118px]')
-  const fs=small
-    ?(compact?'text-[9px]':'text-[12px]')
-    :(compact?'text-[9px]':'text-[15px]')
+  const sz=zoom
+    ?'w-[88vw] h-[88vw] max-w-[420px] max-h-[420px]'
+    :small
+      ?(compact?'w-[58px] h-[58px]':'w-[80px] h-[80px]')
+      :(compact?'w-[64px] h-[64px]':'w-[118px] h-[118px]')
+  const fs=zoom
+    ?'text-[34px]'
+    :small
+      ?(compact?'text-[9px]':'text-[12px]')
+      :(compact?'text-[9px]':'text-[15px]')
   const hasImg=!!card.imageUrl
   // Colored outer glow distinguishes players even with full-opacity images
   const playerGlow=card.owner===1
@@ -830,9 +834,10 @@ function CardFace({card,small=false,compact=false,draggable=false,onDragStart,on
     ?tier==='strong'?'hover:shadow-[0_0_32px_rgba(34,211,238,0.8)]':tier==='medium'?'hover:shadow-[0_0_28px_rgba(59,130,246,0.75)]':'hover:shadow-[0_0_24px_rgba(30,64,175,0.65)]'
     :tier==='strong'?'hover:shadow-[0_0_32px_rgba(251,146,60,0.8)]':tier==='medium'?'hover:shadow-[0_0_28px_rgba(239,68,68,0.75)]':'hover:shadow-[0_0_24px_rgba(127,29,29,0.65)]'
   return(
-    <div draggable={draggable} onDragStart={draggable?onDragStart:undefined} onTouchStart={onTouchStart}
+    <div draggable={draggable} onDragStart={draggable?onDragStart:undefined} onTouchStart={onTouchStart} onClick={onClick}
       className={`${sz} border-2 ${theme.border} ${hasImg?playerGlow:theme.glow} rounded-xl bg-gradient-to-br ${hasImg?'':theme.bg} relative select-none overflow-hidden transition-all duration-200
         ${draggable?`cursor-grab active:cursor-grabbing active:scale-95 hover:scale-125 hover:brightness-110 hover:-translate-y-1 ${hoverGlow}`:''}
+        ${onClick&&!draggable?'cursor-zoom-in':''}
         ${isTarget?'target-pulse ring-2 ring-yellow-400 ring-offset-1 ring-offset-slate-900 cursor-pointer brightness-110':''}
         ${animClass}`}>
       {hasImg&&<img src={card.imageUrl} alt="" className="absolute inset-0 w-full h-full object-cover"/>}
@@ -851,7 +856,7 @@ function CardFace({card,small=false,compact=false,draggable=false,onDragStart,on
           </div>
         )))}
       </div>
-      <div className={`absolute bottom-0.5 right-1 text-[9px] font-bold opacity-50 ${card.owner===1?'text-blue-200':'text-red-200'}`}>{card.total}</div>
+      <div className={`absolute bottom-0.5 right-1 ${zoom?'text-sm bottom-2 right-3':'text-[9px]'} font-bold opacity-50 ${card.owner===1?'text-blue-200':'text-red-200'}`}>{card.total}</div>
     </div>
   )
 }
@@ -859,7 +864,7 @@ function CardFace({card,small=false,compact=false,draggable=false,onDragStart,on
 // ═══════════════════════════════════════════════════════════════════════════════
 //  BOARD CELL
 // ═══════════════════════════════════════════════════════════════════════════════
-function Cell({r,c,card,currentPlayer,actionsLeft,onDragStart,onDrop,onCellClick,animKey,ghost,violent,targeting,game,onBoardTouchStart,compact=false}){
+function Cell({r,c,card,currentPlayer,actionsLeft,onDragStart,onDrop,onCellClick,onZoom,animKey,ghost,violent,targeting,game,onBoardTouchStart,compact=false}){
   const[over,setOver]=useState(false)
   const corner=isCorner(r,c),dynBlocked=isDynBlock(game,r,c),blocked=corner||dynBlocked
   const validTarget=targeting?isValidPowerTarget(game,targeting,currentPlayer,r,c):false
@@ -883,7 +888,7 @@ function Cell({r,c,card,currentPlayer,actionsLeft,onDragStart,onDrop,onCellClick
       {corner&&<span className="text-slate-600/60 text-base select-none">✕</span>}
       {dynBlocked&&<span className="text-rose-700/70 text-3xl select-none" title="Bloqué">⊘</span>}
       {!blocked&&ghost&&<CardFace card={ghost.card} small compact={compact} animClass={ghost.anim}/>}
-      {!blocked&&!ghost&&card&&<CardFace card={card} small compact={compact} draggable={canDrag} onDragStart={e=>onDragStart(e,'board',r,c)} onTouchStart={canDrag?e=>onBoardTouchStart(e,'board',r,c):undefined} animClass={animKey} isTarget={targeting&&validTarget&&!!card}/>}
+      {!blocked&&!ghost&&card&&<CardFace card={card} small compact={compact} draggable={canDrag} onDragStart={e=>onDragStart(e,'board',r,c)} onTouchStart={canDrag?e=>onBoardTouchStart(e,'board',r,c):undefined} onClick={!targeting?e=>{e.stopPropagation();onZoom(card)}:undefined} animClass={animKey} isTarget={targeting&&validTarget&&!!card}/>}
       {violent&&<div className="absolute inset-0 anim-kill-flash pointer-events-none"/>}
     </div>
   )
@@ -944,6 +949,7 @@ function PowerBar({game,isMyTurn,targeting,onActivatePower,onCancelTargeting,com
 // ═══════════════════════════════════════════════════════════════════════════════
 function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,onPowerAction,onSurrender,lastAnim}){
   const[drag,setDrag]=useState(null)
+  const[zoomedCard,setZoomedCard]=useState(null)
   const[anims,setAnims]=useState({})
   const[ghosts,setGhosts]=useState({})
   const[violentKeys,setViolentKeys]=useState({})
@@ -1100,7 +1106,7 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
         <div className={`game-hand-cards flex ${compact?'gap-1.5':'gap-3'} justify-center flex-wrap`}>
           {(players[player]?.hand??[]).map((card,i)=>(
             <div key={card.id} className="anim-idle" style={{animationDelay:`${i*0.18}s`}}>
-              <CardFace card={card} compact={compact} draggable={canDrag} onDragStart={e=>handleDragStart(e,'hand',i,player)} onTouchStart={canDrag?e=>handleTouchStart(e,'hand',i,player):undefined}/>
+              <CardFace card={card} compact={compact} draggable={canDrag} onDragStart={e=>handleDragStart(e,'hand',i,player)} onTouchStart={canDrag?e=>handleTouchStart(e,'hand',i,player):undefined} onClick={e=>{e.stopPropagation();setZoomedCard(card)}}/>
             </div>
           ))}
           {!(players[player]?.hand?.length)&&<span className={`text-slate-600 text-xs ${compact?'w-[64px] py-3':'w-[142px] py-8'} text-center`}>vide</span>}
@@ -1111,6 +1117,7 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
 
   return(
     <div className="game-outer min-h-screen bg-gradient-to-br from-slate-900 via-slate-900 to-slate-800 overflow-y-auto relative">
+      <CardZoomOverlay card={zoomedCard} onClose={()=>setZoomedCard(null)} renderCard={c=><CardFace card={c} zoom/>}/>
       <button onClick={onHome} className="absolute top-3 left-3 z-10 text-slate-500 hover:text-white transition-colors"><Home size={18}/></button>
       <div className={`game-inner flex flex-col items-center ${compact?'gap-2 py-2':'gap-3 py-4'} px-2`} style={{zoom:gameScale,transformOrigin:'top center'}}>
 
@@ -1128,7 +1135,7 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
             style={{backgroundImage:'url(/images/plateau.png)',backgroundSize:'cover',backgroundPosition:'center'}}>
             {board.map((row,r)=>row.map((cell,c)=>(
               <Cell key={`${r}-${c}`} r={r} c={c} card={cell} currentPlayer={currentPlayer} actionsLeft={actionsLeft}
-                onDragStart={handleDragStart} onDrop={handleDrop} onCellClick={handleCellClick}
+                onDragStart={handleDragStart} onDrop={handleDrop} onCellClick={handleCellClick} onZoom={setZoomedCard}
                 animKey={anims[`${r},${c}`]||''} ghost={ghosts[`${r},${c}`]} violent={!!violentKeys[`${r},${c}`]}
                 targeting={targeting} game={game} onBoardTouchStart={handleTouchStart} compact={compact}/>
             )))}
@@ -1268,7 +1275,8 @@ function MenuScreen({onLocal,onAI,onOnline,onRules,onDeckBuilder,onAccount,onBoo
         </div>
       </div>
 
-      <div className="relative z-10 w-full max-w-md flex items-stretch justify-around gap-1 pb-1">
+      <div className="relative z-10 w-full max-w-md flex items-stretch justify-around gap-1 mb-1 px-2 py-2 rounded-2xl border border-amber-900/50"
+        style={{background:'linear-gradient(135deg,rgba(10,7,3,0.85),rgba(20,13,5,0.82))', boxShadow:'0 4px 20px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.05)'}}>
         <MenuIconBtn onClick={onDeckBuilder} icon={<Layers size={18}/>} label="Decks" color="#34d399" delay="0.20s"/>
         {user
           ?<MenuIconBtn onClick={onBooster} icon={<Gift size={18}/>} label="Booster" color="#f472b6" delay="0.25s"/>
@@ -1467,23 +1475,24 @@ function DeckBuilderScreen({onBack,user}){
   const editing=decks.find(d=>d.id===editingId)
 
   function createDeck(){
-    const d={id:`d-${Date.now()}`,name:`Deck ${decks.length+1}`,cards:[],isDefault:false}
+    const d={id:`d-${Date.now()}`,name:`Deck ${decks.length+1}`,cards:[],isDefault:false,updatedAt:Date.now()}
     setDecks(p=>[...p,d]);setEditingId(d.id)
   }
   function deleteDeck(id){setDecks(p=>p.filter(d=>d.id!==id))}
-  function setDefault(id){setDecks(p=>p.map(d=>({...d,isDefault:d.id===id})))}
-  function renameDeck(id,name){setDecks(p=>p.map(d=>d.id===id?{...d,name}:d))}
-  function addCard(id){setDecks(p=>p.map(d=>d.id===id&&d.cards.length<DECK_MAX_CARDS?{...d,cards:[...d.cards,newCustomCard()]}:d))}
-  function removeCard(id,cardId){setDecks(p=>p.map(d=>d.id===id?{...d,cards:d.cards.filter(c=>c.id!==cardId)}:d))}
-  function updateCard(id,cardId,patch){setDecks(p=>p.map(d=>d.id===id?{...d,cards:d.cards.map(c=>c.id===cardId?{...c,...patch}:c)}:d))}
+  function setDefault(id){setDecks(p=>p.map(d=>({...d,isDefault:d.id===id,updatedAt:Date.now()})))}
+  function renameDeck(id,name){setDecks(p=>p.map(d=>d.id===id?{...d,name,updatedAt:Date.now()}:d))}
+  function addCard(id){setDecks(p=>p.map(d=>d.id===id&&d.cards.length<DECK_MAX_CARDS?{...d,cards:[...d.cards,newCustomCard()],updatedAt:Date.now()}:d))}
+  function removeCard(id,cardId){setDecks(p=>p.map(d=>d.id===id?{...d,cards:d.cards.filter(c=>c.id!==cardId),updatedAt:Date.now()}:d))}
+  function updateCard(id,cardId,patch){setDecks(p=>p.map(d=>d.id===id?{...d,cards:d.cards.map(c=>c.id===cardId?{...c,...patch}:c),updatedAt:Date.now()}:d))}
   function moveCardToDeck(fromId,cardId,toId){
     setDecks(p=>{
       const from=p.find(d=>d.id===fromId);const card=from?.cards.find(c=>c.id===cardId)
       const to=p.find(d=>d.id===toId)
       if(!card||!to||to.cards.length>=DECK_MAX_CARDS)return p
+      const now=Date.now()
       return p.map(d=>{
-        if(d.id===fromId)return{...d,cards:d.cards.filter(c=>c.id!==cardId)}
-        if(d.id===toId)return{...d,cards:[...d.cards,card]}
+        if(d.id===fromId)return{...d,cards:d.cards.filter(c=>c.id!==cardId),updatedAt:now}
+        if(d.id===toId)return{...d,cards:[...d.cards,card],updatedAt:now}
         return d
       })
     })
@@ -1570,7 +1579,7 @@ function BoosterCardFace({card,animate=false,revealed=true,size='normal',onClick
     </div>
   )
 }
-function CardZoomOverlay({card,onClose}){
+function CardZoomOverlay({card,onClose,renderCard}){
   if(!card)return null
   return(
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm" onClick={onClose}>
@@ -1578,7 +1587,7 @@ function CardZoomOverlay({card,onClose}){
         <div className="relative flex items-center justify-center zoom-card-perspective">
           <div className="absolute inset-0 m-auto zoom-aura rounded-full pointer-events-none" style={{width:'135%',height:'135%'}}/>
           <div className="zoom-card-idle">
-            <BoosterCardFace card={card} size='large'/>
+            {renderCard?renderCard(card):<BoosterCardFace card={card} size='large'/>}
           </div>
         </div>
         <span className="text-slate-400 text-xs">Appuyer pour fermer</span>
@@ -1595,7 +1604,14 @@ function formatDuration(ms){
 function mergeById(localList,cloudList){
   const map=new Map()
   ;(cloudList||[]).forEach(item=>map.set(item.id,item))
-  ;(localList||[]).forEach(item=>{if(!map.has(item.id))map.set(item.id,item)})
+  // On a collision, keep whichever side was actually edited more recently instead of
+  // always trusting the cloud — otherwise a cloud snapshot that's merely OLDER (e.g.
+  // synced just before this device's last edit went out) permanently wipes that edit,
+  // which is exactly how a freshly added custom card image could vanish.
+  ;(localList||[]).forEach(item=>{
+    const existing=map.get(item.id)
+    if(!existing||(item.updatedAt||0)>(existing.updatedAt||0))map.set(item.id,item)
+  })
   return Array.from(map.values())
 }
 function BoosterScreen({onBack,user}){
@@ -1669,7 +1685,7 @@ function BoosterScreen({onBack,user}){
     const card=collection.find(c=>c.id===cardId);if(!card)return
     const deck=decks.find(d=>d.id===deckId);if(!deck||deck.cards.length>=DECK_MAX_CARDS)return
     setCollection(c=>c.filter(x=>x.id!==cardId))
-    setDecks(ds=>ds.map(d=>d.id===deckId?{...d,cards:[...d.cards,card]}:d))
+    setDecks(ds=>ds.map(d=>d.id===deckId?{...d,cards:[...d.cards,card],updatedAt:Date.now()}:d))
   }
 
   const bg={backgroundImage:'linear-gradient(rgba(6,6,10,0.20),rgba(6,6,10,0.20)),url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}
