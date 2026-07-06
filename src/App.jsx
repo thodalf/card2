@@ -79,6 +79,7 @@ function genDeck(owner) {
 const DECKS_KEY='tacticalcards_decks'
 const DECK_MAX_POINTS=150
 const CARD_MAX_POINTS=40
+const DECK_MAX_CARDS=10
 const FACE_KEYS=['topLeft','top','topRight','left','right','bottomLeft','bottom','bottomRight']
 
 function loadDecks(){
@@ -110,6 +111,7 @@ function deckTotalPts(deck){
 }
 function isDeckValid(deck){
   if(!deck||!deck.cards||deck.cards.length===0)return false
+  if(deck.cards.length>DECK_MAX_CARDS)return false
   // Booster-sourced cards (c.rarity set) are exempt from the per-card cap — that's
   // the whole point of a rare pull. The deck total cap still keeps things balanced.
   if(deck.cards.some(c=>!c.rarity&&customCardPts(c)>CARD_MAX_POINTS))return false
@@ -845,7 +847,7 @@ function CardFace({card,small=false,compact=false,draggable=false,onDragStart,on
 // ═══════════════════════════════════════════════════════════════════════════════
 //  BOARD CELL
 // ═══════════════════════════════════════════════════════════════════════════════
-function Cell({r,c,card,currentPlayer,actionsLeft,onDragStart,onDrop,onCellClick,animKey,targeting,game,onBoardTouchStart,compact=false}){
+function Cell({r,c,card,currentPlayer,actionsLeft,onDragStart,onDrop,onCellClick,animKey,ghost,violent,targeting,game,onBoardTouchStart,compact=false}){
   const[over,setOver]=useState(false)
   const corner=isCorner(r,c),dynBlocked=isDynBlock(game,r,c),blocked=corner||dynBlocked
   const validTarget=targeting?isValidPowerTarget(game,targeting,currentPlayer,r,c):false
@@ -859,7 +861,7 @@ function Cell({r,c,card,currentPlayer,actionsLeft,onDragStart,onDrop,onCellClick
   const cellSz=compact?'w-[68px] h-[68px]':'w-[90px] h-[90px]'
   return(
     <div data-cell={`${r},${c}`}
-      className={`${cellSz} rounded-xl border-2 ${borderColor} ${bg} flex items-center justify-center relative transition-all duration-100 overflow-hidden ${targeting&&validTarget?'cursor-pointer':''}`}
+      className={`${cellSz} rounded-xl border-2 ${borderColor} ${bg} flex items-center justify-center relative transition-all duration-100 overflow-hidden ${targeting&&validTarget?'cursor-pointer':''} ${violent?'anim-kill-shake':''}`}
       onDragOver={!blocked&&!targeting?e=>{e.preventDefault();setOver(true)}:undefined}
       onDragLeave={!blocked&&!targeting?()=>setOver(false):undefined}
       onDrop={!blocked&&!targeting?e=>{e.preventDefault();setOver(false);onDrop(e,r,c)}:undefined}
@@ -868,7 +870,9 @@ function Cell({r,c,card,currentPlayer,actionsLeft,onDragStart,onDrop,onCellClick
       onClick={targeting&&validTarget?()=>onCellClick(r,c):undefined}>
       {corner&&<span className="text-slate-600/60 text-base select-none">✕</span>}
       {dynBlocked&&<span className="text-rose-700/70 text-3xl select-none" title="Bloqué">⊘</span>}
-      {!blocked&&card&&<CardFace card={card} small compact={compact} draggable={canDrag} onDragStart={e=>onDragStart(e,'board',r,c)} onTouchStart={canDrag?e=>onBoardTouchStart(e,'board',r,c):undefined} animClass={animKey} isTarget={targeting&&validTarget&&!!card}/>}
+      {!blocked&&ghost&&<CardFace card={ghost.card} small compact={compact} animClass={ghost.anim}/>}
+      {!blocked&&!ghost&&card&&<CardFace card={card} small compact={compact} draggable={canDrag} onDragStart={e=>onDragStart(e,'board',r,c)} onTouchStart={canDrag?e=>onBoardTouchStart(e,'board',r,c):undefined} animClass={animKey} isTarget={targeting&&validTarget&&!!card}/>}
+      {violent&&<div className="absolute inset-0 anim-kill-flash pointer-events-none"/>}
     </div>
   )
 }
@@ -926,9 +930,11 @@ function PowerBar({game,isMyTurn,targeting,onActivatePower,onCancelTargeting,com
 // ═══════════════════════════════════════════════════════════════════════════════
 //  GAME SCREEN
 // ═══════════════════════════════════════════════════════════════════════════════
-function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,onPowerAction,onSurrender}){
+function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,onPowerAction,onSurrender,lastAnim}){
   const[drag,setDrag]=useState(null)
   const[anims,setAnims]=useState({})
+  const[ghosts,setGhosts]=useState({})
+  const[violentKeys,setViolentKeys]=useState({})
   const[targeting,setTargeting]=useState(null)
   const[confirmSurrender,setConfirmSurrender]=useState(false)
   const[gameScale,setGameScale]=useState(1)
@@ -961,6 +967,28 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
   function triggerAnim(r,c,cls,dur=420){
     const key=`${r},${c}`;setAnims(p=>({...p,[key]:cls}));setTimeout(()=>setAnims(p=>{const n={...p};delete n[key];return n}),dur)
   }
+  // Central animation pipeline — driven by the parent, covers both human and AI actions.
+  // Cards that die are rendered as a "ghost" snapshot since the board already nulled them out.
+  useEffect(()=>{
+    if(!lastAnim)return
+    const timers=[]
+    lastAnim.cells.forEach(({r,c,ghost,anim,dur})=>{
+      const key=`${r},${c}`
+      if(ghost){
+        setGhosts(p=>({...p,[key]:{card:ghost,anim}}))
+        timers.push(setTimeout(()=>setGhosts(p=>{const n={...p};delete n[key];return n}),dur))
+      }else{
+        setAnims(p=>({...p,[key]:anim}))
+        timers.push(setTimeout(()=>setAnims(p=>{const n={...p};delete n[key];return n}),dur))
+      }
+    })
+    if(lastAnim.violent){
+      const keys=lastAnim.cells.filter(c=>c.ghost).map(c=>`${c.r},${c.c}`)
+      setViolentKeys(p=>{const n={...p};keys.forEach(k=>n[k]=true);return n})
+      timers.push(setTimeout(()=>setViolentKeys(p=>{const n={...p};keys.forEach(k=>delete n[k]);return n}),700))
+    }
+    return()=>timers.forEach(clearTimeout)
+  },[lastAnim])
   function handleDragStart(e,from,...args){
     if(targeting)return
     e.dataTransfer.effectAllowed='move'
@@ -975,9 +1003,7 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
   }
   function handleDrop(e,r,c){
     if(!drag||targeting)return
-    const result=onAction({drag,targetR:r,targetC:c})
-    if(result?.anim)triggerAnim(r,c,result.anim,result.anim==='anim-destroy'?650:420)
-    if(result?.animSrc)triggerAnim(result.animSrc[0],result.animSrc[1],'anim-attack',350)
+    onAction({drag,targetR:r,targetC:c})
     setDrag(null)
   }
   function handleCellClick(r,c){
@@ -987,7 +1013,6 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
   }
   // keep cbRef fresh every render (used by document touch listeners)
   cbRef.current.onAction=onAction
-  cbRef.current.triggerAnim=triggerAnim
 
   function handleTouchStart(e,from,...args){
     if(targetingRef_.current)return
@@ -1035,9 +1060,7 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
       const cellEl=el?.closest('[data-cell]')
       if(cellEl&&drag){
         const[rv,cv]=cellEl.dataset.cell.split(',').map(Number)
-        const result=cbRef.current.onAction({drag,targetR:rv,targetC:cv})
-        if(result?.anim)cbRef.current.triggerAnim(rv,cv,result.anim,result.anim==='anim-destroy'?650:420)
-        if(result?.animSrc)cbRef.current.triggerAnim(result.animSrc[0],result.animSrc[1],'anim-attack',350)
+        cbRef.current.onAction({drag,targetR:rv,targetC:cv})
       }
       setDrag(null)
     }
@@ -1094,7 +1117,8 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
             {board.map((row,r)=>row.map((cell,c)=>(
               <Cell key={`${r}-${c}`} r={r} c={c} card={cell} currentPlayer={currentPlayer} actionsLeft={actionsLeft}
                 onDragStart={handleDragStart} onDrop={handleDrop} onCellClick={handleCellClick}
-                animKey={anims[`${r},${c}`]||''} targeting={targeting} game={game} onBoardTouchStart={handleTouchStart} compact={compact}/>
+                animKey={anims[`${r},${c}`]||''} ghost={ghosts[`${r},${c}`]} violent={!!violentKeys[`${r},${c}`]}
+                targeting={targeting} game={game} onBoardTouchStart={handleTouchStart} compact={compact}/>
             )))}
           </div>
           <PowerBar game={game} isMyTurn={isMyTurn} targeting={targeting} onActivatePower={type=>setTargeting(type)} onCancelTargeting={()=>setTargeting(null)} compact={compact}/>
@@ -1234,8 +1258,10 @@ function RulesScreen({onBack}){
 // ═══════════════════════════════════════════════════════════════════════════════
 //  DECK BUILDER SCREEN
 // ═══════════════════════════════════════════════════════════════════════════════
-function CardEditor({card,onUpdate,onRemove,otherDecks,onMoveCard}){
-  const pts=customCardPts(card),over=pts>CARD_MAX_POINTS
+function CardEditor({card,onUpdate,onRemove,otherDecks,onMoveCard,onZoom}){
+  const isBooster=!!card.rarity
+  const pts=customCardPts(card),over=!isBooster&&pts>CARD_MAX_POINTS
+  const rarityTheme=isBooster?RARITY_THEME[card.rarity]:null
   function setVal(key,v){
     const n=Math.max(0,Math.min(9,Number(v)||0))
     onUpdate({values:{...card.values,[key]:n}})
@@ -1249,41 +1275,55 @@ function CardEditor({card,onUpdate,onRemove,otherDecks,onMoveCard}){
   return(
     <div className={`rounded-xl p-3 border ${over?'border-red-600':'border-amber-900/40'}`} style={{background:'rgba(8,5,2,0.78)'}}>
       <div className="flex gap-4">
-        <div className="w-[150px] h-[150px] shrink-0 rounded-lg border-2 border-amber-800/50 overflow-hidden relative bg-slate-800">
+        <div onClick={()=>onZoom?.(card)}
+          className="w-[150px] h-[150px] shrink-0 rounded-lg border-2 border-amber-800/50 overflow-hidden relative bg-slate-800 cursor-zoom-in">
           <img src={card.imageUrl||DEFAULT_CARD_IMAGE} alt="" className="absolute inset-0 w-full h-full object-cover"/>
           <div className="absolute inset-0 bg-black/25"/>
           <div className="absolute inset-0 grid grid-cols-3 grid-rows-3 gap-0.5 p-1">
             {GRID_KEYS.map((row,ri)=>row.map((key,ci)=>(
               <div key={`${ri}-${ci}`} className="flex items-center justify-center">
-                {key&&<input type="number" min={0} max={9} value={card.values[key]}
-                  onChange={e=>setVal(key,e.target.value)}
-                  className="w-9 h-8 text-center text-base bg-black/60 text-white font-bold rounded-md outline-none border border-amber-800/40 focus:ring-2 focus:ring-amber-400" style={{padding:0}}/>}
+                {key&&(isBooster
+                  ?<span className="w-9 h-8 flex items-center justify-center text-base bg-black/60 text-white font-bold rounded-md border border-amber-800/40">{card.values[key]}</span>
+                  :<input type="number" min={0} max={9} value={card.values[key]}
+                    onClick={e=>e.stopPropagation()}
+                    onChange={e=>setVal(key,e.target.value)}
+                    className="w-9 h-8 text-center text-base bg-black/60 text-white font-bold rounded-md outline-none border border-amber-800/40 focus:ring-2 focus:ring-amber-400" style={{padding:0}}/>)}
               </div>
             )))}
           </div>
         </div>
         <div className="flex-1 flex flex-col gap-2 min-w-0">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <span className={`text-sm font-bold ${over?'text-red-400':'text-amber-300'}`}>{pts} / {CARD_MAX_POINTS} pts</span>
             {over&&<span className="text-red-400 text-xs">Trop élevée !</span>}
+            {isBooster&&<span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{color:rarityTheme.color,background:'rgba(0,0,0,0.4)'}}>{rarityTheme.label}</span>}
           </div>
-          <MedBtn as="label" color="#60a5fa" icon={<ImagePlus size={14}/>} className="w-fit">
-            Image de fond
-            <input type="file" accept="image/*" onChange={handleFile} className="hidden"/>
-          </MedBtn>
-          <input type="text" placeholder="...ou URL d'image" value={card.imageUrl&&!card.imageUrl.startsWith('data:')?card.imageUrl:''}
-            onChange={e=>onUpdate({imageUrl:e.target.value||null})}
-            className="bg-slate-800 text-slate-200 text-xs border border-slate-700 rounded px-2 py-1.5 outline-none focus:border-amber-500"/>
+          {isBooster?(
+            <p className="text-slate-500 text-[11px] flex items-center gap-1"><Lock size={11}/> Carte de booster : valeurs et image fixes.</p>
+          ):(
+            <>
+              <MedBtn as="label" color="#60a5fa" icon={<ImagePlus size={14}/>} className="w-fit">
+                Image de fond
+                <input type="file" accept="image/*" onChange={handleFile} className="hidden"/>
+              </MedBtn>
+              <input type="text" placeholder="...ou URL d'image" value={card.imageUrl&&!card.imageUrl.startsWith('data:')?card.imageUrl:''}
+                onChange={e=>onUpdate({imageUrl:e.target.value||null})}
+                className="bg-slate-800 text-slate-200 text-xs border border-slate-700 rounded px-2 py-1.5 outline-none focus:border-amber-500"/>
+            </>
+          )}
           <MedBtn onClick={onRemove} color="#ef4444" icon={<Trash2 size={13}/>} className="w-fit mt-auto">Supprimer la carte</MedBtn>
           {otherDecks&&otherDecks.length>0&&(
             <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-slate-700/50">
               <span className="text-slate-400 text-[11px] flex items-center gap-1"><ArrowRightLeft size={11}/> Déplacer vers :</span>
-              {otherDecks.map(d=>(
-                <button key={d.id} onClick={()=>onMoveCard(d.id)}
-                  className="text-[11px] px-2 py-0.5 rounded-md border border-slate-600 text-slate-300 hover:border-amber-500 hover:text-amber-300 transition-colors">
-                  {d.name}
-                </button>
-              ))}
+              {otherDecks.map(d=>{
+                const full=d.cardCount>=DECK_MAX_CARDS
+                return(
+                  <button key={d.id} onClick={()=>!full&&onMoveCard(d.id)} disabled={full} title={full?`Deck complet (${DECK_MAX_CARDS} max)`:undefined}
+                    className={`text-[11px] px-2 py-0.5 rounded-md border transition-colors ${full?'border-slate-700 text-slate-600 cursor-not-allowed':'border-slate-600 text-slate-300 hover:border-amber-500 hover:text-amber-300'}`}>
+                    {d.name}{full?' (plein)':''}
+                  </button>
+                )
+              })}
             </div>
           )}
         </div>
@@ -1293,15 +1333,19 @@ function CardEditor({card,onUpdate,onRemove,otherDecks,onMoveCard}){
 }
 function DeckEditor({deck,onBack,onRename,onAddCard,onRemoveCard,onUpdateCard,onSetDefault,otherDecks,onMoveCard}){
   const total=deckTotalPts(deck),overTotal=total>DECK_MAX_POINTS,valid=isDeckValid(deck)
+  const atMaxCards=deck.cards.length>=DECK_MAX_CARDS
+  const[zoomedCard,setZoomedCard]=useState(null)
   return(
     <div className="min-h-screen py-8 px-4 flex flex-col items-center overflow-y-auto"
       style={{backgroundImage:'linear-gradient(rgba(6,6,10,0.32),rgba(6,6,10,0.32)),url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}>
+      <CardZoomOverlay card={zoomedCard} onClose={()=>setZoomedCard(null)}/>
       <div className="max-w-lg w-full">
         <button onClick={onBack} className="flex items-center gap-2 text-amber-400/80 hover:text-amber-300 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)] mb-4 transition-colors" style={CINZEL}><Home size={16}/> Decks</button>
         <input value={deck.name} onChange={e=>onRename(e.target.value)}
           className="text-2xl font-black bg-transparent border-b border-amber-700/40 text-amber-200 outline-none focus:border-amber-400 mb-2 w-full" style={CINZEL_DEC}/>
         <div className="flex items-center gap-3 mb-4 flex-wrap">
           <span className={`text-sm font-bold ${overTotal?'text-red-400':'text-amber-300'}`}>{total} / {DECK_MAX_POINTS} pts</span>
+          <span className={`text-sm font-bold ${atMaxCards?'text-amber-400':'text-slate-400'}`}>{deck.cards.length} / {DECK_MAX_CARDS} cartes</span>
           <MedBtn onClick={onSetDefault} disabled={!valid} color={deck.isDefault?'#fbbf24':'#71717a'}
             icon={<Star size={13} fill={deck.isDefault?'currentColor':'none'}/>}>
             {deck.isDefault?'Deck par défaut':'Définir par défaut'}
@@ -1318,11 +1362,13 @@ function DeckEditor({deck,onBack,onRename,onAddCard,onRemoveCard,onUpdateCard,on
         <div className="flex flex-col gap-3 mb-4">
           {deck.cards.map(c=>(
             <CardEditor key={c.id} card={c} onUpdate={patch=>onUpdateCard(c.id,patch)} onRemove={()=>onRemoveCard(c.id)}
-              otherDecks={otherDecks} onMoveCard={toDeckId=>onMoveCard(c.id,toDeckId)}/>
+              otherDecks={otherDecks} onMoveCard={toDeckId=>onMoveCard(c.id,toDeckId)} onZoom={setZoomedCard}/>
           ))}
           {deck.cards.length===0&&<p className="text-slate-300 text-sm text-center py-6 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">Aucune carte. Ajoutez-en une.</p>}
         </div>
-        <MedBtn onClick={onAddCard} color="#34d399" icon={<Plus size={16}/>} className="w-full">Ajouter une carte</MedBtn>
+        <MedBtn onClick={onAddCard} disabled={atMaxCards} color="#34d399" icon={<Plus size={16}/>} className="w-full">
+          {atMaxCards?`Deck complet (${DECK_MAX_CARDS} max)`:'Ajouter une carte'}
+        </MedBtn>
       </div>
     </div>
   )
@@ -1354,13 +1400,14 @@ function DeckBuilderScreen({onBack,user}){
   function deleteDeck(id){setDecks(p=>p.filter(d=>d.id!==id))}
   function setDefault(id){setDecks(p=>p.map(d=>({...d,isDefault:d.id===id})))}
   function renameDeck(id,name){setDecks(p=>p.map(d=>d.id===id?{...d,name}:d))}
-  function addCard(id){setDecks(p=>p.map(d=>d.id===id?{...d,cards:[...d.cards,newCustomCard()]}:d))}
+  function addCard(id){setDecks(p=>p.map(d=>d.id===id&&d.cards.length<DECK_MAX_CARDS?{...d,cards:[...d.cards,newCustomCard()]}:d))}
   function removeCard(id,cardId){setDecks(p=>p.map(d=>d.id===id?{...d,cards:d.cards.filter(c=>c.id!==cardId)}:d))}
   function updateCard(id,cardId,patch){setDecks(p=>p.map(d=>d.id===id?{...d,cards:d.cards.map(c=>c.id===cardId?{...c,...patch}:c)}:d))}
   function moveCardToDeck(fromId,cardId,toId){
     setDecks(p=>{
       const from=p.find(d=>d.id===fromId);const card=from?.cards.find(c=>c.id===cardId)
-      if(!card)return p
+      const to=p.find(d=>d.id===toId)
+      if(!card||!to||to.cards.length>=DECK_MAX_CARDS)return p
       return p.map(d=>{
         if(d.id===fromId)return{...d,cards:d.cards.filter(c=>c.id!==cardId)}
         if(d.id===toId)return{...d,cards:[...d.cards,card]}
@@ -1373,7 +1420,7 @@ function DeckBuilderScreen({onBack,user}){
     <DeckEditor deck={editing} onBack={()=>setEditingId(null)} onRename={n=>renameDeck(editing.id,n)}
       onAddCard={()=>addCard(editing.id)} onRemoveCard={cid=>removeCard(editing.id,cid)}
       onUpdateCard={(cid,patch)=>updateCard(editing.id,cid,patch)} onSetDefault={()=>setDefault(editing.id)}
-      otherDecks={decks.filter(d=>d.id!==editing.id).map(d=>({id:d.id,name:d.name}))}
+      otherDecks={decks.filter(d=>d.id!==editing.id).map(d=>({id:d.id,name:d.name,cardCount:d.cards.length}))}
       onMoveCard={(cardId,toId)=>moveCardToDeck(editing.id,cardId,toId)}/>
   )
 
@@ -1450,6 +1497,17 @@ function BoosterCardFace({card,animate=false,revealed=true,size='normal',onClick
     </div>
   )
 }
+function CardZoomOverlay({card,onClose}){
+  if(!card)return null
+  return(
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm" onClick={onClose}>
+      <div className="flex flex-col items-center gap-3 select-none">
+        <BoosterCardFace card={card} size='large'/>
+        <span className="text-slate-400 text-xs">Appuyer pour fermer</span>
+      </div>
+    </div>
+  )
+}
 function formatDuration(ms){
   const h=Math.floor(ms/3600000),m=Math.floor((ms%3600000)/60000),s=Math.floor((ms%60000)/1000)
   return `${h}h ${String(m).padStart(2,'0')}m ${String(s).padStart(2,'0')}s`
@@ -1517,6 +1575,7 @@ function BoosterScreen({onBack,user}){
   function handleCloseReveal(){setPendingCards(null);setRevealCount(0)}
   function handleAssignToDeck(cardId,deckId){
     const card=collection.find(c=>c.id===cardId);if(!card)return
+    const deck=decks.find(d=>d.id===deckId);if(!deck||deck.cards.length>=DECK_MAX_CARDS)return
     setCollection(c=>c.filter(x=>x.id!==cardId))
     setDecks(ds=>ds.map(d=>d.id===deckId?{...d,cards:[...d.cards,card]}:d))
   }
@@ -1537,15 +1596,7 @@ function BoosterScreen({onBack,user}){
       {/* Fixed back button */}
       <button onClick={onBack} className="fixed top-3 left-3 z-20 flex items-center gap-1.5 text-amber-400/90 hover:text-amber-300 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)] transition-colors rounded-lg px-2.5 py-1.5" style={{...CINZEL,background:'rgba(0,0,0,0.55)',backdropFilter:'blur(6px)'}}><Home size={15}/> Menu</button>
 
-      {/* Zoom overlay */}
-      {zoomedCard&&(
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm" onClick={()=>setZoomedCard(null)}>
-          <div className="flex flex-col items-center gap-3 select-none">
-            <BoosterCardFace card={zoomedCard} size='large'/>
-            <span className="text-slate-400 text-xs">Appuyer pour fermer</span>
-          </div>
-        </div>
-      )}
+      <CardZoomOverlay card={zoomedCard} onClose={()=>setZoomedCard(null)}/>
 
       <div className="max-w-lg w-full">
         <h2 className="text-3xl font-black mb-1" style={{...CINZEL_DEC,background:'linear-gradient(to bottom,#ffe566,#c9a020)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',filter:'drop-shadow(0 1px 10px rgba(0,0,0,1))'}}>Booster de Cartes</h2>
@@ -1597,12 +1648,15 @@ function BoosterScreen({onBack,user}){
                       <>
                         <span className="text-slate-400 text-[11px]">Ajouter à un deck :</span>
                         <div className="flex flex-wrap gap-1.5">
-                          {decks.map(d=>(
-                            <button key={d.id} onClick={()=>handleAssignToDeck(c.id,d.id)}
-                              className="text-[11px] px-2 py-0.5 rounded-md border border-slate-600 text-slate-300 hover:border-emerald-500 hover:text-emerald-300 transition-colors">
-                              {d.name}
-                            </button>
-                          ))}
+                          {decks.map(d=>{
+                            const full=d.cards.length>=DECK_MAX_CARDS
+                            return(
+                              <button key={d.id} onClick={()=>!full&&handleAssignToDeck(c.id,d.id)} disabled={full} title={full?`Deck complet (${DECK_MAX_CARDS} max)`:undefined}
+                                className={`text-[11px] px-2 py-0.5 rounded-md border transition-colors ${full?'border-slate-700 text-slate-600 cursor-not-allowed':'border-slate-600 text-slate-300 hover:border-emerald-500 hover:text-emerald-300'}`}>
+                                {d.name}{full?' (plein)':''}
+                              </button>
+                            )
+                          })}
                         </div>
                       </>
                     ):<span className="text-slate-500 text-xs">Créez un deck dans le Deck Builder pour y ajouter cette carte.</span>}
@@ -1875,12 +1929,15 @@ export default function App(){
   const[chosenDeck,setChosenDeck]=useState(null) // deck selected for the next match (null = random)
   const[user,setUser]=useState(null)
   const[stats,setStats]=useState(null)
+  const[lastAnim,setLastAnim]=useState(null)
   const ignoreNextRef=useRef(false)
   const unsubRef=useRef(null)
   const gameRef=useRef(game)
   const soundOnRef=useRef(soundOn)
   const aiTimerRef=useRef(null)
   const statsRecordedRef=useRef(false)
+  const animSeqRef=useRef(0)
+  function nextAnimSeq(){animSeqRef.current+=1;return animSeqRef.current}
 
   useEffect(()=>{gameRef.current=game},[game])
   useEffect(()=>{soundOnRef.current=soundOn;saveSoundPref(soundOn)},[soundOn])
@@ -1924,12 +1981,26 @@ export default function App(){
       if(!current||current.currentPlayer!==2||current.winner)return
       const action=computeAIAction(current)
       const sfx=soundForAIAction(action,current)
+      let cells=null,violent=false
+      if(action?.type==='place'){
+        cells=[{r:action.r,c:action.c,ghost:null,anim:'anim-place',dur:350}]
+      }else if(action?.type==='move'){
+        cells=[{r:action.tr,c:action.tc,ghost:null,anim:'anim-move',dur:220}]
+      }else if(action?.type==='attack'){
+        const{aDies,dDies,atk,def}=analyzeAttack(current,action.ar,action.ac,action.dr,action.dc)
+        violent=aDies||dDies
+        cells=[
+          {r:action.dr,c:action.dc,ghost:dDies?def:null,anim:dDies?'anim-destroy':'anim-attack',dur:dDies?650:350},
+          {r:action.ar,c:action.ac,ghost:aDies?atk:null,anim:aDies?'anim-destroy':'anim-attack',dur:aDies?650:350},
+        ]
+      }
       const newState=applyAIActionDirect(current,action)
       if(!newState){
         setGame(prev=>({...prev,currentPlayer:1,actionsLeft:{...FRESH_ACTIONS},turn:(prev?.turn||1)+1}))
         return
       }
       if(sfx)snd(sfx,soundOnRef.current)
+      if(cells)setLastAnim({seq:nextAnimSeq(),cells,violent})
       const winner=checkWin(newState)
       if(winner){setGame({...newState,winner});setTimeout(()=>setScreen('gameover'),700)}
       else setGame(newState)
@@ -1941,37 +2012,42 @@ export default function App(){
 
   // ── Action handler ───────────────────────────────────────────
   function handleAction({drag,targetR,targetC}){
-    if(!game)return null
-    let g=game;const cp=g.currentPlayer,al=g.actionsLeft;let animResult=null
+    if(!game)return
+    let g=game;const cp=g.currentPlayer,al=g.actionsLeft;let cells=null,violent=false
     if(drag.from==='hand'){
-      if(al.placement<=0||drag.player!==cp)return null
-      if(isCellBlocked(g,targetR,targetC)||!inZone(targetR,cp)||g.board[targetR][targetC])return null
-      const hand=[...g.players[cp].hand];const card=hand[drag.handIdx];if(!card)return null
+      if(al.placement<=0||drag.player!==cp)return
+      if(isCellBlocked(g,targetR,targetC)||!inZone(targetR,cp)||g.board[targetR][targetC])return
+      const hand=[...g.players[cp].hand];const card=hand[drag.handIdx];if(!card)return
       hand.splice(drag.handIdx,1);const nb=g.board.map(r=>[...r]);nb[targetR][targetC]=card
       g={...g,board:nb,players:{...g.players,[cp]:{...g.players[cp],hand}},actionsLeft:{...al,placement:al.placement-1}}
-      snd('place-'+cardTier(card),soundOn);animResult={anim:'anim-place'}
+      snd('place-'+cardTier(card),soundOn);cells=[{r:targetR,c:targetC,ghost:null,anim:'anim-place',dur:350}]
     }else if(drag.from==='board'){
       const{r:fr,c:fc}=drag;const moving=g.board[fr][fc]
-      if(!moving||moving.owner!==cp)return null
+      if(!moving||moving.owner!==cp)return
       const target=g.board[targetR][targetC]
       if(target){
-        if(al.attack<=0||target.owner===cp||!isCardinal(fr,fc,targetR,targetC))return null
+        if(al.attack<=0||target.owner===cp||!isCardinal(fr,fc,targetR,targetC))return
         const{newBoard,aDead,dDead}=doAttack(g.board,fr,fc,targetR,targetC)
         g={...g,board:newBoard,actionsLeft:{...al,attack:al.attack-1}}
-        snd(aDead||dDead?'destroy':'attack',soundOn);animResult={anim:dDead?'anim-destroy':'anim-attack',animSrc:aDead?null:[fr,fc]}
+        snd(aDead||dDead?'destroy':'attack',soundOn)
+        violent=aDead||dDead
+        cells=[
+          {r:targetR,c:targetC,ghost:dDead?target:null,anim:dDead?'anim-destroy':'anim-attack',dur:dDead?650:350},
+          {r:fr,c:fc,ghost:aDead?moving:null,anim:aDead?'anim-destroy':'anim-attack',dur:aDead?650:350},
+        ]
       }else{
-        if(al.moves<=0||isCellBlocked(g,targetR,targetC)||!isAdjacent(fr,fc,targetR,targetC))return null
+        if(al.moves<=0||isCellBlocked(g,targetR,targetC)||!isAdjacent(fr,fc,targetR,targetC))return
         const nb=g.board.map(r=>[...r]);nb[targetR][targetC]=moving;nb[fr][fc]=null
-        g={...g,board:nb,actionsLeft:{...al,moves:al.moves-1}};snd('move',soundOn);animResult={anim:'anim-move'}
+        g={...g,board:nb,actionsLeft:{...al,moves:al.moves-1}};snd('move',soundOn);cells=[{r:targetR,c:targetC,ghost:null,anim:'anim-move',dur:220}]
       }
     }
+    if(cells)setLastAnim({seq:nextAnimSeq(),cells,violent})
     const winner=checkWin(g)
     if(winner){
       const f={...g,winner};setGame(f)
       if(roomCode){syncOnline(f);setTimeout(()=>removeRoom(roomCode).catch(()=>{}),4000)}
       setTimeout(()=>setScreen('gameover'),650)
     }else{setGame(g);if(roomCode)syncOnline(g)}
-    return animResult
   }
 
   function handlePowerAction(type,r,c){
@@ -2036,7 +2112,7 @@ export default function App(){
       {screen==='deckselect' && <DeckSelectScreen mode={pendingMode} onBack={()=>setScreen('menu')} onSelect={handleDeckChosen}/>}
       {screen==='account'  && <AccountScreen onBack={()=>setScreen('menu')} user={user} stats={stats}/>}
       {screen==='online'   && <OnlineLobbyScreen onBack={()=>setScreen('menu')} onGameStart={handleOnlineStart} deck={chosenDeck}/>}
-      {screen==='game'     && game && <GameScreen game={game} soundEnabled={soundOn} myPlayer={myPlayer} isAI={gameMode==='ai'} onAction={handleAction} onEndTurn={handleEndTurn} onHome={closeGame} onPowerAction={handlePowerAction} onSurrender={handleSurrender}/>}
+      {screen==='game'     && game && <GameScreen game={game} soundEnabled={soundOn} myPlayer={myPlayer} isAI={gameMode==='ai'} onAction={handleAction} onEndTurn={handleEndTurn} onHome={closeGame} onPowerAction={handlePowerAction} onSurrender={handleSurrender} lastAnim={lastAnim}/>}
       {screen==='gameover' && game && <GameOverScreen winner={game.winner} isAI={gameMode==='ai'} surrendered={!!game.surrendered} onReplay={()=>startGame(gameMode)} onMenu={()=>setScreen('menu')}/>}
     </>
   )
