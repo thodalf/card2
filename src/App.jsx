@@ -1176,11 +1176,11 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
 const CINZEL_DEC = {fontFamily:"'Cinzel Decorative', serif"}
 const CINZEL     = {fontFamily:"'Cinzel', serif"}
 
-function MenuBtn({onClick, icon, color, children}){
+function MenuBtn({onClick, icon, color, children, delay}){
   return(
     <button onClick={onClick}
-      className="w-full flex items-center gap-3 px-5 py-3 rounded-lg transition-all duration-200 hover:scale-105 active:scale-95 select-none cursor-pointer"
-      style={{...CINZEL, fontSize:'0.88rem', letterSpacing:'0.08em',
+      className="menu-fade-up w-full flex items-center gap-3 px-5 py-3.5 sm:py-3 rounded-lg transition-all duration-200 hover:scale-105 active:scale-95 select-none cursor-pointer"
+      style={{...CINZEL, fontSize:'0.88rem', letterSpacing:'0.08em', animationDelay:delay,
         background:'linear-gradient(135deg,rgba(12,8,3,0.90),rgba(28,18,6,0.88))',
         border:`2px solid ${color}`, color,
         textShadow:`0 0 10px ${color}99`,
@@ -1206,13 +1206,34 @@ function MedBtn({onClick, icon, color='#c9a020', children, className='', disable
   )
 }
 
+// Fixed (non-random-per-render) ember field for the menu background —
+// positions/timings are hand-spread via index math so the layout never jumps on re-render.
+const MENU_EMBERS = Array.from({length:18},(_,i)=>({
+  left: (i*53.7)%100,
+  size: 3+(i%4)*2.2,
+  duration: 8+(i%6)*1.6,
+  delay: -(i*1.7),
+  drift: (i%2===0?1:-1)*(12+(i%3)*10),
+}))
+
 function MenuScreen({onLocal,onAI,onOnline,onRules,onDeckBuilder,onAccount,onBooster,user}){
   return(
-    <div className="min-h-screen flex flex-col items-center justify-center gap-6 px-4"
+    <div className="menu-screen relative flex flex-col items-center justify-center gap-5 sm:gap-6 px-4 overflow-hidden"
       style={{backgroundImage:'linear-gradient(rgba(6,6,10,0.32),rgba(6,6,10,0.32)),url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}>
 
-      <div className="text-center">
-        <h1 className="charta-title text-4xl sm:text-6xl font-black tracking-wide leading-tight"
+      <div className="menu-embers" aria-hidden="true">
+        {MENU_EMBERS.map((e,i)=>(
+          <span key={i} className="menu-ember" style={{
+            left:`${e.left}%`, width:e.size, height:e.size,
+            animationDuration:`${e.duration}s`, animationDelay:`${e.delay}s`,
+            '--drift':`${e.drift}px`,
+          }}/>
+        ))}
+      </div>
+      <div className="menu-vignette-pulse" aria-hidden="true"/>
+
+      <div className="relative z-10 text-center menu-fade-up" style={{animationDelay:'0s'}}>
+        <h1 className="charta-title text-5xl sm:text-6xl font-black tracking-wide leading-tight"
           style={{...CINZEL_DEC,
             background:'linear-gradient(115deg,#7a5c0a 0%,#ffe566 20%,#fff8dc 32%,#ffe566 44%,#c9a020 60%,#7a5c0a 100%)',
             backgroundSize:'250% auto',
@@ -1224,17 +1245,17 @@ function MenuScreen({onLocal,onAI,onOnline,onRules,onDeckBuilder,onAccount,onBoo
           style={CINZEL}>Jeu de cartes tactique · 2 joueurs</p>
       </div>
 
-      <div className="flex flex-col gap-3 w-56 sm:w-64">
-        <MenuBtn onClick={onAI}     icon={<Bot      size={16}/>} color="#a78bfa">Solo vs IA</MenuBtn>
-        <MenuBtn onClick={onLocal}  icon={<Users    size={16}/>} color="#60a5fa">Partie Locale</MenuBtn>
-        <MenuBtn onClick={onOnline} icon={<Wifi     size={16}/>} color="#c084fc">Partie en Ligne</MenuBtn>
-        <MenuBtn onClick={onDeckBuilder} icon={<Layers size={16}/>} color="#34d399">Deck Builder</MenuBtn>
+      <div className="relative z-10 flex flex-col gap-3 w-full max-w-[17rem] sm:w-64">
+        <MenuBtn onClick={onAI}     icon={<Bot      size={16}/>} color="#a78bfa" delay="0.05s">Solo vs IA</MenuBtn>
+        <MenuBtn onClick={onLocal}  icon={<Users    size={16}/>} color="#60a5fa" delay="0.10s">Partie Locale</MenuBtn>
+        <MenuBtn onClick={onOnline} icon={<Wifi     size={16}/>} color="#c084fc" delay="0.15s">Partie en Ligne</MenuBtn>
+        <MenuBtn onClick={onDeckBuilder} icon={<Layers size={16}/>} color="#34d399" delay="0.20s">Deck Builder</MenuBtn>
         {user
-          ?<MenuBtn onClick={onBooster} icon={<Gift size={16}/>} color="#f472b6">Booster de Cartes</MenuBtn>
-          :<MenuBtn onClick={onAccount} icon={<Lock size={14}/>} color="#64748b">Booster (connexion requise)</MenuBtn>
+          ?<MenuBtn onClick={onBooster} icon={<Gift size={16}/>} color="#f472b6" delay="0.25s">Booster de Cartes</MenuBtn>
+          :<MenuBtn onClick={onAccount} icon={<Lock size={14}/>} color="#64748b" delay="0.25s">Booster (connexion requise)</MenuBtn>
         }
-        <MenuBtn onClick={onRules}  icon={<BookOpen size={16}/>} color="#fbbf24">Règles du jeu</MenuBtn>
-        <MenuBtn onClick={onAccount} icon={<UserCircle size={16}/>} color="#38bdf8">{user?(user.displayName||user.email):'Mon Compte'}</MenuBtn>
+        <MenuBtn onClick={onRules}  icon={<BookOpen size={16}/>} color="#fbbf24" delay="0.30s">Règles du jeu</MenuBtn>
+        <MenuBtn onClick={onAccount} icon={<UserCircle size={16}/>} color="#38bdf8" delay="0.35s">{user?(user.displayName||user.email):'Mon Compte'}</MenuBtn>
       </div>
     </div>
   )

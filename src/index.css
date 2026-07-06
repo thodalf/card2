@@ -157,6 +157,54 @@
   filter: blur(10px);
 }
 
+/* ── Menu screen — mobile-safe sizing, floating embers, staggered entrance ── */
+.menu-screen {
+  min-height: 100svh;
+  padding-top: max(2rem, env(safe-area-inset-top));
+  padding-bottom: max(2rem, env(safe-area-inset-bottom));
+  padding-left: max(1rem, env(safe-area-inset-left));
+  padding-right: max(1rem, env(safe-area-inset-right));
+}
+
+.menu-embers { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 0; }
+.menu-ember {
+  position: absolute;
+  bottom: -5%;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255,205,110,0.95) 0%, rgba(255,140,20,0.55) 45%, rgba(255,90,0,0) 75%);
+  animation-name: menu-ember-rise;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+@keyframes menu-ember-rise {
+  0%   { transform: translate(0,0) scale(0.6);              opacity: 0; }
+  8%   { opacity: 1; }
+  85%  { opacity: 0.8; }
+  100% { transform: translate(var(--drift,20px), -115vh) scale(1); opacity: 0; }
+}
+
+.menu-vignette-pulse {
+  position: absolute; inset: 0; z-index: 0; pointer-events: none;
+  background: radial-gradient(ellipse 60% 45% at 50% 38%, rgba(201,160,32,0.22) 0%, rgba(201,160,32,0) 70%);
+  animation: zoom-aura-pulse 4.5s ease-in-out infinite;
+}
+
+@keyframes menu-fade-up {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.menu-fade-up { animation: menu-fade-up 0.55s cubic-bezier(.2,.8,.3,1) both; }
+
+@media (prefers-reduced-motion: reduce) {
+  .menu-ember, .menu-vignette-pulse, .charta-title { animation: none !important; }
+}
+
+/* Short landscape phones — tighten vertical rhythm so the menu still fits */
+@media screen and (max-height: 480px) and (orientation: landscape) {
+  .menu-screen { gap: 0.5rem !important; padding-top: 1rem !important; padding-bottom: 1rem !important; }
+  .menu-screen h1 { font-size: 1.85rem !important; }
+}
+
 /* ── Landscape phone layout ───────────────────────────────────── */
 @media screen and (max-height: 500px) and (orientation: landscape) {
   .game-outer { overflow: auto; }
