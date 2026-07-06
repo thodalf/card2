@@ -132,6 +132,23 @@
 }
 .rare-glow { animation: rare-glow-pulse 1.6s ease-in-out infinite; }
 
+/* ── Card zoom overlay — idle float + pulsing blue aura ──────── */
+@keyframes zoom-card-idle {
+  0%,100% { transform: translateY(0) scale(1); }
+  50%     { transform: translateY(-12px) scale(1.015); }
+}
+.zoom-card-idle { animation: zoom-card-idle 3.2s ease-in-out infinite; }
+
+@keyframes zoom-aura-pulse {
+  0%,100% { opacity: 0.5;  transform: scale(0.9); }
+  50%     { opacity: 0.85; transform: scale(1.08); }
+}
+.zoom-aura {
+  animation: zoom-aura-pulse 3.2s ease-in-out infinite;
+  background: radial-gradient(circle, rgba(59,130,246,0.65) 0%, rgba(59,130,246,0.3) 45%, rgba(59,130,246,0) 72%);
+  filter: blur(10px);
+}
+
 /* ── Landscape phone layout ───────────────────────────────────── */
 @media screen and (max-height: 500px) and (orientation: landscape) {
   .game-outer { overflow: auto; }

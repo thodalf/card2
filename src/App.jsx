@@ -1505,7 +1505,12 @@ function CardZoomOverlay({card,onClose}){
   return(
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm" onClick={onClose}>
       <div className="flex flex-col items-center gap-3 select-none">
-        <BoosterCardFace card={card} size='large'/>
+        <div className="relative flex items-center justify-center">
+          <div className="absolute inset-0 m-auto zoom-aura rounded-full pointer-events-none" style={{width:'135%',height:'135%'}}/>
+          <div className="zoom-card-idle">
+            <BoosterCardFace card={card} size='large'/>
+          </div>
+        </div>
         <span className="text-slate-400 text-xs">Appuyer pour fermer</span>
       </div>
     </div>
