@@ -1385,9 +1385,12 @@ function DeckBuilderScreen({onBack,user}){
     cloudReadyRef.current=false
     if(!user){cloudReadyRef.current=true;return}
     loadCloudDecks(user.uid).then(cloud=>{
+      // Merge instead of overwrite — decks created on another device (or before
+      // ever logging in here) must not be wiped by this device's cloud fetch.
+      const merged=mergeById(decks,cloud)
       cloudReadyRef.current=true
-      if(cloud&&cloud.length>0)setDecks(cloud)
-      else if(decks.length>0)saveCloudDecks(user.uid,decks).catch(()=>{})
+      setDecks(merged)
+      saveCloudDecks(user.uid,merged).catch(()=>{})
     }).catch(()=>{cloudReadyRef.current=true})
     // eslint-disable-next-line react-hooks/exhaustive-deps
   },[user?.uid])
@@ -1475,9 +1478,9 @@ function BoosterCardFace({card,animate=false,revealed=true,size='normal',onClick
   const isRare=rarity==='rare'||rarity==='legendary'
   const pts=FACE_KEYS.reduce((s,k)=>s+(card.values[k]||0),0)
   const animClass=animate?(revealed?(isRare?'card-reveal-rare':'card-reveal'):'opacity-0'):(isRare?'rare-glow':'')
-  const dim=size==='small'?'w-[68px] h-[68px]':size==='large'?'w-[210px] h-[210px]':'w-[104px] h-[104px]'
-  const textSz=size==='small'?'text-[9px]':size==='large'?'text-[22px]':'text-[11px]'
-  const labelSz=size==='small'?'text-[7px]':size==='large'?'text-sm':'text-[9px]'
+  const dim=size==='small'?'w-[68px] h-[68px]':size==='large'?'w-[88vw] h-[88vw] max-w-[420px] max-h-[420px]':'w-[104px] h-[104px]'
+  const textSz=size==='small'?'text-[9px]':size==='large'?'text-[30px]':'text-[11px]'
+  const labelSz=size==='small'?'text-[7px]':size==='large'?'text-lg':'text-[9px]'
   return(
     <div onClick={onClick} className={`${dim} rounded-xl border-2 relative overflow-hidden shrink-0 ${animClass} ${onClick?'cursor-zoom-in':''}`}
       style={{borderColor:theme.color,background:'#1e293b'}}>
@@ -1512,6 +1515,14 @@ function formatDuration(ms){
   const h=Math.floor(ms/3600000),m=Math.floor((ms%3600000)/60000),s=Math.floor((ms%60000)/1000)
   return `${h}h ${String(m).padStart(2,'0')}m ${String(s).padStart(2,'0')}s`
 }
+// Union by id (cloud wins on a collision) — keeps cards/decks pulled on ANY device
+// instead of one device's data silently replacing the other's on login.
+function mergeById(localList,cloudList){
+  const map=new Map()
+  ;(cloudList||[]).forEach(item=>map.set(item.id,item))
+  ;(localList||[]).forEach(item=>{if(!map.has(item.id))map.set(item.id,item)})
+  return Array.from(map.values())
+}
 function BoosterScreen({onBack,user}){
   const[collection,setCollection]=useState(()=>loadCollection())
   const[decks,setDecks]=useState(()=>loadDecks())
@@ -1536,10 +1547,16 @@ function BoosterScreen({onBack,user}){
     cloudReadyRef.current=false
     if(!user){cloudReadyRef.current=true;return}
     Promise.all([loadCloudCollection(user.uid),loadCloudDecks(user.uid),loadCloudLastBooster(user.uid)]).then(([cCollection,cDecks,cLast])=>{
+      // Merge instead of overwrite — a device that pulled boosters offline (or
+      // before ever logging in) must not have its cards wiped by another
+      // device's cloud state; both converge to the union of both.
+      const mergedCollection=mergeById(collection,cCollection)
+      const mergedDecks=mergeById(decks,cDecks)
       cloudReadyRef.current=true
-      if(cCollection&&cCollection.length>0)setCollection(cCollection)
-      else if(collection.length>0)saveCloudCollection(user.uid,collection).catch(()=>{})
-      if(cDecks&&cDecks.length>0)setDecks(cDecks)
+      setCollection(mergedCollection)
+      setDecks(mergedDecks)
+      saveCloudCollection(user.uid,mergedCollection).catch(()=>{})
+      saveCloudDecks(user.uid,mergedDecks).catch(()=>{})
       if(cLast)setLastBoosterAt(prev=>Math.max(prev,cLast))
     }).catch(()=>{cloudReadyRef.current=true})
     // eslint-disable-next-line react-hooks/exhaustive-deps
