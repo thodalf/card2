@@ -1118,7 +1118,7 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
   return(
     <div className="game-outer min-h-screen bg-gradient-to-br from-slate-900 via-slate-900 to-slate-800 overflow-y-auto relative">
       <CardZoomOverlay card={zoomedCard} onClose={()=>setZoomedCard(null)} renderCard={c=><CardFace card={c} zoom/>}/>
-      <button onClick={onHome} className="absolute top-3 left-3 z-10 text-slate-500 hover:text-white transition-colors"><Home size={18}/></button>
+      <BackButton onClick={onHome} compact className="absolute top-3 left-3 z-10">Menu</BackButton>
       <div className={`game-inner flex flex-col items-center ${compact?'gap-2 py-2':'gap-3 py-4'} px-2`} style={{zoom:gameScale,transformOrigin:'top center'}}>
 
         {/* J1 hand — top */}
@@ -1194,6 +1194,21 @@ function MenuBtn({onClick, icon, color, children, delay}){
         textShadow:`0 0 10px ${color}99`,
         boxShadow:`0 4px 18px rgba(0,0,0,0.65), inset 0 1px 0 rgba(255,255,255,0.06), 0 0 8px ${color}33`}}>
       {icon}<span>{children}</span>
+    </button>
+  )
+}
+
+// Unified "back" button — same look on every screen (menu, deck builder, in-game, etc.)
+function BackButton({onClick, children='Menu', compact=false, disabled=false, className=''}){
+  return(
+    <button onClick={onClick} disabled={disabled}
+      className={`inline-flex items-center gap-2 rounded-lg transition-all duration-200 select-none ${disabled?'opacity-40 cursor-not-allowed':'hover:scale-105 active:scale-95 cursor-pointer'} ${compact?'px-2.5 py-1.5 text-xs':'px-4 py-2 text-sm'} ${className}`}
+      style={{...CINZEL, letterSpacing:'0.06em',
+        background:'linear-gradient(135deg,rgba(12,8,3,0.90),rgba(28,18,6,0.88))',
+        border:'2px solid #c9a020', color:'#e8c766',
+        textShadow:'0 0 8px rgba(201,160,32,0.55)',
+        boxShadow:'0 3px 14px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.06), 0 0 6px rgba(201,160,32,0.25)'}}>
+      <Home size={compact?14:16}/><span>{children}</span>
     </button>
   )
 }
@@ -1304,7 +1319,7 @@ function RulesScreen({onBack}){
         style={{backgroundImage:'linear-gradient(rgba(6,6,10,0.20),rgba(6,6,10,0.20)),url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}/>
       <div className="relative scrollbar-hide min-h-screen overflow-y-auto py-8 px-4 flex flex-col items-center">
         <div className="max-w-lg w-full">
-          <button onClick={onBack} className="flex items-center gap-2 text-amber-400/80 hover:text-amber-300 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)] mb-6 transition-colors" style={CINZEL}><Home size={16}/> Menu</button>
+          <BackButton onClick={onBack} className="mb-6">Menu</BackButton>
           <h2 className="text-3xl font-black mb-5" style={{...CINZEL_DEC,background:'linear-gradient(to bottom,#ffe566,#c9a020)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',filter:'drop-shadow(0 1px 10px rgba(0,0,0,1))'}}>Règles du jeu</h2>
           {S.map(([t,d])=>(
             <div key={t} className="rounded-xl p-4 mb-3 border border-amber-900/40" style={{background:'rgba(8,5,2,0.78)'}}>
@@ -1321,19 +1336,24 @@ function RulesScreen({onBack}){
 // ═══════════════════════════════════════════════════════════════════════════════
 //  DECK BUILDER SCREEN
 // ═══════════════════════════════════════════════════════════════════════════════
-function CardEditor({card,onUpdate,onRemove,otherDecks,onMoveCard,onZoom}){
+function CardEditor({card,onUpdate,onRemove,otherDecks,onMoveCard,onZoom,onUploadingChange}){
   const isBooster=!!card.rarity
   const pts=customCardPts(card),over=!isBooster&&pts>CARD_MAX_POINTS
   const rarityTheme=isBooster?RARITY_THEME[card.rarity]:null
+  const[uploading,setUploading]=useState(false)
   function setVal(key,v){
     const n=Math.max(0,Math.min(9,Number(v)||0))
     onUpdate({values:{...card.values,[key]:n}})
   }
   function handleFile(e){
     const file=e.target.files?.[0];if(!file)return
+    setUploading(true);onUploadingChange?.(true)
+    const done=(patch)=>{setUploading(false);onUploadingChange?.(false);if(patch)onUpdate(patch)}
     const reader=new FileReader()
+    reader.onerror=()=>done(null)
     reader.onload=()=>{
       const img=new window.Image()
+      img.onerror=()=>done(null)
       img.onload=()=>{
         // Downscale to keep the stored data URI well under the localStorage quota —
         // raw phone photos (several MB) silently blow past it and saveDecks() then
@@ -1344,7 +1364,7 @@ function CardEditor({card,onUpdate,onRemove,otherDecks,onMoveCard,onZoom}){
         const canvas=document.createElement('canvas')
         canvas.width=w;canvas.height=h
         canvas.getContext('2d').drawImage(img,0,0,w,h)
-        onUpdate({imageUrl:canvas.toDataURL('image/jpeg',0.85)})
+        done({imageUrl:canvas.toDataURL('image/jpeg',0.85)})
       }
       img.src=reader.result
     }
@@ -1353,10 +1373,16 @@ function CardEditor({card,onUpdate,onRemove,otherDecks,onMoveCard,onZoom}){
   return(
     <div className={`rounded-xl p-3 border ${over?'border-red-600':'border-amber-900/40'}`} style={{background:'rgba(8,5,2,0.78)'}}>
       <div className="flex gap-4">
-        <div onClick={()=>onZoom?.(card)}
+        <div onClick={()=>!uploading&&onZoom?.(card)}
           className="w-[150px] h-[150px] shrink-0 rounded-lg border-2 border-amber-800/50 overflow-hidden relative bg-slate-800 cursor-zoom-in">
           <img src={card.imageUrl||DEFAULT_CARD_IMAGE} alt="" className="absolute inset-0 w-full h-full object-cover"/>
           <div className="absolute inset-0 bg-black/25"/>
+          {uploading&&(
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/70">
+              <div className="w-8 h-8 rounded-full border-[3px] border-amber-400/30 border-t-amber-400 animate-spin"/>
+              <span className="text-amber-300 text-[10px] font-bold" style={CINZEL}>Traitement…</span>
+            </div>
+          )}
           <div className="absolute inset-0 grid grid-cols-3 grid-rows-3 gap-0.5 p-1">
             {GRID_KEYS.map((row,ri)=>row.map((key,ci)=>(
               <div key={`${ri}-${ci}`} className="flex items-center justify-center">
@@ -1380,11 +1406,11 @@ function CardEditor({card,onUpdate,onRemove,otherDecks,onMoveCard,onZoom}){
             <p className="text-slate-500 text-[11px] flex items-center gap-1"><Lock size={11}/> Carte de booster : valeurs et image fixes.</p>
           ):(
             <>
-              <MedBtn as="label" color="#60a5fa" icon={<ImagePlus size={14}/>} className="w-fit">
-                Image de fond
-                <input type="file" accept="image/*" onChange={handleFile} className="hidden"/>
+              <MedBtn as="label" color="#60a5fa" icon={<ImagePlus size={14}/>} disabled={uploading} className={`w-fit ${uploading?'pointer-events-none':''}`}>
+                {uploading?'Traitement…':'Image de fond'}
+                <input type="file" accept="image/*" onChange={handleFile} disabled={uploading} className="hidden"/>
               </MedBtn>
-              <input type="text" placeholder="...ou URL d'image" value={card.imageUrl&&!card.imageUrl.startsWith('data:')?card.imageUrl:''}
+              <input type="text" placeholder="...ou URL d'image" disabled={uploading} value={card.imageUrl&&!card.imageUrl.startsWith('data:')?card.imageUrl:''}
                 onChange={e=>onUpdate({imageUrl:e.target.value||null})}
                 className="bg-slate-800 text-slate-200 text-xs border border-slate-700 rounded px-2 py-1.5 outline-none focus:border-amber-500"/>
             </>
@@ -1409,16 +1435,18 @@ function CardEditor({card,onUpdate,onRemove,otherDecks,onMoveCard,onZoom}){
     </div>
   )
 }
-function DeckEditor({deck,onBack,onRename,onAddCard,onRemoveCard,onUpdateCard,onSetDefault,otherDecks,onMoveCard}){
+function DeckEditor({deck,onBack,onRename,onAddCard,onRemoveCard,onUpdateCard,onSetDefault,otherDecks,onMoveCard,onUploadingChange}){
   const total=deckTotalPts(deck),overTotal=total>DECK_MAX_POINTS,valid=isDeckValid(deck)
   const atMaxCards=deck.cards.length>=DECK_MAX_CARDS
   const[zoomedCard,setZoomedCard]=useState(null)
+  const[uploadCount,setUploadCount]=useState(0)
+  useEffect(()=>{onUploadingChange?.(uploadCount>0)},[uploadCount])
   return(
     <div className="min-h-screen py-8 px-4 flex flex-col items-center overflow-y-auto"
       style={{backgroundImage:'linear-gradient(rgba(6,6,10,0.20),rgba(6,6,10,0.20)),url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}>
       <CardZoomOverlay card={zoomedCard} onClose={()=>setZoomedCard(null)}/>
       <div className="max-w-lg w-full">
-        <button onClick={onBack} className="flex items-center gap-2 text-amber-400/80 hover:text-amber-300 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)] mb-4 transition-colors" style={CINZEL}><Home size={16}/> Decks</button>
+        <BackButton onClick={onBack} disabled={uploadCount>0} className="mb-4">{uploadCount>0?'Enregistrement…':'Decks'}</BackButton>
         <input value={deck.name} onChange={e=>onRename(e.target.value)}
           className="text-2xl font-black bg-transparent border-b border-amber-700/40 text-amber-200 outline-none focus:border-amber-400 mb-2 w-full" style={CINZEL_DEC}/>
         <div className="flex items-center gap-3 mb-4 flex-wrap">
@@ -1440,7 +1468,8 @@ function DeckEditor({deck,onBack,onRename,onAddCard,onRemoveCard,onUpdateCard,on
         <div className="flex flex-col gap-3 mb-4">
           {deck.cards.map(c=>(
             <CardEditor key={c.id} card={c} onUpdate={patch=>onUpdateCard(c.id,patch)} onRemove={()=>onRemoveCard(c.id)}
-              otherDecks={otherDecks} onMoveCard={toDeckId=>onMoveCard(c.id,toDeckId)} onZoom={setZoomedCard}/>
+              otherDecks={otherDecks} onMoveCard={toDeckId=>onMoveCard(c.id,toDeckId)} onZoom={setZoomedCard}
+              onUploadingChange={active=>setUploadCount(n=>Math.max(0,n+(active?1:-1)))}/>
           ))}
           {deck.cards.length===0&&<p className="text-slate-300 text-sm text-center py-6 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">Aucune carte. Ajoutez-en une.</p>}
         </div>
@@ -1510,7 +1539,7 @@ function DeckBuilderScreen({onBack,user}){
     <div className="min-h-screen py-8 px-4 flex flex-col items-center overflow-y-auto"
       style={{backgroundImage:'linear-gradient(rgba(6,6,10,0.20),rgba(6,6,10,0.20)),url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}>
       <div className="max-w-lg w-full">
-        <button onClick={onBack} className="flex items-center gap-2 text-amber-400/80 hover:text-amber-300 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)] mb-6 transition-colors" style={CINZEL}><Home size={16}/> Menu</button>
+        <BackButton onClick={onBack} className="mb-6">Menu</BackButton>
         <h2 className="text-3xl font-black mb-1" style={{...CINZEL_DEC,background:'linear-gradient(to bottom,#ffe566,#c9a020)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',filter:'drop-shadow(0 1px 10px rgba(0,0,0,1))'}}>Deck Builder</h2>
         <p className="text-xs mb-5 text-slate-300 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">
           {user?`☁ Connecté (${user.displayName||user.email}) — decks synchronisés dans le cloud.`:'Connectez-vous depuis le menu (Mon Compte) pour synchroniser vos decks dans le cloud.'}
@@ -1695,14 +1724,14 @@ function BoosterScreen({onBack,user}){
       <div className="text-6xl select-none">🔒</div>
       <p className="text-amber-300 font-bold text-xl text-center drop-shadow-[0_1px_4px_rgba(0,0,0,0.9)]" style={CINZEL}>Connexion requise</p>
       <p className="text-slate-300 text-sm text-center max-w-xs drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">Connectez-vous pour accéder aux boosters de cartes quotidiens et sauvegarder votre collection.</p>
-      <MedBtn onClick={onBack} color="#c9a020" icon={<Home size={14}/>}>Retour au menu</MedBtn>
+      <BackButton onClick={onBack}>Menu</BackButton>
     </div>
   )
 
   return(
     <div className="min-h-screen pt-14 pb-8 px-4 flex flex-col items-center overflow-y-auto" style={bg}>
       {/* Fixed back button */}
-      <button onClick={onBack} className="fixed top-3 left-3 z-20 flex items-center gap-1.5 text-amber-400/90 hover:text-amber-300 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)] transition-colors rounded-lg px-2.5 py-1.5" style={{...CINZEL,background:'rgba(0,0,0,0.55)',backdropFilter:'blur(6px)'}}><Home size={15}/> Menu</button>
+      <BackButton onClick={onBack} compact className="fixed top-3 left-3 z-20">Menu</BackButton>
 
       <CardZoomOverlay card={zoomedCard} onClose={()=>setZoomedCard(null)}/>
 
@@ -1789,7 +1818,7 @@ function DeckSelectScreen({mode,onBack,onSelect}){
     <div className="min-h-screen py-8 px-4 flex flex-col items-center overflow-y-auto"
       style={{backgroundImage:'linear-gradient(rgba(6,6,10,0.20),rgba(6,6,10,0.20)),url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}>
       <div className="max-w-lg w-full">
-        <button onClick={onBack} className="flex items-center gap-2 text-amber-400/80 hover:text-amber-300 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)] mb-6 transition-colors" style={CINZEL}><Home size={16}/> Menu</button>
+        <BackButton onClick={onBack} className="mb-6">Menu</BackButton>
         <h2 className="text-3xl font-black mb-2" style={{...CINZEL_DEC,background:'linear-gradient(to bottom,#ffe566,#c9a020)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',filter:'drop-shadow(0 1px 10px rgba(0,0,0,1))'}}>Choisissez votre deck</h2>
         {DECKSELECT_SUBTITLE[mode]&&<p className="text-slate-300 text-sm mb-5 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">{DECKSELECT_SUBTITLE[mode]}</p>}
         <div className="flex flex-col gap-3">
@@ -1840,7 +1869,7 @@ function AccountScreen({onBack,user,stats}){
     <div className="min-h-screen py-8 px-4 flex flex-col items-center overflow-y-auto"
       style={{backgroundImage:'linear-gradient(rgba(6,6,10,0.20),rgba(6,6,10,0.20)),url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}>
       <div className="max-w-sm w-full">
-        <button onClick={onBack} className="flex items-center gap-2 text-amber-400/80 hover:text-amber-300 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)] mb-6 transition-colors" style={CINZEL}><Home size={16}/> Menu</button>
+        <BackButton onClick={onBack} className="mb-6">Menu</BackButton>
         <h2 className="text-3xl font-black mb-5" style={{...CINZEL_DEC,background:'linear-gradient(to bottom,#ffe566,#c9a020)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',filter:'drop-shadow(0 1px 10px rgba(0,0,0,1))'}}>Mon Compte</h2>
 
         {user?(
@@ -1988,7 +2017,7 @@ function OnlineLobbyScreen({onBack,onGameStart,deck}){
 
   return(
     <div className="min-h-screen flex flex-col items-center justify-center gap-6 px-4 relative" style={bg}>
-      <button onClick={onBack} className="absolute top-4 left-4 text-amber-400/80 hover:text-amber-300 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)] transition-colors"><Home size={20}/></button>
+      <BackButton onClick={onBack} compact className="absolute top-4 left-4">Menu</BackButton>
       <h2 className="text-3xl font-black" style={{...CINZEL_DEC,background:'linear-gradient(to bottom,#ffe566,#c9a020)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',filter:'drop-shadow(0 1px 10px rgba(0,0,0,1))'}}>Partie en Ligne</h2>
       {error&&<p className="text-red-400 text-sm bg-red-900/30 px-4 py-2 rounded-lg text-center max-w-sm">{error}</p>}
       {!mode&&(
@@ -2017,7 +2046,21 @@ function GameOverScreen({winner,isAI,surrendered,onReplay,onMenu}){
   const msg=surrendered
     ?`Joueur ${loser} a capitulé.`
     :isAI&&winner===2?'L\'IA a éliminé toutes vos cartes.':'L\'adversaire n\'a plus aucune carte.'
-  return(<div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 flex flex-col items-center justify-center gap-5"><div className="text-7xl mb-2 animate-bounce">{surrendered?'🏳️':'🏆'}</div><h2 className="text-4xl font-black text-white"><span className={winner===1?'text-blue-400':'text-red-400'}>{winLabel}</span> gagne !</h2><p className="text-slate-400">{msg}</p><div className="flex gap-4 mt-4"><button onClick={onReplay} className="bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-7 rounded-xl transition-all hover:scale-105 flex items-center gap-2 shadow-lg"><Play size={18}/> Rejouer</button><button onClick={onMenu} className="bg-slate-700 hover:bg-slate-600 text-white font-bold py-3 px-7 rounded-xl transition-all hover:scale-105 flex items-center gap-2 shadow-lg"><Home size={18}/> Menu</button></div></div>)
+  return(
+    <div className="min-h-screen flex flex-col items-center justify-center gap-5 px-4"
+      style={{backgroundImage:'linear-gradient(rgba(6,6,10,0.20),rgba(6,6,10,0.20)),url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}>
+      <div className="text-7xl mb-2 animate-bounce">{surrendered?'🏳️':'🏆'}</div>
+      <h2 className="text-4xl font-black text-center" style={CINZEL_DEC}>
+        <span className={winner===1?'text-blue-400':'text-red-400'}>{winLabel}</span>
+        <span className="text-amber-200"> gagne !</span>
+      </h2>
+      <p className="text-slate-300 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">{msg}</p>
+      <div className="flex gap-3 mt-4">
+        <MedBtn onClick={onReplay} icon={<Play size={16}/>} color="#60a5fa">Rejouer</MedBtn>
+        <BackButton onClick={onMenu}>Menu</BackButton>
+      </div>
+    </div>
+  )
 }
 function SoundToggle({enabled,onToggle}){
   return(<button onClick={onToggle} className="fixed top-3 right-3 z-50 text-slate-400 hover:text-white bg-slate-800/80 backdrop-blur-sm p-2 rounded-lg transition-colors">{enabled?<Volume2 size={18}/>:<VolumeX size={18}/>}</button>)
