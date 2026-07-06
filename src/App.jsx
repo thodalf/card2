@@ -55,8 +55,8 @@ const shuf = a => { const b=[...a]; for(let i=b.length-1;i>0;i--){const j=rnd(0,
 // Each points tier draws its portrait from a small pool for visual variety
 const CARD_IMAGE_TIERS = {
   weak:   ['gnome.png', 'hobbit.png'],
-  medium: ['elf.png', 'elf_noir.png', 'nain_femme.png', 'orc.png'],
-  strong: ['dragon.png', 'roi.png'],
+  medium: ['elf.png', 'elf_noir.png', 'orc.png'],
+  strong: ['roi.png', 'dragon.png'],
 }
 function pickCardImage(total){
   const pool=total<=20?CARD_IMAGE_TIERS.weak:total<=28?CARD_IMAGE_TIERS.medium:CARD_IMAGE_TIERS.strong
@@ -1280,7 +1280,22 @@ function CardEditor({card,onUpdate,onRemove,otherDecks,onMoveCard,onZoom}){
   function handleFile(e){
     const file=e.target.files?.[0];if(!file)return
     const reader=new FileReader()
-    reader.onload=()=>onUpdate({imageUrl:reader.result})
+    reader.onload=()=>{
+      const img=new window.Image()
+      img.onload=()=>{
+        // Downscale to keep the stored data URI well under the localStorage quota —
+        // raw phone photos (several MB) silently blow past it and saveDecks() then
+        // fails without the image ever having actually persisted.
+        const maxDim=480
+        const scale=Math.min(1,maxDim/Math.max(img.width,img.height))
+        const w=Math.max(1,Math.round(img.width*scale)),h=Math.max(1,Math.round(img.height*scale))
+        const canvas=document.createElement('canvas')
+        canvas.width=w;canvas.height=h
+        canvas.getContext('2d').drawImage(img,0,0,w,h)
+        onUpdate({imageUrl:canvas.toDataURL('image/jpeg',0.85)})
+      }
+      img.src=reader.result
+    }
     reader.readAsDataURL(file)
   }
   return(
