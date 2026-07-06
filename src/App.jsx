@@ -52,6 +52,17 @@ const isAdjacent    = (r1,c1,r2,c2) => Math.max(Math.abs(r1-r2),Math.abs(c1-c2))
 const rnd  = (lo,hi) => Math.floor(Math.random()*(hi-lo+1))+lo
 const shuf = a => { const b=[...a]; for(let i=b.length-1;i>0;i--){const j=rnd(0,i);[b[i],b[j]]=[b[j],b[i]]}; return b }
 
+// Each points tier draws its portrait from a small pool for visual variety
+const CARD_IMAGE_TIERS = {
+  weak:   ['gnome.png', 'hobbit.png'],
+  medium: ['elf.png', 'elf_noir.png', 'nain_femme.png', 'orc.png'],
+  strong: ['dragon.png', 'roi.png'],
+}
+function pickCardImage(total){
+  const pool=total<=20?CARD_IMAGE_TIERS.weak:total<=28?CARD_IMAGE_TIERS.medium:CARD_IMAGE_TIERS.strong
+  return `/images/card/${pool[rnd(0,pool.length-1)]}`
+}
+
 function genValues(total) {
   // Each value is 1–9: distribute (total - 8) extra points across 8 slots of [0, 8]
   const extra=total-8
@@ -68,7 +79,7 @@ function genDeckTotals() {
 function genDeck(owner) {
   return shuf(genDeckTotals()).map((total,i)=>{
     const values=genValues(total)
-    const imageUrl=total<=20?"images/gnome.png":total<=28?"images/elf.png":"images/dragon.png"
+    const imageUrl=pickCardImage(total)
     return {id:`${owner}-${i}-${Date.now()}-${Math.random().toString(36).slice(2)}`,owner,total,values,baseValues:{...values},imageUrl}
   })
 }
@@ -99,7 +110,7 @@ function saveSoundPref(on){
 function emptyCardValues(){
   return Object.fromEntries(FACE_KEYS.map(k=>[k,0]))
 }
-const DEFAULT_CARD_IMAGE='/images/gnome.png'
+const DEFAULT_CARD_IMAGE='/images/card/gnome.png'
 function newCustomCard(){
   return{id:`c-${Date.now()}-${Math.random().toString(36).slice(2)}`,values:emptyCardValues(),imageUrl:null}
 }
@@ -170,7 +181,7 @@ function genBoosterCard(){
   const total=genBoosterCardTotal()
   const values=genValues(total)
   const rarity=boosterCardRarity(total)
-  const imageUrl=total<=20?'/images/gnome.png':total<=28?'/images/elf.png':'/images/dragon.png'
+  const imageUrl=pickCardImage(total)
   return{id:`bc-${Date.now()}-${Math.random().toString(36).slice(2)}`,values,imageUrl,rarity,total,obtainedAt:Date.now()}
 }
 function openBoosterPack(){
@@ -1505,7 +1516,7 @@ function CardZoomOverlay({card,onClose}){
   return(
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm" onClick={onClose}>
       <div className="flex flex-col items-center gap-3 select-none">
-        <div className="relative flex items-center justify-center">
+        <div className="relative flex items-center justify-center zoom-card-perspective">
           <div className="absolute inset-0 m-auto zoom-aura rounded-full pointer-events-none" style={{width:'135%',height:'135%'}}/>
           <div className="zoom-card-idle">
             <BoosterCardFace card={card} size='large'/>

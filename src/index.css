@@ -132,12 +132,20 @@
 }
 .rare-glow { animation: rare-glow-pulse 1.6s ease-in-out infinite; }
 
-/* ── Card zoom overlay — idle float + pulsing blue aura ──────── */
+/* ── Card zoom overlay — idle 3D tilt/float + pulsing blue aura ── */
+.zoom-card-perspective { perspective: 1000px; }
 @keyframes zoom-card-idle {
-  0%,100% { transform: translateY(0) scale(1); }
-  50%     { transform: translateY(-12px) scale(1.015); }
+  0%   { transform: translateY(0)     rotateX(0deg) rotateY(0deg); }
+  25%  { transform: translateY(-10px) rotateX(7deg) rotateY(-9deg); }
+  50%  { transform: translateY(-14px) rotateX(-3deg) rotateY(9deg); }
+  75%  { transform: translateY(-6px)  rotateX(5deg) rotateY(-5deg); }
+  100% { transform: translateY(0)     rotateX(0deg) rotateY(0deg); }
 }
-.zoom-card-idle { animation: zoom-card-idle 3.2s ease-in-out infinite; }
+.zoom-card-idle {
+  animation: zoom-card-idle 4.6s ease-in-out infinite;
+  transform-style: preserve-3d;
+  will-change: transform;
+}
 
 @keyframes zoom-aura-pulse {
   0%,100% { opacity: 0.5;  transform: scale(0.9); }
