@@ -187,7 +187,7 @@ export async function pushState(code, state) {
   await set(ref(db, `rooms/${code}/state`), serializeState(state))
 }
 
-export function subscribeRoom(code, callback) {
+export function subscribeRoom(code, callback, onError) {
   if (!db) return () => {}
   const r = ref(db, `rooms/${code}`)
   const unsub = onValue(r, snap => {
@@ -195,7 +195,7 @@ export function subscribeRoom(code, callback) {
       const data = snap.val()
       callback({ ...data, state: data.state ? deserializeState(data.state) : null })
     }
-  })
+  }, onError)
   return unsub
 }
 

@@ -866,7 +866,7 @@ function CardFace({card,small=false,compact=false,zoom=false,draggable=false,onD
 // ═══════════════════════════════════════════════════════════════════════════════
 //  BOARD CELL
 // ═══════════════════════════════════════════════════════════════════════════════
-function Cell({r,c,card,currentPlayer,actionsLeft,onDragStart,onDrop,onCellClick,onZoom,animKey,ghost,violent,targeting,game,onBoardTouchStart,compact=false}){
+function Cell({r,c,card,currentPlayer,actionsLeft,myPlayer,onDragStart,onDrop,onCellClick,onZoom,animKey,ghost,violent,targeting,game,onBoardTouchStart,compact=false}){
   const[over,setOver]=useState(false)
   const corner=isCorner(r,c),dynBlocked=isDynBlock(game,r,c),blocked=corner||dynBlocked
   const validTarget=targeting?isValidPowerTarget(game,targeting,currentPlayer,r,c):false
@@ -875,7 +875,9 @@ function Cell({r,c,card,currentPlayer,actionsLeft,onDragStart,onDrop,onCellClick
     if(targeting){if(!validTarget)bg='opacity-40';if(validTarget&&!over)bg='ring-1 ring-yellow-500/50';if(validTarget&&over)bg='bg-yellow-400/20 ring-2 ring-yellow-400 shadow-[0_0_16px_rgba(234,179,8,0.55)]'}
     else if(over)bg='bg-yellow-400/15 ring-1 ring-yellow-400/40'
   }
-  const canDrag=!targeting&&card&&card.owner===currentPlayer&&(actionsLeft.moves>0||actionsLeft.attack>0)
+  // In online play, only the locally-assigned player may drag a card, and only during their own turn
+  const isMyTurn=myPlayer==null||myPlayer===currentPlayer
+  const canDrag=!targeting&&isMyTurn&&card&&card.owner===currentPlayer&&(actionsLeft.moves>0||actionsLeft.attack>0)
   const borderColor=blocked?'border-slate-700/30':P1_ROWS.includes(r)?'border-blue-500/70':P2_ROWS.includes(r)?'border-red-500/70':'border-slate-300/50'
   const cellSz=compact?'w-[68px] h-[68px]':'w-[90px] h-[90px]'
   return(
@@ -949,7 +951,7 @@ function PowerBar({game,isMyTurn,targeting,onActivatePower,onCancelTargeting,com
 // ═══════════════════════════════════════════════════════════════════════════════
 //  GAME SCREEN
 // ═══════════════════════════════════════════════════════════════════════════════
-function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,onPowerAction,onSurrender,lastAnim}){
+function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,onPowerAction,onSurrender,lastAnim,syncError}){
   const[drag,setDrag]=useState(null)
   const[zoomedCard,setZoomedCard]=useState(null)
   const[anims,setAnims]=useState({})
@@ -1121,6 +1123,11 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
     <div className="game-outer min-h-screen bg-gradient-to-br from-slate-900 via-slate-900 to-slate-800 overflow-y-auto relative">
       <CardZoomOverlay card={zoomedCard} onClose={()=>setZoomedCard(null)} renderCard={c=><CardFace card={c} zoom/>}/>
       <BackButton onClick={onHome} compact className="absolute top-3 left-3 z-10">Menu</BackButton>
+      {syncError&&(
+        <div className="fixed top-0 left-0 right-0 z-30 bg-red-900/95 text-red-100 text-xs text-center py-1.5 px-10">
+          ⚠ Synchronisation en ligne interrompue : {syncError}
+        </div>
+      )}
       <div className={`game-inner flex flex-col items-center ${compact?'gap-2 pt-14 pb-2':'gap-3 py-4'} px-2`} style={{zoom:gameScale,transformOrigin:'top center'}}>
 
         {/* J1 hand — top */}
@@ -1136,7 +1143,7 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
           <div className={`grid grid-cols-5 ${compact?'gap-1 p-1.5':'gap-1.5 p-2.5'} rounded-2xl border transition-all ${targeting?'border-purple-600/60 shadow-[0_0_20px_rgba(147,51,234,0.2)]':'border-slate-700/30'}`}
             style={{backgroundImage:'url(/images/plateau.png)',backgroundSize:'cover',backgroundPosition:'center'}}>
             {board.map((row,r)=>row.map((cell,c)=>(
-              <Cell key={`${r}-${c}`} r={r} c={c} card={cell} currentPlayer={currentPlayer} actionsLeft={actionsLeft}
+              <Cell key={`${r}-${c}`} r={r} c={c} card={cell} currentPlayer={currentPlayer} actionsLeft={actionsLeft} myPlayer={myPlayer}
                 onDragStart={handleDragStart} onDrop={handleDrop} onCellClick={handleCellClick} onZoom={setZoomedCard}
                 animKey={anims[`${r},${c}`]||''} ghost={ghosts[`${r},${c}`]} violent={!!violentKeys[`${r},${c}`]}
                 targeting={targeting} game={game} onBoardTouchStart={handleTouchStart} compact={compact}/>
@@ -1705,7 +1712,12 @@ function BoosterScreen({onBack,user}){
   )
 
   return(
-    <div className="min-h-screen pt-14 pb-8 px-4 flex flex-col items-center overflow-y-auto" style={bg}>
+    <div className="min-h-screen relative">
+      {/* Background is a fixed, viewport-sized layer — kept separate from the
+          scrollable content below so "cover" sizing never stretches against
+          the content's (potentially much taller) scroll height. */}
+      <div className="fixed inset-0 -z-10" style={bg}/>
+      <div className="min-h-screen pt-14 pb-8 px-4 flex flex-col items-center overflow-y-auto">
       {/* Fixed back button */}
       <BackButton onClick={onBack} compact className="fixed top-3 left-3 z-20">Menu</BackButton>
 
@@ -1779,6 +1791,7 @@ function BoosterScreen({onBack,user}){
               ))}
             </div>
           )}
+      </div>
       </div>
     </div>
   )
@@ -1898,6 +1911,13 @@ function AccountScreen({onBack,user,stats}){
     </div>
   )
 }
+// Surfaces the real Firebase error instead of a blanket "not configured" message,
+// so a misconfigured security rule (the most common real-world cause of "nothing
+// syncs") is actually visible instead of silently failing.
+function friendlyFirebaseError(e){
+  if(e?.message==='Firebase not configured')return 'Firebase non configuré — renseignez src/firebase.js'
+  return `Erreur Firebase : ${e?.message||'inconnue'} — vérifiez les règles de sécurité de votre Realtime Database.`
+}
 function OnlineLobbyScreen({onBack,onGameStart,deck}){
   const[mode,setMode]=useState(null)
   const[code,setCode]=useState('')
@@ -1926,7 +1946,7 @@ function OnlineLobbyScreen({onBack,onGameStart,deck}){
           onGameStart(data.state??initialGame,c,1)
         }
       })
-    }catch(e){setError('Firebase non configuré — renseignez src/firebase.js')}
+    }catch(e){setError(friendlyFirebaseError(e))}
   }
   async function handleJoin(){
     setError('');const c=inputCode.trim().toUpperCase()
@@ -1941,7 +1961,7 @@ function OnlineLobbyScreen({onBack,onGameStart,deck}){
           onGameStart(data.state,c,2)
         }
       })
-    }catch(e){setError('Firebase non configuré — renseignez src/firebase.js')}
+    }catch(e){setError(friendlyFirebaseError(e))}
   }
   async function handleMatchmaking(){
     setError('');setMode('matchmaking')
@@ -1965,7 +1985,7 @@ function OnlineLobbyScreen({onBack,onGameStart,deck}){
           onGameStart(state??initialGame,result.code,2)
         })
       }
-    }catch(e){setError('Firebase non configuré — renseignez src/firebase.js');mmIdRef.current=null;setMode(null)}
+    }catch(e){setError(friendlyFirebaseError(e));mmIdRef.current=null;setMode(null)}
   }
   function handleCancelMatchmaking(){stopMatchmaking();setMode(null)}
   function copyCode(){navigator.clipboard.writeText(code).then(()=>{setCopied(true);setTimeout(()=>setCopied(false),2000)})}
@@ -2053,6 +2073,7 @@ export default function App(){
   const[gameMode,setGameMode]=useState('local') // 'local'|'ai'|'online'
   const[roomCode,setRoomCode]=useState(null)
   const[myPlayer,setMyPlayer]=useState(null)
+  const[syncError,setSyncError]=useState(null)
   const[pendingMode,setPendingMode]=useState(null) // mode awaiting a deck choice
   const[chosenDeck,setChosenDeck]=useState(null) // deck selected for the next match (null = random)
   const[user,setUser]=useState(null)
@@ -2136,11 +2157,15 @@ export default function App(){
     return()=>{if(aiTimerRef.current){clearTimeout(aiTimerRef.current);aiTimerRef.current=null}}
   },[game,gameMode,screen])
 
-  function syncOnline(g){ignoreNextRef.current=true;pushState(roomCode,g).catch(console.warn)}
+  function syncOnline(g){
+    ignoreNextRef.current=true
+    pushState(roomCode,g).then(()=>setSyncError(null)).catch(e=>{console.warn(e);setSyncError(e?.message||'Échec de synchronisation')})
+  }
 
   // ── Action handler ───────────────────────────────────────────
   function handleAction({drag,targetR,targetC}){
     if(!game)return
+    if(myPlayer!=null&&myPlayer!==game.currentPlayer)return // not this client's turn — reject even if the UI somehow allowed the drag
     let g=game;const cp=g.currentPlayer,al=g.actionsLeft;let cells=null,violent=false
     if(drag.from==='hand'){
       if(al.placement<=0||drag.player!==cp)return
@@ -2180,6 +2205,7 @@ export default function App(){
 
   function handlePowerAction(type,r,c){
     if(!game)return
+    if(myPlayer!=null&&myPlayer!==game.currentPlayer)return
     const g=applyPowerAction(game,type,r,c)
     const winner=checkWin(g)
     if(winner){const f={...g,winner};setGame(f);if(roomCode)syncOnline(f);setTimeout(()=>setScreen('gameover'),650)}
@@ -2197,6 +2223,7 @@ export default function App(){
 
   function handleEndTurn(){
     if(!game||!hasActedThisTurn(game.actionsLeft))return
+    if(myPlayer!=null&&myPlayer!==game.currentPlayer)return
     const next=game.currentPlayer===1?2:1
     const g={...game,currentPlayer:next,actionsLeft:{...FRESH_ACTIONS},turn:game.turn+1}
     setGame(g);if(roomCode)syncOnline(g)
@@ -2216,12 +2243,12 @@ export default function App(){
   }
 
   function handleOnlineStart(state,code,player){
-    setGameMode('online');setRoomCode(code);setMyPlayer(player);setGame(state);setScreen('game')
+    setGameMode('online');setRoomCode(code);setMyPlayer(player);setGame(state);setScreen('game');setSyncError(null)
     if(unsubRef.current){unsubRef.current();unsubRef.current=null}
     unsubRef.current=subscribeRoom(code,data=>{
       if(ignoreNextRef.current){ignoreNextRef.current=false;return}
       if(data.state)setGame(data.state)
-    })
+    },e=>{console.warn(e);setSyncError(e?.message||'Connexion perdue avec la partie en ligne')})
   }
 
   function closeGame(){
@@ -2240,7 +2267,7 @@ export default function App(){
       {screen==='deckselect' && <DeckSelectScreen mode={pendingMode} onBack={()=>setScreen('menu')} onSelect={handleDeckChosen}/>}
       {screen==='account'  && <AccountScreen onBack={()=>setScreen('menu')} user={user} stats={stats}/>}
       {screen==='online'   && <OnlineLobbyScreen onBack={()=>setScreen('menu')} onGameStart={handleOnlineStart} deck={chosenDeck}/>}
-      {screen==='game'     && game && <GameScreen game={game} soundEnabled={soundOn} myPlayer={myPlayer} isAI={gameMode==='ai'} onAction={handleAction} onEndTurn={handleEndTurn} onHome={closeGame} onPowerAction={handlePowerAction} onSurrender={handleSurrender} lastAnim={lastAnim}/>}
+      {screen==='game'     && game && <GameScreen game={game} soundEnabled={soundOn} myPlayer={myPlayer} isAI={gameMode==='ai'} onAction={handleAction} onEndTurn={handleEndTurn} onHome={closeGame} onPowerAction={handlePowerAction} onSurrender={handleSurrender} lastAnim={lastAnim} syncError={roomCode?syncError:null}/>}
       {screen==='gameover' && game && <GameOverScreen winner={game.winner} isAI={gameMode==='ai'} surrendered={!!game.surrendered} onReplay={()=>startGame(gameMode)} onMenu={()=>setScreen('menu')}/>}
     </>
   )
