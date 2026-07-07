@@ -1109,7 +1109,7 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
               <CardFace card={card} compact={compact} draggable={canDrag} onDragStart={e=>handleDragStart(e,'hand',i,player)} onTouchStart={canDrag?e=>handleTouchStart(e,'hand',i,player):undefined} onClick={e=>{e.stopPropagation();setZoomedCard(card)}}/>
             </div>
           ))}
-          {!(players[player]?.hand?.length)&&<span className={`text-slate-600 text-xs ${compact?'w-[64px] py-3':'w-[142px] py-8'} text-center`}>vide</span>}
+          {!(players[player]?.hand?.length)&&<span className={`text-slate-600 text-xs flex items-center justify-center border-2 border-dashed border-slate-700/40 rounded-xl ${compact?'w-[64px] h-[64px]':'w-[118px] h-[118px]'}`}>vide</span>}
         </div>
       </div>
     )
@@ -1119,7 +1119,7 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
     <div className="game-outer min-h-screen bg-gradient-to-br from-slate-900 via-slate-900 to-slate-800 overflow-y-auto relative">
       <CardZoomOverlay card={zoomedCard} onClose={()=>setZoomedCard(null)} renderCard={c=><CardFace card={c} zoom/>}/>
       <BackButton onClick={onHome} compact className="absolute top-3 left-3 z-10">Menu</BackButton>
-      <div className={`game-inner flex flex-col items-center ${compact?'gap-2 py-2':'gap-3 py-4'} px-2`} style={{zoom:gameScale,transformOrigin:'top center'}}>
+      <div className={`game-inner flex flex-col items-center ${compact?'gap-2 pt-14 pb-2':'gap-3 py-4'} px-2`} style={{zoom:gameScale,transformOrigin:'top center'}}>
 
         {/* J1 hand — top */}
         {renderHand(1,currentPlayer===1&&isMyTurn&&actionsLeft.placement>0&&!targeting)}
