@@ -1944,12 +1944,22 @@ function BoosterScreen({onBack,user,ownedSkins,coins,onEarnCoins,onSellCard,onDe
 //  SHOP SCREEN — spend coins on cosmetic card skins
 // ═══════════════════════════════════════════════════════════════════════════════
 function ShopScreen({onBack,coins,ownedSkins,onBuySkin,onEarnCoins,onDeckBuilder,onBooster,onRules,onAccount,user}){
+  const[zoomedSkin,setZoomedSkin]=useState(null)
   return(
     <div className="min-h-screen relative">
       <div className="bg-charta fixed inset-0 -z-10"/>
       <div className="min-h-screen pt-14 pb-28 px-4 flex flex-col items-center overflow-y-auto">
         <BackButton onClick={onBack} compact className="fixed top-3 left-3 z-20">Menu</BackButton>
         <CoinBadge coins={coins}/>
+        <CardZoomOverlay card={zoomedSkin} onClose={()=>setZoomedSkin(null)} renderCard={s=>(
+          <div className="w-[88vw] h-[88vw] max-w-[420px] max-h-[420px] rounded-2xl overflow-hidden border-4 relative"
+            style={{borderColor:ownedSkins.includes(s.id)?'#34d399':'#8b6239'}}>
+            <img src={`/images/card/${s.file}`} alt="" className="absolute inset-0 w-full h-full object-cover"/>
+            <div className="absolute bottom-0 inset-x-0 text-center py-3" style={{background:'rgba(0,0,0,0.65)'}}>
+              <span className="text-amber-200 font-black text-xl" style={CINZEL_DEC}>{s.name}</span>
+            </div>
+          </div>
+        )}/>
 
         <div className="max-w-lg w-full">
           <h2 className="text-3xl font-black mb-1" style={{...CINZEL_DEC,background:'linear-gradient(to bottom,#ffe566,#c9a020)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',filter:'drop-shadow(0 1px 10px rgba(0,0,0,1))'}}>Boutique</h2>
@@ -1971,7 +1981,8 @@ function ShopScreen({onBack,coins,ownedSkins,onBuySkin,onEarnCoins,onDeckBuilder
               const afford=coins>=skin.price
               return(
                 <div key={skin.id} className="rounded-xl p-3 border border-amber-900/40 flex flex-col items-center gap-2" style={{background:'rgba(8,5,2,0.78)'}}>
-                  <div className="w-20 h-20 rounded-lg overflow-hidden border-2 border-amber-800/50 relative">
+                  <div onClick={()=>setZoomedSkin(skin)}
+                    className="w-20 h-20 rounded-lg overflow-hidden border-2 border-amber-800/50 relative cursor-zoom-in transition-transform hover:scale-105">
                     <img src={`/images/card/${skin.file}`} alt="" className={`w-full h-full object-cover ${owned?'':'opacity-60'}`}/>
                     {!owned&&<div className="absolute inset-0 flex items-center justify-center bg-black/30"><Lock size={20} className="text-slate-300"/></div>}
                   </div>
@@ -2254,15 +2265,16 @@ function GameOverScreen({winner,isAI,surrendered,onReplay,onMenu}){
       )}
       <div className="relative z-10 flex flex-col items-center gap-5">
         <div className="text-7xl mb-2 animate-bounce">{surrendered?'🏳️':defeat?'💀':'🏆'}</div>
-        <h2 className="text-4xl sm:text-5xl font-black text-center leading-tight"
+        <h2 className="text-4xl sm:text-5xl font-black text-center leading-tight px-4"
           style={defeat
-            ?{...CINZEL_DEC,color:'#94a3b8'}
+            ?{...CINZEL_DEC,color:'#cbd5e1',filter:'drop-shadow(0 2px 4px rgba(0,0,0,1)) drop-shadow(0 0 18px rgba(0,0,0,0.9))'}
             :{...CINZEL_DEC,
               background:'linear-gradient(115deg,#7a5c0a 0%,#ffe566 20%,#fff8dc 32%,#ffe566 44%,#c9a020 60%,#7a5c0a 100%)',
-              backgroundSize:'250% auto', WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent'}}>
+              backgroundSize:'250% auto', WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent',
+              filter:'drop-shadow(0 2px 4px rgba(0,0,0,1)) drop-shadow(0 0 18px rgba(0,0,0,0.85))'}}>
           {winLabel} gagne !
         </h2>
-        <p className="text-slate-300 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">{msg}</p>
+        <p className="text-slate-100 font-bold text-center px-4 py-1.5 rounded-full bg-black/55 border border-amber-900/40 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">{msg}</p>
         <div className="flex gap-3 mt-4">
           <MedBtn onClick={onReplay} icon={<Play size={16}/>} color="#60a5fa">Rejouer</MedBtn>
           <BackButton onClick={onMenu}>Menu</BackButton>
