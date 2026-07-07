@@ -108,6 +108,19 @@ export async function saveCloudLastBooster(uid, ts) {
   if (!db) return
   await set(ref(db, `users/${uid}/lastBoosterAt`), ts)
 }
+
+// ─── Economy — coins & owned cosmetic skins ────────────────────
+export async function loadCloudEconomy(uid) {
+  if (!db) return null
+  const snap = await get(ref(db, `users/${uid}/economy`))
+  if (!snap.exists()) return null
+  const v = snap.val()
+  return { coins: v.coins || 0, coinsUpdatedAt: v.coinsUpdatedAt || 0, ownedSkins: toArray(v.ownedSkins) }
+}
+export async function saveCloudEconomy(uid, economy) {
+  if (!db) return
+  await set(ref(db, `users/${uid}/economy`), economy)
+}
 export function subscribeStats(uid, callback) {
   if (!db) { callback({ gamesPlayed: 0, wins: 0, losses: 0 }); return () => {} }
   const r = ref(db, `users/${uid}/stats`)

@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef } from 'react'
-import { Copy, Volume2, VolumeX, Home, BookOpen, Wifi, Play, Users, Check, X, Zap, Bot, Layers, Plus, Trash2, Star, UserCircle, LogIn, LogOut, Mail, Lock, RefreshCw, Swords, Gift, ArrowRightLeft, Sparkles } from 'lucide-react'
+import { Copy, Volume2, VolumeX, Home, BookOpen, Wifi, Play, Users, Check, X, Zap, Bot, Layers, Plus, Trash2, Star, UserCircle, LogIn, LogOut, Mail, Lock, RefreshCw, Swords, Gift, ArrowRightLeft, Sparkles, Store, Coins } from 'lucide-react'
 import {
   genRoomCode, createRoom, joinRoom, pushState, subscribeRoom, removeRoom,
   onAuthChange, registerWithEmail, loginWithEmail, loginWithGoogle, logout,
   loadCloudDecks, saveCloudDecks, subscribeStats, recordGameResult,
   joinMatchmaking, leaveMatchmaking, publishMatchResult, subscribeMatchResult, clearMatchResult,
   loadCloudCollection, saveCloudCollection, loadCloudLastBooster, saveCloudLastBooster,
+  loadCloudEconomy, saveCloudEconomy,
 } from './firebase.js'
 
 // Nukes any service-worker cache so a stale PWA build can't keep serving old code
@@ -52,19 +53,33 @@ const isAdjacent    = (r1,c1,r2,c2) => Math.max(Math.abs(r1-r2),Math.abs(c1-c2))
 const rnd  = (lo,hi) => Math.floor(Math.random()*(hi-lo+1))+lo
 const shuf = a => { const b=[...a]; for(let i=b.length-1;i>0;i--){const j=rnd(0,i);[b[i],b[j]]=[b[j],b[i]]}; return b }
 
-// Each points tier draws its portrait from a small pool for visual variety
+// Each points tier draws its portrait from a small free pool for visual variety.
+// The rest of the roster is sold as cosmetic skins in the shop (see SKIN_CATALOG)
+// and only joins this pool — for THIS account's random cards — once purchased.
 const CARD_IMAGE_TIERS = {
-  weak:   ['gnome.png', 'hobbit.png'],
-  medium: ['elf.png', 'elf_noir.png', 'orc.png'],
-  strong: ['roi.png', 'dragon.png'],
+  weak:   ['gnome.png'],
+  medium: ['elf.png'],
+  strong: ['dragon.png'],
 }
-function pickCardImage(total){
-  const pool=total<=20?CARD_IMAGE_TIERS.weak:total<=28?CARD_IMAGE_TIERS.medium:CARD_IMAGE_TIERS.strong
+const SKIN_CATALOG = [
+  {id:'hobbit',     file:'hobbit.png',     name:'Hobbit',    tier:'weak',   price:50},
+  {id:'elf_noir',   file:'elf_noir.png',   name:'Elfe noir', tier:'medium', price:100},
+  {id:'orc',        file:'orc.png',        name:'Orc',       tier:'medium', price:100},
+  {id:'nain_femme', file:'nain_femme.png', name:'Naine',     tier:'medium', price:100},
+  {id:'roi',        file:'roi.png',        name:'Roi',       tier:'strong', price:200},
+]
+function pickCardImage(total,ownedSkins){
+  const tier=total<=20?'weak':total<=28?'medium':'strong'
+  const owned=SKIN_CATALOG.filter(s=>s.tier===tier&&(ownedSkins||[]).includes(s.id)).map(s=>s.file)
+  const pool=[...CARD_IMAGE_TIERS[tier],...owned]
   return `/images/card/${pool[rnd(0,pool.length-1)]}`
 }
-// Portraits available for hand-picking a card's background in the Deck Builder
-const CARD_IMAGE_GALLERY = ['gnome.png','hobbit.png','elf.png','elf_noir.png','nain_femme.png','orc.png','roi.png','dragon.png'].map(f=>`/images/card/${f}`)
-
+// Portraits the Deck Builder gallery can offer — the free set plus any owned skins
+const FREE_CARD_IMAGES=['gnome.png','elf.png','dragon.png'].map(f=>`/images/card/${f}`)
+function cardImageGallery(ownedSkins){
+  const owned=SKIN_CATALOG.filter(s=>(ownedSkins||[]).includes(s.id)).map(s=>`/images/card/${s.file}`)
+  return [...FREE_CARD_IMAGES,...owned]
+}
 function genValues(total) {
   // Each value is 1–9: distribute (total - 8) extra points across 8 slots of [0, 8]
   const extra=total-8
@@ -78,10 +93,10 @@ function genDeckTotals() {
   for(let i=0;i<3000;i++){const r=t.map(([lo,hi])=>rnd(lo,hi));if(r.reduce((a,b)=>a+b,0)===150)return r}
   return [15,15,25,25,35,35]
 }
-function genDeck(owner) {
+function genDeck(owner,ownedSkins) {
   return shuf(genDeckTotals()).map((total,i)=>{
     const values=genValues(total)
-    const imageUrl=pickCardImage(total)
+    const imageUrl=pickCardImage(total,ownedSkins)
     return {id:`${owner}-${i}-${Date.now()}-${Math.random().toString(36).slice(2)}`,owner,total,values,baseValues:{...values},imageUrl}
   })
 }
@@ -102,6 +117,17 @@ function saveDecks(decks){
   try{localStorage.setItem(DECKS_KEY,JSON.stringify(decks))}
   catch(e){console.error('saveDecks failed — deck changes (including card images) were NOT persisted:',e)}
 }
+
+const COINS_KEY='tacticalcards_coins'
+const COINS_UPDATED_KEY='tacticalcards_coins_updated_at'
+function loadCoins(){try{return Number(localStorage.getItem(COINS_KEY)||0)}catch{return 0}}
+function saveCoins(n){try{localStorage.setItem(COINS_KEY,String(n))}catch(e){console.error('saveCoins failed:',e)}}
+function loadCoinsUpdatedAt(){try{return Number(localStorage.getItem(COINS_UPDATED_KEY)||0)}catch{return 0}}
+function saveCoinsUpdatedAt(ts){try{localStorage.setItem(COINS_UPDATED_KEY,String(ts))}catch{}}
+
+const OWNED_SKINS_KEY='tacticalcards_owned_skins'
+function loadOwnedSkins(){try{return JSON.parse(localStorage.getItem(OWNED_SKINS_KEY)||'[]')}catch{return[]}}
+function saveOwnedSkins(arr){try{localStorage.setItem(OWNED_SKINS_KEY,JSON.stringify(arr))}catch(e){console.error('saveOwnedSkins failed:',e)}}
 
 const SOUND_PREF_KEY='tacticalcards_sound_on'
 function loadSoundPref(){
@@ -180,16 +206,18 @@ function genBoosterCardTotal(){
   if(roll<0.35)return rnd(25,32)   // uncommon
   return rnd(8,24)                 // common
 }
-function genBoosterCard(){
+function genBoosterCard(ownedSkins){
   const total=genBoosterCardTotal()
   const values=genValues(total)
   const rarity=boosterCardRarity(total)
-  const imageUrl=pickCardImage(total)
+  const imageUrl=pickCardImage(total,ownedSkins)
   return{id:`bc-${Date.now()}-${Math.random().toString(36).slice(2)}`,values,imageUrl,rarity,total,obtainedAt:Date.now()}
 }
-function openBoosterPack(){
-  return Array.from({length:4},()=>genBoosterCard())
+function openBoosterPack(ownedSkins){
+  return Array.from({length:4},()=>genBoosterCard(ownedSkins))
 }
+const BOOSTER_COIN_MIN=10, BOOSTER_COIN_MAX=25
+const SELL_VALUE={common:5,uncommon:12,rare:30,legendary:100}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 //  POWER DECK
@@ -233,12 +261,12 @@ function applyPowerAction(game,type,r,c) {
 // ═══════════════════════════════════════════════════════════════════════════════
 //  GAME STATE
 // ═══════════════════════════════════════════════════════════════════════════════
-function newGame(p1Deck,p2Deck) {
+function newGame(p1Deck,p2Deck,ownedSkins) {
   return {
     board:Array(5).fill(null).map(()=>Array(5).fill(null)),
     players:{
-      1:{hand:isDeckValid(p1Deck)?deckToHandCards(p1Deck,1):genDeck(1)},
-      2:{hand:isDeckValid(p2Deck)?deckToHandCards(p2Deck,2):genDeck(2)},
+      1:{hand:isDeckValid(p1Deck)?deckToHandCards(p1Deck,1):genDeck(1,ownedSkins)},
+      2:{hand:isDeckValid(p2Deck)?deckToHandCards(p2Deck,2):genDeck(2,ownedSkins)},
     },
     currentPlayer:1, actionsLeft:{...FRESH_ACTIONS},
     winner:null, turn:1,
@@ -1252,11 +1280,39 @@ function MenuIconBtn({onClick, icon, label, color, delay, title}){
   )
 }
 
-function MenuScreen({onLocal,onAI,onOnline,onRules,onDeckBuilder,onAccount,onBooster,user}){
+// Shared bottom icon nav — used by the main menu, Deck Builder and Booster screens
+// so switching between these sections never requires a trip back through the menu.
+function BottomNav({onDeckBuilder,onBooster,onRules,onAccount,onShop,user,className=''}){
+  return(
+    <div className={`relative z-10 w-full max-w-md flex items-stretch justify-around gap-1 px-2 py-2 rounded-2xl border border-amber-900/50 ${className}`}
+      style={{background:'linear-gradient(135deg,rgba(10,7,3,0.85),rgba(20,13,5,0.82))', boxShadow:'0 4px 20px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.05)'}}>
+      <MenuIconBtn onClick={onDeckBuilder} icon={<Layers size={18}/>} label="Decks" color="#34d399"/>
+      {user
+        ?<MenuIconBtn onClick={onBooster} icon={<Gift size={18}/>} label="Booster" color="#f472b6"/>
+        :<MenuIconBtn onClick={onAccount} icon={<Lock size={16}/>} label="Booster" color="#64748b"/>
+      }
+      <MenuIconBtn onClick={onShop}    icon={<Store size={18}/>}    label="Boutique" color="#f59e0b"/>
+      <MenuIconBtn onClick={onRules}   icon={<BookOpen size={18}/>} label="Règles"   color="#fbbf24"/>
+      <MenuIconBtn onClick={onAccount} icon={<UserCircle size={18}/>} label={user?'Compte':'Connexion'} color="#38bdf8" title={user?(user.displayName||user.email):undefined}/>
+    </div>
+  )
+}
+
+// Small fixed coin balance badge, reused on any screen where coins are earned/spent
+function CoinBadge({coins}){
+  return(
+    <div className="wood-btn fixed top-3 right-3 z-20 flex items-center gap-1.5 px-3 py-1.5 rounded-lg" style={{color:'#fbbf24'}}>
+      <Coins size={15}/><span className="font-bold text-sm" style={CINZEL}>{coins}</span>
+    </div>
+  )
+}
+
+function MenuScreen({onLocal,onAI,onOnline,onRules,onDeckBuilder,onAccount,onBooster,onShop,user,coins}){
   return(
     <div className="menu-screen relative flex flex-col items-center gap-4 px-4 overflow-hidden"
       style={{backgroundImage:'linear-gradient(rgba(6,6,10,0.20),rgba(6,6,10,0.20)),url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}>
 
+      <CoinBadge coins={coins}/>
       <div className="menu-embers" aria-hidden="true">
         {MENU_EMBERS.map((e,i)=>(
           <span key={i} className="menu-ember" style={{
@@ -1289,22 +1345,13 @@ function MenuScreen({onLocal,onAI,onOnline,onRules,onDeckBuilder,onAccount,onBoo
         </div>
       </div>
 
-      <div className="relative z-10 w-full max-w-md flex items-stretch justify-around gap-1 mb-1 px-2 py-2 rounded-2xl border border-amber-900/50"
-        style={{background:'linear-gradient(135deg,rgba(10,7,3,0.85),rgba(20,13,5,0.82))', boxShadow:'0 4px 20px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.05)'}}>
-        <MenuIconBtn onClick={onDeckBuilder} icon={<Layers size={18}/>} label="Decks" color="#34d399" delay="0.20s"/>
-        {user
-          ?<MenuIconBtn onClick={onBooster} icon={<Gift size={18}/>} label="Booster" color="#f472b6" delay="0.25s"/>
-          :<MenuIconBtn onClick={onAccount} icon={<Lock size={16}/>} label="Booster" color="#64748b" delay="0.25s"/>
-        }
-        <MenuIconBtn onClick={onRules}   icon={<BookOpen size={18}/>}   label="Règles" color="#fbbf24" delay="0.30s"/>
-        <MenuIconBtn onClick={onAccount} icon={<UserCircle size={18}/>} label={user?'Compte':'Connexion'} color="#38bdf8" delay="0.35s" title={user?(user.displayName||user.email):undefined}/>
-      </div>
+      <BottomNav onDeckBuilder={onDeckBuilder} onBooster={onBooster} onRules={onRules} onAccount={onAccount} onShop={onShop} user={user} className="mb-1"/>
     </div>
   )
 }
 function RulesScreen({onBack}){
   const S=[
-    ['🎴 Les cartes','Chaque carte a un chiffre sur chacune de ses 8 faces (haut, bas, les côtés, et les diagonales). Votre deck compte 6 cartes : deux plutôt faibles, deux moyennes et deux très puissantes. Vous pouvez créer les vôtres dans le Deck Builder, avec vos propres chiffres et même votre propre image.'],
+    ['🎴 Les cartes','Chaque carte a un chiffre sur chacune de ses 8 faces (haut, bas, les côtés, et les diagonales). Votre deck compte 6 cartes : deux plutôt faibles, deux moyennes et deux très puissantes. Vous pouvez créer les vôtres dans le Deck Builder, avec vos propres chiffres et un portrait de votre choix (d\'autres s\'achètent dans la Boutique).'],
     ['🎲 Le plateau','On joue sur une grille de 5 cases sur 5. Les 4 coins sont bloqués : personne ne peut y poser de carte. Vous démarrez en haut du plateau, votre adversaire en bas.'],
     ['⚡ Pendant votre tour','À chaque tour, vous pouvez poser une carte depuis votre main dans votre camp, déplacer deux cartes déjà en jeu (les déplacements en diagonale sont autorisés), et attaquer une fois une carte adverse juste à côté de la vôtre (seulement en haut, en bas, à gauche ou à droite — pas en diagonale). Vos pouvoirs spéciaux sont gratuits et ne comptent pas dans ces actions.'],
     ['💥 Le combat','Quand vous attaquez une carte voisine, vos deux cartes s\'affrontent sur les faces qui se touchent : chacune y perd 1 point. Si un chiffre tombe sous zéro, la carte est détruite.'],
@@ -1335,7 +1382,7 @@ function RulesScreen({onBack}){
 // ═══════════════════════════════════════════════════════════════════════════════
 //  DECK BUILDER SCREEN
 // ═══════════════════════════════════════════════════════════════════════════════
-function CardEditor({card,onUpdate,onRemove,otherDecks,onMoveCard,onZoom}){
+function CardEditor({card,onUpdate,onRemove,otherDecks,onMoveCard,onZoom,ownedSkins}){
   const isBooster=!!card.rarity
   const pts=customCardPts(card),over=!isBooster&&pts>CARD_MAX_POINTS
   const rarityTheme=isBooster?RARITY_THEME[card.rarity]:null
@@ -1375,7 +1422,7 @@ function CardEditor({card,onUpdate,onRemove,otherDecks,onMoveCard,onZoom}){
             <>
               <span className="text-slate-400 text-[11px]">Image de fond :</span>
               <div className="flex flex-wrap gap-1.5">
-                {CARD_IMAGE_GALLERY.map(src=>{
+                {cardImageGallery(ownedSkins).map(src=>{
                   const selected=card.imageUrl===src
                   return(
                     <button key={src} onClick={()=>onUpdate({imageUrl:src})} title={src.split('/').pop()}
@@ -1385,6 +1432,7 @@ function CardEditor({card,onUpdate,onRemove,otherDecks,onMoveCard,onZoom}){
                   )
                 })}
               </div>
+              <span className="text-slate-500 text-[10px]">D'autres portraits sont en vente dans la Boutique.</span>
             </>
           )}
           <MedBtn onClick={onRemove} color="#ef4444" icon={<Trash2 size={13}/>} className="w-fit mt-auto">Supprimer la carte</MedBtn>
@@ -1407,7 +1455,7 @@ function CardEditor({card,onUpdate,onRemove,otherDecks,onMoveCard,onZoom}){
     </div>
   )
 }
-function DeckEditor({deck,onBack,onRename,onAddCard,onRemoveCard,onUpdateCard,onSetDefault,otherDecks,onMoveCard}){
+function DeckEditor({deck,onBack,onRename,onAddCard,onRemoveCard,onUpdateCard,onSetDefault,otherDecks,onMoveCard,ownedSkins}){
   const total=deckTotalPts(deck),overTotal=total>DECK_MAX_POINTS,valid=isDeckValid(deck)
   const atMaxCards=deck.cards.length>=DECK_MAX_CARDS
   const[zoomedCard,setZoomedCard]=useState(null)
@@ -1438,7 +1486,7 @@ function DeckEditor({deck,onBack,onRename,onAddCard,onRemoveCard,onUpdateCard,on
         <div className="flex flex-col gap-3 mb-4">
           {deck.cards.map(c=>(
             <CardEditor key={c.id} card={c} onUpdate={patch=>onUpdateCard(c.id,patch)} onRemove={()=>onRemoveCard(c.id)}
-              otherDecks={otherDecks} onMoveCard={toDeckId=>onMoveCard(c.id,toDeckId)} onZoom={setZoomedCard}/>
+              otherDecks={otherDecks} onMoveCard={toDeckId=>onMoveCard(c.id,toDeckId)} onZoom={setZoomedCard} ownedSkins={ownedSkins}/>
           ))}
           {deck.cards.length===0&&<p className="text-slate-300 text-sm text-center py-6 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">Aucune carte. Ajoutez-en une.</p>}
         </div>
@@ -1449,7 +1497,7 @@ function DeckEditor({deck,onBack,onRename,onAddCard,onRemoveCard,onUpdateCard,on
     </div>
   )
 }
-function DeckBuilderScreen({onBack,user}){
+function DeckBuilderScreen({onBack,user,ownedSkins,coins,onDeckBuilder,onBooster,onRules,onAccount,onShop}){
   const[decks,setDecks]=useState(()=>loadDecks())
   const[collection,setCollection]=useState(()=>loadCollection())
   const[editingId,setEditingId]=useState(null)
@@ -1514,12 +1562,13 @@ function DeckBuilderScreen({onBack,user}){
       onAddCard={()=>addCard(editing.id)} onRemoveCard={cid=>removeCard(editing.id,cid)}
       onUpdateCard={(cid,patch)=>updateCard(editing.id,cid,patch)} onSetDefault={()=>setDefault(editing.id)}
       otherDecks={decks.filter(d=>d.id!==editing.id).map(d=>({id:d.id,name:d.name,cardCount:d.cards.length}))}
-      onMoveCard={(cardId,toId)=>moveCardToDeck(editing.id,cardId,toId)}/>
+      onMoveCard={(cardId,toId)=>moveCardToDeck(editing.id,cardId,toId)} ownedSkins={ownedSkins}/>
   )
 
   return(
     <div className="min-h-screen py-8 px-4 flex flex-col items-center overflow-y-auto"
       style={{backgroundImage:'linear-gradient(rgba(6,6,10,0.20),rgba(6,6,10,0.20)),url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}>
+      <CoinBadge coins={coins}/>
       <div className="max-w-lg w-full">
         <BackButton onClick={onBack} className="mb-6">Menu</BackButton>
         <h2 className="text-3xl font-black mb-1" style={{...CINZEL_DEC,background:'linear-gradient(to bottom,#ffe566,#c9a020)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',filter:'drop-shadow(0 1px 10px rgba(0,0,0,1))'}}>Deck Builder</h2>
@@ -1549,6 +1598,7 @@ function DeckBuilderScreen({onBack,user}){
         <MedBtn onClick={createDeck} color="#34d399" icon={<Plus size={16}/>} className="w-full">Nouveau deck</MedBtn>
         <p className="text-slate-300 text-xs mt-4 text-center drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">Max {CARD_MAX_POINTS} pts/carte · Max {DECK_MAX_POINTS} pts/deck · Le deck par défaut est utilisé en partie Locale et Solo vs IA.</p>
       </div>
+      <BottomNav onDeckBuilder={onDeckBuilder} onBooster={onBooster} onRules={onRules} onAccount={onAccount} onShop={onShop} user={user} className="mt-6"/>
     </div>
   )
 }
@@ -1625,15 +1675,20 @@ function mergeById(localList,cloudList){
   })
   return Array.from(map.values())
 }
-function BoosterScreen({onBack,user}){
+function BoosterScreen({onBack,user,ownedSkins,coins,onEarnCoins,onSellCard,onDeckBuilder,onBooster,onRules,onAccount,onShop}){
   const[collection,setCollection]=useState(()=>loadCollection())
   const[decks,setDecks]=useState(()=>loadDecks())
   const[lastBoosterAt,setLastBoosterAt]=useState(()=>loadLastBoosterAt())
   const[opening,setOpening]=useState(false)
   const[pendingCards,setPendingCards]=useState(null)
   const[revealCount,setRevealCount]=useState(0)
+  const[coinToast,setCoinToast]=useState(null)
   const[,setNow]=useState(()=>Date.now())
   const[zoomedCard,setZoomedCard]=useState(null)
+  // Until the cloud fetch resolves, lastBoosterAt only reflects THIS device's local
+  // record — briefly showing the booster as openable even if it was already opened
+  // elsewhere today. Gate canOpen on this so the button can't flash active.
+  const[cloudReady,setCloudReady]=useState(!user)
   const timersRef=useRef([])
   const cloudReadyRef=useRef(false)
 
@@ -1647,7 +1702,8 @@ function BoosterScreen({onBack,user}){
   },[decks])
   useEffect(()=>{
     cloudReadyRef.current=false
-    if(!user){cloudReadyRef.current=true;return}
+    setCloudReady(false)
+    if(!user){cloudReadyRef.current=true;setCloudReady(true);return}
     Promise.all([loadCloudCollection(user.uid),loadCloudDecks(user.uid),loadCloudLastBooster(user.uid)]).then(([cCollection,cDecks,cLast])=>{
       // Merge instead of overwrite — a device that pulled boosters offline (or
       // before ever logging in) must not have its cards wiped by another
@@ -1660,7 +1716,8 @@ function BoosterScreen({onBack,user}){
       saveCloudCollection(user.uid,mergedCollection).catch(()=>{})
       saveCloudDecks(user.uid,mergedDecks).catch(()=>{})
       if(cLast)setLastBoosterAt(prev=>Math.max(prev,cLast))
-    }).catch(()=>{cloudReadyRef.current=true})
+      setCloudReady(true)
+    }).catch(()=>{cloudReadyRef.current=true;setCloudReady(true)})
     // eslint-disable-next-line react-hooks/exhaustive-deps
   },[user?.uid])
   useEffect(()=>{
@@ -1670,7 +1727,7 @@ function BoosterScreen({onBack,user}){
   useEffect(()=>()=>{timersRef.current.forEach(clearTimeout)},[])
 
   const remainingMs=msUntilNextBooster(lastBoosterAt)
-  const canOpen=remainingMs<=0&&!opening&&!pendingCards
+  const canOpen=cloudReady&&remainingMs<=0&&!opening&&!pendingCards
   const allRevealed=pendingCards&&revealCount>=pendingCards.length
   const displayCollection=pendingCards?collection.filter(c=>!pendingCards.some(p=>p.id===c.id)):collection
 
@@ -1678,7 +1735,7 @@ function BoosterScreen({onBack,user}){
     if(!canOpen)return
     setOpening(true)
     timersRef.current.push(setTimeout(()=>{
-      const cards=openBoosterPack()
+      const cards=openBoosterPack(ownedSkins)
       setPendingCards(cards)
       setCollection(c=>[...c,...cards]) // persist immediately — nothing lost if the user navigates away mid-reveal
       setOpening(false)
@@ -1689,6 +1746,10 @@ function BoosterScreen({onBack,user}){
       const ts=Date.now()
       setLastBoosterAt(ts);saveLastBoosterAt(ts)
       if(user)saveCloudLastBooster(user.uid,ts).catch(()=>{})
+      const reward=rnd(BOOSTER_COIN_MIN,BOOSTER_COIN_MAX)
+      onEarnCoins(reward)
+      setCoinToast(reward)
+      timersRef.current.push(setTimeout(()=>setCoinToast(null),2500))
     },900))
   }
   function handleCloseReveal(){setPendingCards(null);setRevealCount(0)}
@@ -1698,7 +1759,11 @@ function BoosterScreen({onBack,user}){
     setCollection(c=>c.filter(x=>x.id!==cardId))
     setDecks(ds=>ds.map(d=>d.id===deckId?{...d,cards:[...d.cards,card],updatedAt:Date.now()}:d))
   }
-  function handleDeleteCollectionCard(cardId){setCollection(c=>c.filter(x=>x.id!==cardId))}
+  function handleSellCard(cardId){
+    const card=collection.find(c=>c.id===cardId);if(!card)return
+    setCollection(c=>c.filter(x=>x.id!==cardId))
+    onSellCard(card.rarity)
+  }
 
   const bg={backgroundImage:'linear-gradient(rgba(6,6,10,0.20),rgba(6,6,10,0.20)),url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}
 
@@ -1720,6 +1785,7 @@ function BoosterScreen({onBack,user}){
       <div className="min-h-screen pt-14 pb-8 px-4 flex flex-col items-center overflow-y-auto">
       {/* Fixed back button */}
       <BackButton onClick={onBack} compact className="fixed top-3 left-3 z-20">Menu</BackButton>
+      <CoinBadge coins={coins}/>
 
       <CardZoomOverlay card={zoomedCard} onClose={()=>setZoomedCard(null)}/>
 
@@ -1740,9 +1806,16 @@ function BoosterScreen({onBack,user}){
                 style={{background:'linear-gradient(135deg,#3b0764,#1e1b4b)'}}>
                 <Gift size={44} className={canOpen||opening?'text-amber-300':'text-slate-500'}/>
               </button>
-              {canOpen
-                ?<p className="text-amber-300 font-bold" style={CINZEL}>Ouvrir le booster du jour</p>
-                :<p className="text-slate-400 text-sm">Prochain booster dans {formatDuration(remainingMs)}</p>}
+              {!cloudReady
+                ?<p className="text-slate-400 text-sm">Vérification…</p>
+                :canOpen
+                  ?<p className="text-amber-300 font-bold" style={CINZEL}>Ouvrir le booster du jour</p>
+                  :<p className="text-slate-400 text-sm">Prochain booster dans {formatDuration(remainingMs)}</p>}
+              {coinToast&&(
+                <p className="text-amber-300 text-sm font-bold flex items-center gap-1.5 menu-fade-up" style={CINZEL}>
+                  <Coins size={14}/> +{coinToast} pièces
+                </p>
+              )}
             </>
           )}
           {pendingCards&&(
@@ -1786,12 +1859,57 @@ function BoosterScreen({onBack,user}){
                       </>
                     ):<span className="text-slate-500 text-xs">Créez un deck dans le Deck Builder pour y ajouter cette carte.</span>}
                   </div>
-                  <MedBtn onClick={()=>handleDeleteCollectionCard(c.id)} color="#ef4444" icon={<Trash2 size={14}/>} className="!p-2 shrink-0"/>
+                  <MedBtn onClick={()=>handleSellCard(c.id)} title={`Vendre pour ${SELL_VALUE[c.rarity]||0} pièces`} color="#f59e0b" icon={<Coins size={14}/>} className="!px-2.5 !py-2 shrink-0">
+                    {SELL_VALUE[c.rarity]||0}
+                  </MedBtn>
                 </div>
               ))}
             </div>
           )}
       </div>
+      <BottomNav onDeckBuilder={onDeckBuilder} onBooster={onBooster} onRules={onRules} onAccount={onAccount} onShop={onShop} user={user} className="mt-6"/>
+      </div>
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  SHOP SCREEN — spend coins on cosmetic card skins
+// ═══════════════════════════════════════════════════════════════════════════════
+function ShopScreen({onBack,coins,ownedSkins,onBuySkin,onDeckBuilder,onBooster,onRules,onAccount,user}){
+  return(
+    <div className="min-h-screen relative">
+      <div className="fixed inset-0 -z-10" style={{backgroundImage:'linear-gradient(rgba(6,6,10,0.20),rgba(6,6,10,0.20)),url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}/>
+      <div className="min-h-screen pt-14 pb-8 px-4 flex flex-col items-center overflow-y-auto">
+        <BackButton onClick={onBack} compact className="fixed top-3 left-3 z-20">Menu</BackButton>
+        <CoinBadge coins={coins}/>
+
+        <div className="max-w-lg w-full">
+          <h2 className="text-3xl font-black mb-1" style={{...CINZEL_DEC,background:'linear-gradient(to bottom,#ffe566,#c9a020)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',filter:'drop-shadow(0 1px 10px rgba(0,0,0,1))'}}>Boutique</h2>
+          <p className="text-xs mb-5 text-slate-300 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">
+            Achetez des portraits exclusifs avec les pièces gagnées en ouvrant des boosters ou en vendant des cartes. Une fois possédé, un portrait est utilisable dans le Deck Builder et peut apparaître sur vos cartes générées aléatoirement.
+          </p>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            {SKIN_CATALOG.map(skin=>{
+              const owned=ownedSkins.includes(skin.id)
+              const afford=coins>=skin.price
+              return(
+                <div key={skin.id} className="rounded-xl p-3 border border-amber-900/40 flex flex-col items-center gap-2" style={{background:'rgba(8,5,2,0.78)'}}>
+                  <div className="w-20 h-20 rounded-lg overflow-hidden border-2 border-amber-800/50 relative">
+                    <img src={`/images/card/${skin.file}`} alt="" className={`w-full h-full object-cover ${owned?'':'opacity-60'}`}/>
+                    {!owned&&<div className="absolute inset-0 flex items-center justify-center bg-black/30"><Lock size={20} className="text-slate-300"/></div>}
+                  </div>
+                  <span className="text-amber-200 font-bold text-sm text-center" style={CINZEL}>{skin.name}</span>
+                  {owned
+                    ?<span className="text-emerald-400 text-xs font-bold flex items-center gap-1"><Check size={12}/> Possédé</span>
+                    :<MedBtn onClick={()=>onBuySkin(skin.id,skin.price)} disabled={!afford} color="#f59e0b" icon={<Coins size={13}/>}>{skin.price}</MedBtn>
+                  }
+                </div>
+              )
+            })}
+          </div>
+        </div>
+        <BottomNav onDeckBuilder={onDeckBuilder} onBooster={onBooster} onRules={onRules} onAccount={onAccount} onShop={()=>{}} user={user} className="mt-6"/>
       </div>
     </div>
   )
@@ -1918,14 +2036,14 @@ function friendlyFirebaseError(e){
   if(e?.message==='Firebase not configured')return 'Firebase non configuré — renseignez src/firebase.js'
   return `Erreur Firebase : ${e?.message||'inconnue'} — vérifiez les règles de sécurité de votre Realtime Database.`
 }
-function OnlineLobbyScreen({onBack,onGameStart,deck}){
+function OnlineLobbyScreen({onBack,onGameStart,deck,ownedSkins}){
   const[mode,setMode]=useState(null)
   const[code,setCode]=useState('')
   const[inputCode,setInputCode]=useState('')
   const[waiting,setWaiting]=useState(false)
   const[error,setError]=useState('')
   const[copied,setCopied]=useState(false)
-  const[initialGame]=useState(()=>newGame(deck,null))
+  const[initialGame]=useState(()=>newGame(deck,null,ownedSkins))
   const unsubRef=useRef(null)
   const mmIdRef=useRef(null)
   const mmUnsubRef=useRef(null)
@@ -2079,6 +2197,8 @@ export default function App(){
   const[user,setUser]=useState(null)
   const[stats,setStats]=useState(null)
   const[lastAnim,setLastAnim]=useState(null)
+  const[coins,setCoins]=useState(()=>loadCoins())
+  const[ownedSkins,setOwnedSkins]=useState(()=>loadOwnedSkins())
   const ignoreNextRef=useRef(false)
   const unsubRef=useRef(null)
   const gameRef=useRef(game)
@@ -2086,7 +2206,43 @@ export default function App(){
   const aiTimerRef=useRef(null)
   const statsRecordedRef=useRef(false)
   const animSeqRef=useRef(0)
+  const coinsUpdatedAtRef=useRef(loadCoinsUpdatedAt())
+  const economyCloudReadyRef=useRef(false)
   function nextAnimSeq(){animSeqRef.current+=1;return animSeqRef.current}
+
+  // ── Economy — coins & owned cosmetic skins ─────────────────────
+  function earnCoins(amount){coinsUpdatedAtRef.current=Date.now();setCoins(c=>c+amount)}
+  function sellCard(rarity){const value=SELL_VALUE[rarity]||0;earnCoins(value);return value}
+  function buySkin(skinId,price){
+    if(ownedSkins.includes(skinId)||coins<price)return false
+    coinsUpdatedAtRef.current=Date.now()
+    setCoins(c=>c-price)
+    setOwnedSkins(s=>[...s,skinId])
+    return true
+  }
+  useEffect(()=>{saveCoins(coins);saveCoinsUpdatedAt(coinsUpdatedAtRef.current)},[coins])
+  useEffect(()=>{saveOwnedSkins(ownedSkins)},[ownedSkins])
+  useEffect(()=>{
+    economyCloudReadyRef.current=false
+    if(!user){economyCloudReadyRef.current=true;return}
+    loadCloudEconomy(user.uid).then(cloud=>{
+      economyCloudReadyRef.current=true
+      if(!cloud)return
+      // Coins: keep whichever side (local/cloud) was actually updated more recently —
+      // same reasoning as the deck merge fix, a stale cloud snapshot must not silently
+      // undo a spend/earn that already happened locally.
+      if((cloud.coinsUpdatedAt||0)>coinsUpdatedAtRef.current){
+        coinsUpdatedAtRef.current=cloud.coinsUpdatedAt||0
+        setCoins(cloud.coins||0)
+      }
+      // Owned skins only ever grow — a plain union is always safe either direction.
+      setOwnedSkins(prev=>Array.from(new Set([...prev,...(cloud.ownedSkins||[])])))
+    }).catch(()=>{economyCloudReadyRef.current=true})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[user?.uid])
+  useEffect(()=>{
+    if(user&&economyCloudReadyRef.current)saveCloudEconomy(user.uid,{coins,coinsUpdatedAt:coinsUpdatedAtRef.current,ownedSkins}).catch(()=>{})
+  },[coins,ownedSkins])
 
   useEffect(()=>{gameRef.current=game},[game])
   useEffect(()=>{soundOnRef.current=soundOn;saveSoundPref(soundOn)},[soundOn])
@@ -2113,7 +2269,7 @@ export default function App(){
   // ── Music ─────────────────────────────────────────────────────
   useEffect(()=>{
     if(screen==='game') startMusic(soundOn, false)
-    else if(['menu','rules','online','deckselect','account','booster','deckbuilder'].includes(screen)) startMusic(soundOn, true)
+    else if(['menu','rules','online','deckselect','account','booster','deckbuilder','shop'].includes(screen)) startMusic(soundOn, true)
     else stopMusic()
   },[screen,soundOn])
   useEffect(()=>()=>stopMusic(),[])
@@ -2232,7 +2388,7 @@ export default function App(){
   function startGame(mode,deck=chosenDeck){
     if(aiTimerRef.current){clearTimeout(aiTimerRef.current);aiTimerRef.current=null}
     const p1Deck=deck,p2Deck=mode==='local'?deck:null
-    setGameMode(mode);setRoomCode(null);setMyPlayer(mode==='ai'?1:null);setGame(newGame(p1Deck,p2Deck));setScreen('game')
+    setGameMode(mode);setRoomCode(null);setMyPlayer(mode==='ai'?1:null);setGame(newGame(p1Deck,p2Deck,ownedSkins));setScreen('game')
   }
 
   function goToDeckSelect(mode){setPendingMode(mode);setScreen('deckselect')}
@@ -2260,13 +2416,14 @@ export default function App(){
   return(
     <>
       <SoundToggle enabled={soundOn} onToggle={()=>setSoundOn(v=>!v)}/>
-      {screen==='menu'     && <MenuScreen onAI={()=>goToDeckSelect('ai')} onLocal={()=>goToDeckSelect('local')} onOnline={()=>goToDeckSelect('online')} onRules={()=>setScreen('rules')} onDeckBuilder={()=>setScreen('deckbuilder')} onAccount={()=>setScreen('account')} onBooster={()=>setScreen('booster')} user={user}/>}
+      {screen==='menu'     && <MenuScreen onAI={()=>goToDeckSelect('ai')} onLocal={()=>goToDeckSelect('local')} onOnline={()=>goToDeckSelect('online')} onRules={()=>setScreen('rules')} onDeckBuilder={()=>setScreen('deckbuilder')} onAccount={()=>setScreen('account')} onBooster={()=>setScreen('booster')} onShop={()=>setScreen('shop')} user={user} coins={coins}/>}
       {screen==='rules'    && <RulesScreen onBack={()=>setScreen('menu')}/>}
-      {screen==='deckbuilder' && <DeckBuilderScreen onBack={()=>setScreen('menu')} user={user}/>}
-      {screen==='booster'  && <BoosterScreen onBack={()=>setScreen('menu')} user={user}/>}
+      {screen==='deckbuilder' && <DeckBuilderScreen onBack={()=>setScreen('menu')} user={user} ownedSkins={ownedSkins} coins={coins} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')}/>}
+      {screen==='booster'  && <BoosterScreen onBack={()=>setScreen('menu')} user={user} ownedSkins={ownedSkins} coins={coins} onEarnCoins={earnCoins} onSellCard={sellCard} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')}/>}
+      {screen==='shop'     && <ShopScreen onBack={()=>setScreen('menu')} user={user} coins={coins} ownedSkins={ownedSkins} onBuySkin={buySkin} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')}/>}
       {screen==='deckselect' && <DeckSelectScreen mode={pendingMode} onBack={()=>setScreen('menu')} onSelect={handleDeckChosen}/>}
       {screen==='account'  && <AccountScreen onBack={()=>setScreen('menu')} user={user} stats={stats}/>}
-      {screen==='online'   && <OnlineLobbyScreen onBack={()=>setScreen('menu')} onGameStart={handleOnlineStart} deck={chosenDeck}/>}
+      {screen==='online'   && <OnlineLobbyScreen onBack={()=>setScreen('menu')} onGameStart={handleOnlineStart} deck={chosenDeck} ownedSkins={ownedSkins}/>}
       {screen==='game'     && game && <GameScreen game={game} soundEnabled={soundOn} myPlayer={myPlayer} isAI={gameMode==='ai'} onAction={handleAction} onEndTurn={handleEndTurn} onHome={closeGame} onPowerAction={handlePowerAction} onSurrender={handleSurrender} lastAnim={lastAnim} syncError={roomCode?syncError:null}/>}
       {screen==='gameover' && game && <GameOverScreen winner={game.winner} isAI={gameMode==='ai'} surrendered={!!game.surrendered} onReplay={()=>startGame(gameMode)} onMenu={()=>setScreen('menu')}/>}
     </>
