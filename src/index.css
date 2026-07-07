@@ -7,6 +7,18 @@
 .scrollbar-hide { scrollbar-width: none; -ms-overflow-style: none; }
 .scrollbar-hide::-webkit-scrollbar { display: none; }
 
+/* ── Shared menu-art background — portrait art swaps in on narrow/mobile screens ── */
+.bg-charta {
+  background-image: linear-gradient(rgba(6,6,10,0.20),rgba(6,6,10,0.20)), url('/images/menu.png');
+  background-size: cover;
+  background-position: center;
+}
+@media (max-width: 640px) {
+  .bg-charta {
+    background-image: linear-gradient(rgba(6,6,10,0.20),rgba(6,6,10,0.20)), url('/images/menuvertical.png');
+  }
+}
+
 /* ── Shared wood-carved button look (replaces the old neon-glow style) ── */
 .wood-btn {
   background:
@@ -183,7 +195,8 @@
 .menu-screen {
   min-height: 100svh;
   padding-top: max(2rem, env(safe-area-inset-top));
-  padding-bottom: max(2rem, env(safe-area-inset-bottom));
+  /* Extra bottom room reserves space for the fixed BottomNav bar so centered content never sits behind it */
+  padding-bottom: max(6rem, calc(env(safe-area-inset-bottom) + 4.5rem));
   padding-left: max(1rem, env(safe-area-inset-left));
   padding-right: max(1rem, env(safe-area-inset-right));
 }

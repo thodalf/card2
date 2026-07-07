@@ -1282,10 +1282,13 @@ function MenuIconBtn({onClick, icon, label, color, delay, title}){
 
 // Shared bottom icon nav — used by the main menu, Deck Builder and Booster screens
 // so switching between these sections never requires a trip back through the menu.
+// Fixed to the bottom of the viewport on every screen that uses it, so it's
+// always reachable without scrolling — like a native app's tab bar.
 function BottomNav({onDeckBuilder,onBooster,onRules,onAccount,onShop,user,className=''}){
   return(
-    <div className={`relative z-10 w-full max-w-md flex items-stretch justify-around gap-1 px-2 py-2 rounded-2xl border border-amber-900/50 ${className}`}
-      style={{background:'linear-gradient(135deg,rgba(10,7,3,0.85),rgba(20,13,5,0.82))', boxShadow:'0 4px 20px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.05)'}}>
+    <div className={`fixed inset-x-0 z-20 mx-auto w-[calc(100%-1.5rem)] max-w-md flex items-stretch justify-around gap-1 px-2 py-2 rounded-2xl border border-amber-900/50 ${className}`}
+      style={{background:'linear-gradient(135deg,rgba(10,7,3,0.85),rgba(20,13,5,0.82))', boxShadow:'0 4px 20px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.05)',
+        bottom:'max(0.75rem, env(safe-area-inset-bottom))'}}>
       <MenuIconBtn onClick={onDeckBuilder} icon={<Layers size={18}/>} label="Decks" color="#34d399"/>
       {user
         ?<MenuIconBtn onClick={onBooster} icon={<Gift size={18}/>} label="Booster" color="#f472b6"/>
@@ -1298,10 +1301,11 @@ function BottomNav({onDeckBuilder,onBooster,onRules,onAccount,onShop,user,classN
   )
 }
 
-// Small fixed coin balance badge, reused on any screen where coins are earned/spent
+// Small fixed coin balance badge, reused on any screen where coins are earned/spent.
+// Sits below the sound toggle (also fixed top-right) so the two never overlap.
 function CoinBadge({coins}){
   return(
-    <div className="wood-btn fixed top-3 right-3 z-20 flex items-center gap-1.5 px-3 py-1.5 rounded-lg" style={{color:'#fbbf24'}}>
+    <div className="wood-btn fixed top-14 right-3 z-20 flex items-center gap-1.5 px-3 py-1.5 rounded-lg" style={{color:'#fbbf24'}}>
       <Coins size={15}/><span className="font-bold text-sm" style={CINZEL}>{coins}</span>
     </div>
   )
@@ -1309,8 +1313,7 @@ function CoinBadge({coins}){
 
 function MenuScreen({onLocal,onAI,onOnline,onRules,onDeckBuilder,onAccount,onBooster,onShop,user,coins}){
   return(
-    <div className="menu-screen relative flex flex-col items-center gap-4 px-4 overflow-hidden"
-      style={{backgroundImage:'linear-gradient(rgba(6,6,10,0.20),rgba(6,6,10,0.20)),url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}>
+    <div className="bg-charta menu-screen relative flex flex-col items-center gap-4 px-4 overflow-hidden">
 
       <CoinBadge coins={coins}/>
       <div className="menu-embers" aria-hidden="true">
@@ -1345,7 +1348,7 @@ function MenuScreen({onLocal,onAI,onOnline,onRules,onDeckBuilder,onAccount,onBoo
         </div>
       </div>
 
-      <BottomNav onDeckBuilder={onDeckBuilder} onBooster={onBooster} onRules={onRules} onAccount={onAccount} onShop={onShop} user={user} className="mb-1"/>
+      <BottomNav onDeckBuilder={onDeckBuilder} onBooster={onBooster} onRules={onRules} onAccount={onAccount} onShop={onShop} user={user}/>
     </div>
   )
 }
@@ -1361,8 +1364,7 @@ function RulesScreen({onBack}){
   ]
   return(
     <div className="relative min-h-screen">
-      <div className="fixed inset-0" aria-hidden="true"
-        style={{backgroundImage:'linear-gradient(rgba(6,6,10,0.20),rgba(6,6,10,0.20)),url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}/>
+      <div className="bg-charta fixed inset-0" aria-hidden="true"/>
       <div className="relative scrollbar-hide min-h-screen overflow-y-auto py-8 px-4 flex flex-col items-center">
         <div className="max-w-lg w-full">
           <BackButton onClick={onBack} className="mb-6">Menu</BackButton>
@@ -1460,8 +1462,7 @@ function DeckEditor({deck,onBack,onRename,onAddCard,onRemoveCard,onUpdateCard,on
   const atMaxCards=deck.cards.length>=DECK_MAX_CARDS
   const[zoomedCard,setZoomedCard]=useState(null)
   return(
-    <div className="min-h-screen py-8 px-4 flex flex-col items-center overflow-y-auto"
-      style={{backgroundImage:'linear-gradient(rgba(6,6,10,0.20),rgba(6,6,10,0.20)),url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}>
+    <div className="bg-charta min-h-screen py-8 px-4 flex flex-col items-center overflow-y-auto">
       <CardZoomOverlay card={zoomedCard} onClose={()=>setZoomedCard(null)}/>
       <div className="max-w-lg w-full">
         <BackButton onClick={onBack} className="mb-4">Decks</BackButton>
@@ -1566,8 +1567,7 @@ function DeckBuilderScreen({onBack,user,ownedSkins,coins,onDeckBuilder,onBooster
   )
 
   return(
-    <div className="min-h-screen py-8 px-4 flex flex-col items-center overflow-y-auto"
-      style={{backgroundImage:'linear-gradient(rgba(6,6,10,0.20),rgba(6,6,10,0.20)),url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}>
+    <div className="bg-charta min-h-screen pt-8 pb-28 px-4 flex flex-col items-center overflow-y-auto">
       <CoinBadge coins={coins}/>
       <div className="max-w-lg w-full">
         <BackButton onClick={onBack} className="mb-6">Menu</BackButton>
@@ -1598,7 +1598,7 @@ function DeckBuilderScreen({onBack,user,ownedSkins,coins,onDeckBuilder,onBooster
         <MedBtn onClick={createDeck} color="#34d399" icon={<Plus size={16}/>} className="w-full">Nouveau deck</MedBtn>
         <p className="text-slate-300 text-xs mt-4 text-center drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">Max {CARD_MAX_POINTS} pts/carte · Max {DECK_MAX_POINTS} pts/deck · Le deck par défaut est utilisé en partie Locale et Solo vs IA.</p>
       </div>
-      <BottomNav onDeckBuilder={onDeckBuilder} onBooster={onBooster} onRules={onRules} onAccount={onAccount} onShop={onShop} user={user} className="mt-6"/>
+      <BottomNav onDeckBuilder={onDeckBuilder} onBooster={onBooster} onRules={onRules} onAccount={onAccount} onShop={onShop} user={user}/>
     </div>
   )
 }
@@ -1765,10 +1765,8 @@ function BoosterScreen({onBack,user,ownedSkins,coins,onEarnCoins,onSellCard,onDe
     onSellCard(card.rarity)
   }
 
-  const bg={backgroundImage:'linear-gradient(rgba(6,6,10,0.20),rgba(6,6,10,0.20)),url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}
-
   if(!user)return(
-    <div className="min-h-screen flex flex-col items-center justify-center gap-5 px-4" style={bg}>
+    <div className="bg-charta min-h-screen flex flex-col items-center justify-center gap-5 px-4">
       <div className="text-6xl select-none">🔒</div>
       <p className="text-amber-300 font-bold text-xl text-center drop-shadow-[0_1px_4px_rgba(0,0,0,0.9)]" style={CINZEL}>Connexion requise</p>
       <p className="text-slate-300 text-sm text-center max-w-xs drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">Connectez-vous pour accéder aux boosters de cartes quotidiens et sauvegarder votre collection.</p>
@@ -1781,8 +1779,8 @@ function BoosterScreen({onBack,user,ownedSkins,coins,onEarnCoins,onSellCard,onDe
       {/* Background is a fixed, viewport-sized layer — kept separate from the
           scrollable content below so "cover" sizing never stretches against
           the content's (potentially much taller) scroll height. */}
-      <div className="fixed inset-0 -z-10" style={bg}/>
-      <div className="min-h-screen pt-14 pb-8 px-4 flex flex-col items-center overflow-y-auto">
+      <div className="bg-charta fixed inset-0 -z-10"/>
+      <div className="min-h-screen pt-14 pb-28 px-4 flex flex-col items-center overflow-y-auto">
       {/* Fixed back button */}
       <BackButton onClick={onBack} compact className="fixed top-3 left-3 z-20">Menu</BackButton>
       <CoinBadge coins={coins}/>
@@ -1867,7 +1865,7 @@ function BoosterScreen({onBack,user,ownedSkins,coins,onEarnCoins,onSellCard,onDe
             </div>
           )}
       </div>
-      <BottomNav onDeckBuilder={onDeckBuilder} onBooster={onBooster} onRules={onRules} onAccount={onAccount} onShop={onShop} user={user} className="mt-6"/>
+      <BottomNav onDeckBuilder={onDeckBuilder} onBooster={onBooster} onRules={onRules} onAccount={onAccount} onShop={onShop} user={user}/>
       </div>
     </div>
   )
@@ -1876,11 +1874,11 @@ function BoosterScreen({onBack,user,ownedSkins,coins,onEarnCoins,onSellCard,onDe
 // ═══════════════════════════════════════════════════════════════════════════════
 //  SHOP SCREEN — spend coins on cosmetic card skins
 // ═══════════════════════════════════════════════════════════════════════════════
-function ShopScreen({onBack,coins,ownedSkins,onBuySkin,onDeckBuilder,onBooster,onRules,onAccount,user}){
+function ShopScreen({onBack,coins,ownedSkins,onBuySkin,onEarnCoins,onDeckBuilder,onBooster,onRules,onAccount,user}){
   return(
     <div className="min-h-screen relative">
-      <div className="fixed inset-0 -z-10" style={{backgroundImage:'linear-gradient(rgba(6,6,10,0.20),rgba(6,6,10,0.20)),url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}/>
-      <div className="min-h-screen pt-14 pb-8 px-4 flex flex-col items-center overflow-y-auto">
+      <div className="bg-charta fixed inset-0 -z-10"/>
+      <div className="min-h-screen pt-14 pb-28 px-4 flex flex-col items-center overflow-y-auto">
         <BackButton onClick={onBack} compact className="fixed top-3 left-3 z-20">Menu</BackButton>
         <CoinBadge coins={coins}/>
 
@@ -1889,6 +1887,15 @@ function ShopScreen({onBack,coins,ownedSkins,onBuySkin,onDeckBuilder,onBooster,o
           <p className="text-xs mb-5 text-slate-300 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">
             Achetez des portraits exclusifs avec les pièces gagnées en ouvrant des boosters ou en vendant des cartes. Une fois possédé, un portrait est utilisable dans le Deck Builder et peut apparaître sur vos cartes générées aléatoirement.
           </p>
+
+          <div className="rounded-xl p-4 mb-5 border border-amber-900/40" style={{background:'rgba(8,5,2,0.78)'}}>
+            <h3 className="text-amber-300 font-bold mb-1 flex items-center gap-1.5" style={CINZEL}><Coins size={15}/> Obtenir des pièces</h3>
+            <p className="text-slate-400 text-[11px] mb-3">
+              L'achat de pièces avec de l'argent réel n'est pas encore disponible. En attendant, ce bouton en ajoute gratuitement pour tester.
+            </p>
+            <MedBtn onClick={()=>onEarnCoins(100)} color="#f59e0b" icon={<Coins size={14}/>} className="w-fit">+100 pièces (test)</MedBtn>
+          </div>
+
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             {SKIN_CATALOG.map(skin=>{
               const owned=ownedSkins.includes(skin.id)
@@ -1909,7 +1916,7 @@ function ShopScreen({onBack,coins,ownedSkins,onBuySkin,onDeckBuilder,onBooster,o
             })}
           </div>
         </div>
-        <BottomNav onDeckBuilder={onDeckBuilder} onBooster={onBooster} onRules={onRules} onAccount={onAccount} onShop={()=>{}} user={user} className="mt-6"/>
+        <BottomNav onDeckBuilder={onDeckBuilder} onBooster={onBooster} onRules={onRules} onAccount={onAccount} onShop={()=>{}} user={user}/>
       </div>
     </div>
   )
@@ -1923,8 +1930,7 @@ const DECKSELECT_SUBTITLE={
 function DeckSelectScreen({mode,onBack,onSelect}){
   const[decks]=useState(()=>loadDecks().filter(isDeckValid))
   return(
-    <div className="min-h-screen py-8 px-4 flex flex-col items-center overflow-y-auto"
-      style={{backgroundImage:'linear-gradient(rgba(6,6,10,0.20),rgba(6,6,10,0.20)),url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}>
+    <div className="bg-charta min-h-screen py-8 px-4 flex flex-col items-center overflow-y-auto">
       <div className="max-w-lg w-full">
         <BackButton onClick={onBack} className="mb-6">Menu</BackButton>
         <h2 className="text-3xl font-black mb-2" style={{...CINZEL_DEC,background:'linear-gradient(to bottom,#ffe566,#c9a020)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',filter:'drop-shadow(0 1px 10px rgba(0,0,0,1))'}}>Choisissez votre deck</h2>
@@ -1974,8 +1980,7 @@ function AccountScreen({onBack,user,stats}){
   }
   const total=stats?.gamesPlayed||0
   return(
-    <div className="min-h-screen py-8 px-4 flex flex-col items-center overflow-y-auto"
-      style={{backgroundImage:'linear-gradient(rgba(6,6,10,0.20),rgba(6,6,10,0.20)),url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}>
+    <div className="bg-charta min-h-screen py-8 px-4 flex flex-col items-center overflow-y-auto">
       <div className="max-w-sm w-full">
         <BackButton onClick={onBack} className="mb-6">Menu</BackButton>
         <h2 className="text-3xl font-black mb-5" style={{...CINZEL_DEC,background:'linear-gradient(to bottom,#ffe566,#c9a020)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',filter:'drop-shadow(0 1px 10px rgba(0,0,0,1))'}}>Mon Compte</h2>
@@ -2108,10 +2113,8 @@ function OnlineLobbyScreen({onBack,onGameStart,deck,ownedSkins}){
   function handleCancelMatchmaking(){stopMatchmaking();setMode(null)}
   function copyCode(){navigator.clipboard.writeText(code).then(()=>{setCopied(true);setTimeout(()=>setCopied(false),2000)})}
 
-  const bg={backgroundImage:'linear-gradient(rgba(6,6,10,0.20),rgba(6,6,10,0.20)),url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}
-
   if(waiting)return(
-    <div className="min-h-screen flex flex-col items-center justify-center gap-6" style={bg}>
+    <div className="bg-charta min-h-screen flex flex-col items-center justify-center gap-6">
       <div className="text-4xl animate-spin">⚙</div>
       <p className="text-white text-xl font-bold drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">Code : <span className="text-amber-300 tracking-widest font-black">{code}</span></p>
       <p className="text-slate-300 animate-pulse drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">En attente du joueur 2…</p>
@@ -2121,7 +2124,7 @@ function OnlineLobbyScreen({onBack,onGameStart,deck,ownedSkins}){
   )
 
   if(mode==='matchmaking')return(
-    <div className="min-h-screen flex flex-col items-center justify-center gap-6 px-4 text-center" style={bg}>
+    <div className="bg-charta min-h-screen flex flex-col items-center justify-center gap-6 px-4 text-center">
       <div className="text-4xl animate-spin">⚔</div>
       <p className="text-white text-xl font-bold drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">Recherche d'un adversaire…</p>
       <p className="text-slate-300 text-sm max-w-xs drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">La partie démarre automatiquement dès qu'un autre joueur rejoint le matchmaking.</p>
@@ -2131,7 +2134,7 @@ function OnlineLobbyScreen({onBack,onGameStart,deck,ownedSkins}){
   )
 
   return(
-    <div className="min-h-screen flex flex-col items-center justify-center gap-6 px-4 relative" style={bg}>
+    <div className="bg-charta min-h-screen flex flex-col items-center justify-center gap-6 px-4 relative">
       <BackButton onClick={onBack} compact className="absolute top-4 left-4">Menu</BackButton>
       <h2 className="text-3xl font-black" style={{...CINZEL_DEC,background:'linear-gradient(to bottom,#ffe566,#c9a020)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',filter:'drop-shadow(0 1px 10px rgba(0,0,0,1))'}}>Partie en Ligne</h2>
       {error&&<p className="text-red-400 text-sm bg-red-900/30 px-4 py-2 rounded-lg text-center max-w-sm">{error}</p>}
@@ -2162,8 +2165,7 @@ function GameOverScreen({winner,isAI,surrendered,onReplay,onMenu}){
     ?`Joueur ${loser} a capitulé.`
     :isAI&&winner===2?'L\'IA a éliminé toutes vos cartes.':'L\'adversaire n\'a plus aucune carte.'
   return(
-    <div className="min-h-screen flex flex-col items-center justify-center gap-5 px-4"
-      style={{backgroundImage:'linear-gradient(rgba(6,6,10,0.20),rgba(6,6,10,0.20)),url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}>
+    <div className="bg-charta min-h-screen flex flex-col items-center justify-center gap-5 px-4">
       <div className="text-7xl mb-2 animate-bounce">{surrendered?'🏳️':'🏆'}</div>
       <h2 className="text-4xl font-black text-center" style={CINZEL_DEC}>
         <span className={winner===1?'text-blue-400':'text-red-400'}>{winLabel}</span>
@@ -2420,7 +2422,7 @@ export default function App(){
       {screen==='rules'    && <RulesScreen onBack={()=>setScreen('menu')}/>}
       {screen==='deckbuilder' && <DeckBuilderScreen onBack={()=>setScreen('menu')} user={user} ownedSkins={ownedSkins} coins={coins} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')}/>}
       {screen==='booster'  && <BoosterScreen onBack={()=>setScreen('menu')} user={user} ownedSkins={ownedSkins} coins={coins} onEarnCoins={earnCoins} onSellCard={sellCard} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')}/>}
-      {screen==='shop'     && <ShopScreen onBack={()=>setScreen('menu')} user={user} coins={coins} ownedSkins={ownedSkins} onBuySkin={buySkin} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')}/>}
+      {screen==='shop'     && <ShopScreen onBack={()=>setScreen('menu')} user={user} coins={coins} ownedSkins={ownedSkins} onBuySkin={buySkin} onEarnCoins={earnCoins} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')}/>}
       {screen==='deckselect' && <DeckSelectScreen mode={pendingMode} onBack={()=>setScreen('menu')} onSelect={handleDeckChosen}/>}
       {screen==='account'  && <AccountScreen onBack={()=>setScreen('menu')} user={user} stats={stats}/>}
       {screen==='online'   && <OnlineLobbyScreen onBack={()=>setScreen('menu')} onGameStart={handleOnlineStart} deck={chosenDeck} ownedSkins={ownedSkins}/>}
