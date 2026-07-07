@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Copy, Volume2, VolumeX, Home, BookOpen, Wifi, Play, Users, Check, X, Zap, Bot, Layers, Plus, Trash2, Star, ImagePlus, UserCircle, LogIn, LogOut, Mail, Lock, RefreshCw, Swords, Gift, ArrowRightLeft, Sparkles } from 'lucide-react'
+import { Copy, Volume2, VolumeX, Home, BookOpen, Wifi, Play, Users, Check, X, Zap, Bot, Layers, Plus, Trash2, Star, UserCircle, LogIn, LogOut, Mail, Lock, RefreshCw, Swords, Gift, ArrowRightLeft, Sparkles } from 'lucide-react'
 import {
   genRoomCode, createRoom, joinRoom, pushState, subscribeRoom, removeRoom,
   onAuthChange, registerWithEmail, loginWithEmail, loginWithGoogle, logout,
@@ -62,6 +62,8 @@ function pickCardImage(total){
   const pool=total<=20?CARD_IMAGE_TIERS.weak:total<=28?CARD_IMAGE_TIERS.medium:CARD_IMAGE_TIERS.strong
   return `/images/card/${pool[rnd(0,pool.length-1)]}`
 }
+// Portraits available for hand-picking a card's background in the Deck Builder
+const CARD_IMAGE_GALLERY = ['gnome.png','hobbit.png','elf.png','elf_noir.png','nain_femme.png','orc.png','roi.png','dragon.png'].map(f=>`/images/card/${f}`)
 
 function genValues(total) {
   // Each value is 1–9: distribute (total - 8) extra points across 8 slots of [0, 8]
@@ -1326,53 +1328,21 @@ function RulesScreen({onBack}){
 // ═══════════════════════════════════════════════════════════════════════════════
 //  DECK BUILDER SCREEN
 // ═══════════════════════════════════════════════════════════════════════════════
-function CardEditor({card,onUpdate,onRemove,otherDecks,onMoveCard,onZoom,onUploadingChange}){
+function CardEditor({card,onUpdate,onRemove,otherDecks,onMoveCard,onZoom}){
   const isBooster=!!card.rarity
   const pts=customCardPts(card),over=!isBooster&&pts>CARD_MAX_POINTS
   const rarityTheme=isBooster?RARITY_THEME[card.rarity]:null
-  const[uploading,setUploading]=useState(false)
   function setVal(key,v){
     const n=Math.max(0,Math.min(9,Number(v)||0))
     onUpdate({values:{...card.values,[key]:n}})
   }
-  function handleFile(e){
-    const file=e.target.files?.[0];if(!file)return
-    setUploading(true);onUploadingChange?.(true)
-    const done=(patch)=>{setUploading(false);onUploadingChange?.(false);if(patch)onUpdate(patch)}
-    const reader=new FileReader()
-    reader.onerror=()=>done(null)
-    reader.onload=()=>{
-      const img=new window.Image()
-      img.onerror=()=>done(null)
-      img.onload=()=>{
-        // Downscale to keep the stored data URI well under the localStorage quota —
-        // raw phone photos (several MB) silently blow past it and saveDecks() then
-        // fails without the image ever having actually persisted.
-        const maxDim=480
-        const scale=Math.min(1,maxDim/Math.max(img.width,img.height))
-        const w=Math.max(1,Math.round(img.width*scale)),h=Math.max(1,Math.round(img.height*scale))
-        const canvas=document.createElement('canvas')
-        canvas.width=w;canvas.height=h
-        canvas.getContext('2d').drawImage(img,0,0,w,h)
-        done({imageUrl:canvas.toDataURL('image/jpeg',0.85)})
-      }
-      img.src=reader.result
-    }
-    reader.readAsDataURL(file)
-  }
   return(
     <div className={`rounded-xl p-3 border ${over?'border-red-600':'border-amber-900/40'}`} style={{background:'rgba(8,5,2,0.78)'}}>
       <div className="flex gap-4">
-        <div onClick={()=>!uploading&&onZoom?.(card)}
+        <div onClick={()=>onZoom?.(card)}
           className="w-[150px] h-[150px] shrink-0 rounded-lg border-2 border-amber-800/50 overflow-hidden relative bg-slate-800 cursor-zoom-in">
           <img src={card.imageUrl||DEFAULT_CARD_IMAGE} alt="" className="absolute inset-0 w-full h-full object-cover"/>
           <div className="absolute inset-0 bg-black/25"/>
-          {uploading&&(
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/70">
-              <div className="w-8 h-8 rounded-full border-[3px] border-amber-400/30 border-t-amber-400 animate-spin"/>
-              <span className="text-amber-300 text-[10px] font-bold" style={CINZEL}>Traitement…</span>
-            </div>
-          )}
           <div className="absolute inset-0 grid grid-cols-3 grid-rows-3 gap-0.5 p-1">
             {GRID_KEYS.map((row,ri)=>row.map((key,ci)=>(
               <div key={`${ri}-${ci}`} className="flex items-center justify-center">
@@ -1396,13 +1366,18 @@ function CardEditor({card,onUpdate,onRemove,otherDecks,onMoveCard,onZoom,onUploa
             <p className="text-slate-500 text-[11px] flex items-center gap-1"><Lock size={11}/> Carte de booster : valeurs et image fixes.</p>
           ):(
             <>
-              <MedBtn as="label" color="#60a5fa" icon={<ImagePlus size={14}/>} disabled={uploading} className={`w-fit ${uploading?'pointer-events-none':''}`}>
-                {uploading?'Traitement…':'Image de fond'}
-                <input type="file" accept="image/*" onChange={handleFile} disabled={uploading} className="hidden"/>
-              </MedBtn>
-              <input type="text" placeholder="...ou URL d'image" disabled={uploading} value={card.imageUrl&&!card.imageUrl.startsWith('data:')?card.imageUrl:''}
-                onChange={e=>onUpdate({imageUrl:e.target.value||null})}
-                className="bg-slate-800 text-slate-200 text-xs border border-slate-700 rounded px-2 py-1.5 outline-none focus:border-amber-500"/>
+              <span className="text-slate-400 text-[11px]">Image de fond :</span>
+              <div className="flex flex-wrap gap-1.5">
+                {CARD_IMAGE_GALLERY.map(src=>{
+                  const selected=card.imageUrl===src
+                  return(
+                    <button key={src} onClick={()=>onUpdate({imageUrl:src})} title={src.split('/').pop()}
+                      className={`w-9 h-9 rounded-md overflow-hidden border-2 transition-colors shrink-0 ${selected?'border-amber-400':'border-slate-700 hover:border-amber-600'}`}>
+                      <img src={src} alt="" className="w-full h-full object-cover"/>
+                    </button>
+                  )
+                })}
+              </div>
             </>
           )}
           <MedBtn onClick={onRemove} color="#ef4444" icon={<Trash2 size={13}/>} className="w-fit mt-auto">Supprimer la carte</MedBtn>
@@ -1425,18 +1400,16 @@ function CardEditor({card,onUpdate,onRemove,otherDecks,onMoveCard,onZoom,onUploa
     </div>
   )
 }
-function DeckEditor({deck,onBack,onRename,onAddCard,onRemoveCard,onUpdateCard,onSetDefault,otherDecks,onMoveCard,onUploadingChange}){
+function DeckEditor({deck,onBack,onRename,onAddCard,onRemoveCard,onUpdateCard,onSetDefault,otherDecks,onMoveCard}){
   const total=deckTotalPts(deck),overTotal=total>DECK_MAX_POINTS,valid=isDeckValid(deck)
   const atMaxCards=deck.cards.length>=DECK_MAX_CARDS
   const[zoomedCard,setZoomedCard]=useState(null)
-  const[uploadCount,setUploadCount]=useState(0)
-  useEffect(()=>{onUploadingChange?.(uploadCount>0)},[uploadCount])
   return(
     <div className="min-h-screen py-8 px-4 flex flex-col items-center overflow-y-auto"
       style={{backgroundImage:'linear-gradient(rgba(6,6,10,0.20),rgba(6,6,10,0.20)),url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}}>
       <CardZoomOverlay card={zoomedCard} onClose={()=>setZoomedCard(null)}/>
       <div className="max-w-lg w-full">
-        <BackButton onClick={onBack} disabled={uploadCount>0} className="mb-4">{uploadCount>0?'Enregistrement…':'Decks'}</BackButton>
+        <BackButton onClick={onBack} className="mb-4">Decks</BackButton>
         <input value={deck.name} onChange={e=>onRename(e.target.value)}
           className="text-2xl font-black bg-transparent border-b border-amber-700/40 text-amber-200 outline-none focus:border-amber-400 mb-2 w-full" style={CINZEL_DEC}/>
         <div className="flex items-center gap-3 mb-4 flex-wrap">
@@ -1458,8 +1431,7 @@ function DeckEditor({deck,onBack,onRename,onAddCard,onRemoveCard,onUpdateCard,on
         <div className="flex flex-col gap-3 mb-4">
           {deck.cards.map(c=>(
             <CardEditor key={c.id} card={c} onUpdate={patch=>onUpdateCard(c.id,patch)} onRemove={()=>onRemoveCard(c.id)}
-              otherDecks={otherDecks} onMoveCard={toDeckId=>onMoveCard(c.id,toDeckId)} onZoom={setZoomedCard}
-              onUploadingChange={active=>setUploadCount(n=>Math.max(0,n+(active?1:-1)))}/>
+              otherDecks={otherDecks} onMoveCard={toDeckId=>onMoveCard(c.id,toDeckId)} onZoom={setZoomedCard}/>
           ))}
           {deck.cards.length===0&&<p className="text-slate-300 text-sm text-center py-6 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">Aucune carte. Ajoutez-en une.</p>}
         </div>
@@ -1472,6 +1444,7 @@ function DeckEditor({deck,onBack,onRename,onAddCard,onRemoveCard,onUpdateCard,on
 }
 function DeckBuilderScreen({onBack,user}){
   const[decks,setDecks]=useState(()=>loadDecks())
+  const[collection,setCollection]=useState(()=>loadCollection())
   const[editingId,setEditingId]=useState(null)
   const cloudReadyRef=useRef(false)
   useEffect(()=>{
@@ -1479,15 +1452,22 @@ function DeckBuilderScreen({onBack,user}){
     if(user&&cloudReadyRef.current)saveCloudDecks(user.uid,decks).catch(()=>{})
   },[decks])
   useEffect(()=>{
+    saveCollection(collection)
+    if(user&&cloudReadyRef.current)saveCloudCollection(user.uid,collection).catch(()=>{})
+  },[collection])
+  useEffect(()=>{
     cloudReadyRef.current=false
     if(!user){cloudReadyRef.current=true;return}
-    loadCloudDecks(user.uid).then(cloud=>{
-      // Merge instead of overwrite — decks created on another device (or before
-      // ever logging in here) must not be wiped by this device's cloud fetch.
-      const merged=mergeById(decks,cloud)
+    Promise.all([loadCloudDecks(user.uid),loadCloudCollection(user.uid)]).then(([cloudDecks,cloudCollection])=>{
+      // Merge instead of overwrite — decks/cards created on another device (or
+      // before ever logging in here) must not be wiped by this device's fetch.
+      const mergedDecks=mergeById(decks,cloudDecks)
+      const mergedCollection=mergeById(collection,cloudCollection)
       cloudReadyRef.current=true
-      setDecks(merged)
-      saveCloudDecks(user.uid,merged).catch(()=>{})
+      setDecks(mergedDecks)
+      setCollection(mergedCollection)
+      saveCloudDecks(user.uid,mergedDecks).catch(()=>{})
+      saveCloudCollection(user.uid,mergedCollection).catch(()=>{})
     }).catch(()=>{cloudReadyRef.current=true})
     // eslint-disable-next-line react-hooks/exhaustive-deps
   },[user?.uid])
@@ -1501,7 +1481,12 @@ function DeckBuilderScreen({onBack,user}){
   function setDefault(id){setDecks(p=>p.map(d=>({...d,isDefault:d.id===id,updatedAt:Date.now()})))}
   function renameDeck(id,name){setDecks(p=>p.map(d=>d.id===id?{...d,name,updatedAt:Date.now()}:d))}
   function addCard(id){setDecks(p=>p.map(d=>d.id===id&&d.cards.length<DECK_MAX_CARDS?{...d,cards:[...d.cards,newCustomCard()],updatedAt:Date.now()}:d))}
-  function removeCard(id,cardId){setDecks(p=>p.map(d=>d.id===id?{...d,cards:d.cards.filter(c=>c.id!==cardId),updatedAt:Date.now()}:d))}
+  function removeCard(id,cardId){
+    const deck=decks.find(d=>d.id===id);const card=deck?.cards.find(c=>c.id===cardId)
+    setDecks(p=>p.map(d=>d.id===id?{...d,cards:d.cards.filter(c=>c.id!==cardId),updatedAt:Date.now()}:d))
+    // Booster-sourced cards go back to the collection instead of being lost
+    if(card?.rarity)setCollection(p=>[...p,card])
+  }
   function updateCard(id,cardId,patch){setDecks(p=>p.map(d=>d.id===id?{...d,cards:d.cards.map(c=>c.id===cardId?{...c,...patch}:c),updatedAt:Date.now()}:d))}
   function moveCardToDeck(fromId,cardId,toId){
     setDecks(p=>{
@@ -1706,6 +1691,7 @@ function BoosterScreen({onBack,user}){
     setCollection(c=>c.filter(x=>x.id!==cardId))
     setDecks(ds=>ds.map(d=>d.id===deckId?{...d,cards:[...d.cards,card],updatedAt:Date.now()}:d))
   }
+  function handleDeleteCollectionCard(cardId){setCollection(c=>c.filter(x=>x.id!==cardId))}
 
   const bg={backgroundImage:'linear-gradient(rgba(6,6,10,0.20),rgba(6,6,10,0.20)),url(/images/menu.png)',backgroundSize:'cover',backgroundPosition:'center'}
 
@@ -1788,6 +1774,7 @@ function BoosterScreen({onBack,user}){
                       </>
                     ):<span className="text-slate-500 text-xs">Créez un deck dans le Deck Builder pour y ajouter cette carte.</span>}
                   </div>
+                  <MedBtn onClick={()=>handleDeleteCollectionCard(c.id)} color="#ef4444" icon={<Trash2 size={14}/>} className="!p-2 shrink-0"/>
                 </div>
               ))}
             </div>
