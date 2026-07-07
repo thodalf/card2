@@ -6,7 +6,7 @@ import {
   loadCloudDecks, saveCloudDecks, subscribeStats, recordGameResult,
   joinMatchmaking, leaveMatchmaking, publishMatchResult, subscribeMatchResult, clearMatchResult,
   loadCloudCollection, saveCloudCollection, loadCloudLastBooster, saveCloudLastBooster,
-  loadCloudEconomy, saveCloudEconomy,
+  loadCloudEconomy, saveCloudEconomy, loadCloudDeletedIds, saveCloudDeletedIds,
 } from './firebase.js'
 
 // Nukes any service-worker cache so a stale PWA build can't keep serving old code
