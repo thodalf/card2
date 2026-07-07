@@ -286,7 +286,15 @@ const cardPts  = c => Object.values(c.values).reduce((a,b)=>a+b,0)
 const cardTier = c => c.total<=20?'weak':c.total<=28?'medium':'strong'
 function playerPts(game,p){let pts=game.players[p].hand?.reduce((a,c)=>a+cardPts(c),0);for(const row of game.board)for(const cell of row)if(cell?.owner===p)pts+=cardPts(cell);return pts}
 function cardCount(game,p){let n=game.players[p].hand?.length;for(const row of game.board)for(const cell of row)if(cell?.owner===p)n++;return n}
-function checkWin(game){if(cardCount(game,1)===0)return 2;if(cardCount(game,2)===0)return 1;return null}
+function checkWin(game){
+  const p1Empty=cardCount(game,1)===0, p2Empty=cardCount(game,2)===0
+  // An attack that kills both the attacker and defender can empty both sides at once
+  // (each had exactly one card left, and both died in the exchange) — a draw, not a win.
+  if(p1Empty&&p2Empty)return 'draw'
+  if(p1Empty)return 2
+  if(p2Empty)return 1
+  return null
+}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 //  COMBAT
@@ -333,7 +341,15 @@ function snd(type,enabled){
 let _audio = null
 let _gameTrackIdx = 0
 let _currentMode = null
-const GAME_TRACKS = ['/musiques/music1.mp3', '/musiques/music2.mp3']
+const GAME_TRACKS = ['/musiques/music1.mp3', '/musiques/music2.mp3', '/musiques/music3.mp3', '/musiques/music4.mp3', '/musiques/music5.mp3', '/musiques/music6.mp3']
+
+// Random pick that avoids repeating the track that just ended
+function _randomTrackIdx(excludeIdx) {
+  if (GAME_TRACKS.length <= 1) return 0
+  let i
+  do { i = Math.floor(Math.random() * GAME_TRACKS.length) } while (i === excludeIdx)
+  return i
+}
 
 function _playNextGameTrack() {
   if (!_audio) return
@@ -361,8 +377,9 @@ function startMusic(enabled, isMenu = false, outcome = null) {
     tryPlay()
     document.addEventListener('pointerdown', tryPlay, { once: true })
   } else {
+    _gameTrackIdx = _randomTrackIdx(-1)
     _audio.addEventListener('ended', () => {
-      _gameTrackIdx = (_gameTrackIdx + 1) % GAME_TRACKS.length
+      _gameTrackIdx = _randomTrackIdx(_gameTrackIdx)
       _playNextGameTrack()
     })
     _playNextGameTrack()
@@ -2240,13 +2257,16 @@ function OnlineLobbyScreen({onBack,onGameStart,deck,ownedSkins}){
   )
 }
 function GameOverScreen({winner,isAI,surrendered,onReplay,onMenu}){
+  const isDraw=winner==='draw'
   const loser=winner===1?2:1
   const winLabel=isAI&&winner===2?'L\'IA':`Joueur ${winner}`
-  const msg=surrendered
-    ?`Joueur ${loser} a capitulé.`
-    :isAI&&winner===2?'L\'IA a éliminé toutes vos cartes.':'L\'adversaire n\'a plus aucune carte.'
+  const msg=isDraw
+    ?'Les deux camps ont perdu leur dernière carte dans le même échange.'
+    :surrendered
+      ?`Joueur ${loser} a capitulé.`
+      :isAI&&winner===2?'L\'IA a éliminé toutes vos cartes.':'L\'adversaire n\'a plus aucune carte.'
   // In Solo mode the human is always P1 — treat an AI win as the somber outcome
-  const defeat=isAI&&winner===2
+  const defeat=!isDraw&&isAI&&winner===2
   return(
     <div className="bg-charta relative min-h-screen flex flex-col items-center justify-center gap-5 px-4 overflow-hidden">
       {!defeat&&(
@@ -2264,15 +2284,17 @@ function GameOverScreen({winner,isAI,surrendered,onReplay,onMenu}){
         </>
       )}
       <div className="relative z-10 flex flex-col items-center gap-5">
-        <div className="text-7xl mb-2 animate-bounce">{surrendered?'🏳️':defeat?'💀':'🏆'}</div>
+        <div className="text-7xl mb-2 animate-bounce">{isDraw?'⚖️':surrendered?'🏳️':defeat?'💀':'🏆'}</div>
         <h2 className="text-4xl sm:text-5xl font-black text-center leading-tight px-4"
           style={defeat
             ?{...CINZEL_DEC,color:'#cbd5e1',filter:'drop-shadow(0 2px 4px rgba(0,0,0,1)) drop-shadow(0 0 18px rgba(0,0,0,0.9))'}
-            :{...CINZEL_DEC,
-              background:'linear-gradient(115deg,#7a5c0a 0%,#ffe566 20%,#fff8dc 32%,#ffe566 44%,#c9a020 60%,#7a5c0a 100%)',
-              backgroundSize:'250% auto', WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent',
-              filter:'drop-shadow(0 2px 4px rgba(0,0,0,1)) drop-shadow(0 0 18px rgba(0,0,0,0.85))'}}>
-          {winLabel} gagne !
+            :isDraw
+              ?{...CINZEL_DEC,color:'#93c5fd',filter:'drop-shadow(0 2px 4px rgba(0,0,0,1)) drop-shadow(0 0 18px rgba(0,0,0,0.85))'}
+              :{...CINZEL_DEC,
+                background:'linear-gradient(115deg,#7a5c0a 0%,#ffe566 20%,#fff8dc 32%,#ffe566 44%,#c9a020 60%,#7a5c0a 100%)',
+                backgroundSize:'250% auto', WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent',
+                filter:'drop-shadow(0 2px 4px rgba(0,0,0,1)) drop-shadow(0 0 18px rgba(0,0,0,0.85))'}}>
+          {isDraw?'Égalité !':`${winLabel} gagne !`}
         </h2>
         <p className="text-slate-100 font-bold text-center px-4 py-1.5 rounded-full bg-black/55 border border-amber-900/40 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">{msg}</p>
         <div className="flex gap-3 mt-4">
@@ -2364,7 +2386,7 @@ export default function App(){
   useEffect(()=>{
     if(screen==='gameover'&&game?.winner&&!statsRecordedRef.current){
       statsRecordedRef.current=true
-      if(user&&(gameMode==='ai'||gameMode==='online')){
+      if(user&&game.winner!=='draw'&&(gameMode==='ai'||gameMode==='online')){
         const iWon=gameMode==='ai'?game.winner===1:game.winner===myPlayer
         recordGameResult(user.uid,iWon).catch(()=>{})
         // Online wins carry a coin reward — AI/local practice matches don't
@@ -2380,7 +2402,7 @@ export default function App(){
     else if(screen==='gameover'){
       // Only AI/online have a clear "did I win" perspective — local hotseat
       // matches have two real players sharing the screen, so no personal outcome.
-      if(game?.winner&&(gameMode==='ai'||gameMode==='online')){
+      if(game?.winner&&game.winner!=='draw'&&(gameMode==='ai'||gameMode==='online')){
         const iWon=gameMode==='ai'?game.winner===1:game.winner===myPlayer
         startMusic(soundOn,false,iWon?'victory':'defeat')
       }else stopMusic()
@@ -2401,6 +2423,14 @@ export default function App(){
       const current=gameRef.current
       if(!current||current.currentPlayer!==2||current.winner)return
       const action=computeAIAction(current)
+      // computeAIAction only falls all the way through to 'endTurn' when every branch —
+      // flee, kill, power, placement, attack, move — found nothing legal. If that happens
+      // on a fresh turn (nothing spent yet), the AI is truly stuck and must surrender
+      // instead of silently passing forever.
+      if(action.type==='endTurn'&&!hasActedThisTurn(current.actionsLeft)){
+        handleSurrender(2)
+        return
+      }
       const sfx=soundForAIAction(action,current)
       let cells=null,violent=false
       if(action?.type==='place'){
