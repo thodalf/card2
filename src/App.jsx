@@ -187,6 +187,14 @@ function loadCollection(){
 function saveCollection(cards){
   try{localStorage.setItem(COLLECTION_KEY,JSON.stringify(cards))}catch{}
 }
+
+// Tombstones — ids of sold/deleted decks or collection cards. Only ever grows
+// (a plain array union is always a safe merge), and lets mergeById tell "deleted
+// elsewhere" apart from "not seen by this device yet".
+const DELETED_COLLECTION_KEY='tacticalcards_deleted_collection_ids'
+const DELETED_DECKS_KEY='tacticalcards_deleted_deck_ids'
+function loadDeletedIds(key){try{return JSON.parse(localStorage.getItem(key)||'[]')}catch{return[]}}
+function saveDeletedIds(key,ids){try{localStorage.setItem(key,JSON.stringify(ids))}catch(e){console.error('saveDeletedIds failed:',e)}}
 function loadLastBoosterAt(){
   try{return Number(localStorage.getItem(LAST_BOOSTER_KEY)||0)}catch{return 0}
 }
@@ -218,6 +226,7 @@ function openBoosterPack(ownedSkins){
 }
 const BOOSTER_COIN_MIN=10, BOOSTER_COIN_MAX=25
 const SELL_VALUE={common:5,uncommon:12,rare:30,legendary:100}
+const ONLINE_WIN_COIN_REWARD=20
 
 // ═══════════════════════════════════════════════════════════════════════════════
 //  POWER DECK
@@ -332,15 +341,20 @@ function _playNextGameTrack() {
   _audio.play().catch(() => {})
 }
 
-function startMusic(enabled, isMenu = false) {
+function startMusic(enabled, isMenu = false, outcome = null) {
   if (!enabled) { stopMusic(); return }
-  const mode = isMenu ? 'menu' : 'game'
+  const mode = outcome ? `outcome:${outcome}` : (isMenu ? 'menu' : 'game')
   if (_currentMode === mode && _audio && !_audio.paused) return
   stopMusic()
   _currentMode = mode
   _audio = new Audio()
   _audio.volume = 0.5
-  if (isMenu) {
+  if (outcome) {
+    // One-shot victory/defeat stinger — doesn't loop, doesn't fall back to game tracks
+    _audio.src = outcome === 'victory' ? '/musiques/victory.mp3' : '/musiques/defeat.mp3'
+    _audio.loop = false
+    _audio.play().catch(() => {})
+  } else if (isMenu) {
     _audio.src = '/musiques/menu.mp3'
     _audio.loop = true
     const tryPlay = () => _audio && _audio.play().catch(() => {})
@@ -1352,7 +1366,7 @@ function MenuScreen({onLocal,onAI,onOnline,onRules,onDeckBuilder,onAccount,onBoo
     </div>
   )
 }
-function RulesScreen({onBack}){
+function RulesScreen({onBack,user,onDeckBuilder,onBooster,onRules,onAccount,onShop}){
   const S=[
     ['🎴 Les cartes','Chaque carte a un chiffre sur chacune de ses 8 faces (haut, bas, les côtés, et les diagonales). Votre deck compte 6 cartes : deux plutôt faibles, deux moyennes et deux très puissantes. Vous pouvez créer les vôtres dans le Deck Builder, avec vos propres chiffres et un portrait de votre choix (d\'autres s\'achètent dans la Boutique).'],
     ['🎲 Le plateau','On joue sur une grille de 5 cases sur 5. Les 4 coins sont bloqués : personne ne peut y poser de carte. Vous démarrez en haut du plateau, votre adversaire en bas.'],
@@ -1365,7 +1379,7 @@ function RulesScreen({onBack}){
   return(
     <div className="relative min-h-screen">
       <div className="bg-charta fixed inset-0" aria-hidden="true"/>
-      <div className="relative scrollbar-hide min-h-screen overflow-y-auto py-8 px-4 flex flex-col items-center">
+      <div className="relative scrollbar-hide min-h-screen overflow-y-auto py-8 pb-28 px-4 flex flex-col items-center">
         <div className="max-w-lg w-full">
           <BackButton onClick={onBack} className="mb-6">Menu</BackButton>
           <h2 className="text-3xl font-black mb-5" style={{...CINZEL_DEC,background:'linear-gradient(to bottom,#ffe566,#c9a020)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',filter:'drop-shadow(0 1px 10px rgba(0,0,0,1))'}}>Règles du jeu</h2>
@@ -1377,6 +1391,7 @@ function RulesScreen({onBack}){
           ))}
         </div>
       </div>
+      <BottomNav onDeckBuilder={onDeckBuilder} onBooster={onBooster} onRules={onRules} onAccount={onAccount} onShop={onShop} user={user}/>
     </div>
   )
 }
@@ -1501,6 +1516,8 @@ function DeckEditor({deck,onBack,onRename,onAddCard,onRemoveCard,onUpdateCard,on
 function DeckBuilderScreen({onBack,user,ownedSkins,coins,onDeckBuilder,onBooster,onRules,onAccount,onShop}){
   const[decks,setDecks]=useState(()=>loadDecks())
   const[collection,setCollection]=useState(()=>loadCollection())
+  const[deletedCollectionIds,setDeletedCollectionIds]=useState(()=>loadDeletedIds(DELETED_COLLECTION_KEY))
+  const[deletedDeckIds,setDeletedDeckIds]=useState(()=>loadDeletedIds(DELETED_DECKS_KEY))
   const[editingId,setEditingId]=useState(null)
   const cloudReadyRef=useRef(false)
   useEffect(()=>{
@@ -1512,18 +1529,37 @@ function DeckBuilderScreen({onBack,user,ownedSkins,coins,onDeckBuilder,onBooster
     if(user&&cloudReadyRef.current)saveCloudCollection(user.uid,collection).catch(()=>{})
   },[collection])
   useEffect(()=>{
+    saveDeletedIds(DELETED_COLLECTION_KEY,deletedCollectionIds)
+    if(user&&cloudReadyRef.current)saveCloudDeletedIds(user.uid,'deletedCollectionIds',deletedCollectionIds).catch(()=>{})
+  },[deletedCollectionIds])
+  useEffect(()=>{
+    saveDeletedIds(DELETED_DECKS_KEY,deletedDeckIds)
+    if(user&&cloudReadyRef.current)saveCloudDeletedIds(user.uid,'deletedDeckIds',deletedDeckIds).catch(()=>{})
+  },[deletedDeckIds])
+  useEffect(()=>{
     cloudReadyRef.current=false
     if(!user){cloudReadyRef.current=true;return}
-    Promise.all([loadCloudDecks(user.uid),loadCloudCollection(user.uid)]).then(([cloudDecks,cloudCollection])=>{
+    Promise.all([
+      loadCloudDecks(user.uid),loadCloudCollection(user.uid),
+      loadCloudDeletedIds(user.uid,'deletedDeckIds'),loadCloudDeletedIds(user.uid,'deletedCollectionIds'),
+    ]).then(([cloudDecks,cloudCollection,cDeletedDecks,cDeletedCollection])=>{
       // Merge instead of overwrite — decks/cards created on another device (or
       // before ever logging in here) must not be wiped by this device's fetch.
-      const mergedDecks=mergeById(decks,cloudDecks)
-      const mergedCollection=mergeById(collection,cloudCollection)
+      // Tombstones (ids deleted/sold elsewhere) are unioned too — they only
+      // ever grow, so that side of the merge can't lose data.
+      const mergedDeletedDecks=Array.from(new Set([...deletedDeckIds,...(cDeletedDecks||[])]))
+      const mergedDeletedCollection=Array.from(new Set([...deletedCollectionIds,...(cDeletedCollection||[])]))
+      const mergedDecks=mergeById(decks,cloudDecks,mergedDeletedDecks)
+      const mergedCollection=mergeById(collection,cloudCollection,mergedDeletedCollection)
       cloudReadyRef.current=true
       setDecks(mergedDecks)
       setCollection(mergedCollection)
+      setDeletedDeckIds(mergedDeletedDecks)
+      setDeletedCollectionIds(mergedDeletedCollection)
       saveCloudDecks(user.uid,mergedDecks).catch(()=>{})
       saveCloudCollection(user.uid,mergedCollection).catch(()=>{})
+      saveCloudDeletedIds(user.uid,'deletedDeckIds',mergedDeletedDecks).catch(()=>{})
+      saveCloudDeletedIds(user.uid,'deletedCollectionIds',mergedDeletedCollection).catch(()=>{})
     }).catch(()=>{cloudReadyRef.current=true})
     // eslint-disable-next-line react-hooks/exhaustive-deps
   },[user?.uid])
@@ -1533,15 +1569,22 @@ function DeckBuilderScreen({onBack,user,ownedSkins,coins,onDeckBuilder,onBooster
     const d={id:`d-${Date.now()}`,name:`Deck ${decks.length+1}`,cards:[],isDefault:false,updatedAt:Date.now()}
     setDecks(p=>[...p,d]);setEditingId(d.id)
   }
-  function deleteDeck(id){setDecks(p=>p.filter(d=>d.id!==id))}
+  function deleteDeck(id){
+    setDecks(p=>p.filter(d=>d.id!==id))
+    setDeletedDeckIds(ids=>ids.includes(id)?ids:[...ids,id])
+  }
   function setDefault(id){setDecks(p=>p.map(d=>({...d,isDefault:d.id===id,updatedAt:Date.now()})))}
   function renameDeck(id,name){setDecks(p=>p.map(d=>d.id===id?{...d,name,updatedAt:Date.now()}:d))}
   function addCard(id){setDecks(p=>p.map(d=>d.id===id&&d.cards.length<DECK_MAX_CARDS?{...d,cards:[...d.cards,newCustomCard()],updatedAt:Date.now()}:d))}
   function removeCard(id,cardId){
     const deck=decks.find(d=>d.id===id);const card=deck?.cards.find(c=>c.id===cardId)
     setDecks(p=>p.map(d=>d.id===id?{...d,cards:d.cards.filter(c=>c.id!==cardId),updatedAt:Date.now()}:d))
-    // Booster-sourced cards go back to the collection instead of being lost
-    if(card?.rarity)setCollection(p=>[...p,card])
+    // Booster-sourced cards go back to the collection instead of being lost —
+    // un-tombstone the id since it was marked deleted when it left the collection.
+    if(card?.rarity){
+      setCollection(p=>[...p,card])
+      setDeletedCollectionIds(ids=>ids.filter(x=>x!==cardId))
+    }
   }
   function updateCard(id,cardId,patch){setDecks(p=>p.map(d=>d.id===id?{...d,cards:d.cards.map(c=>c.id===cardId?{...c,...patch}:c),updatedAt:Date.now()}:d))}
   function moveCardToDeck(fromId,cardId,toId){
@@ -1660,16 +1703,19 @@ function formatDuration(ms){
   const h=Math.floor(ms/3600000),m=Math.floor((ms%3600000)/60000),s=Math.floor((ms%60000)/1000)
   return `${h}h ${String(m).padStart(2,'0')}m ${String(s).padStart(2,'0')}s`
 }
-// Union by id (cloud wins on a collision) — keeps cards/decks pulled on ANY device
-// instead of one device's data silently replacing the other's on login.
-function mergeById(localList,cloudList){
+// Union by id (newest-edited side wins on a collision) — keeps cards/decks pulled
+// on ANY device instead of one device's data silently replacing the other's on
+// login. `deletedIds` is a tombstone set: a plain union can't represent "this was
+// deliberately removed" (a sold/deleted item just looks like something the OTHER
+// side hasn't seen yet), so without it a device that still has the item cached
+// locally resurrects it on every login — which is exactly how a sold booster card
+// could reappear on another browser.
+function mergeById(localList,cloudList,deletedIds){
+  const deleted=new Set(deletedIds||[])
   const map=new Map()
-  ;(cloudList||[]).forEach(item=>map.set(item.id,item))
-  // On a collision, keep whichever side was actually edited more recently instead of
-  // always trusting the cloud — otherwise a cloud snapshot that's merely OLDER (e.g.
-  // synced just before this device's last edit went out) permanently wipes that edit,
-  // which is exactly how a freshly added custom card image could vanish.
+  ;(cloudList||[]).forEach(item=>{if(!deleted.has(item.id))map.set(item.id,item)})
   ;(localList||[]).forEach(item=>{
+    if(deleted.has(item.id))return
     const existing=map.get(item.id)
     if(!existing||(item.updatedAt||0)>(existing.updatedAt||0))map.set(item.id,item)
   })
@@ -1678,6 +1724,8 @@ function mergeById(localList,cloudList){
 function BoosterScreen({onBack,user,ownedSkins,coins,onEarnCoins,onSellCard,onDeckBuilder,onBooster,onRules,onAccount,onShop}){
   const[collection,setCollection]=useState(()=>loadCollection())
   const[decks,setDecks]=useState(()=>loadDecks())
+  const[deletedCollectionIds,setDeletedCollectionIds]=useState(()=>loadDeletedIds(DELETED_COLLECTION_KEY))
+  const[deletedDeckIds,setDeletedDeckIds]=useState(()=>loadDeletedIds(DELETED_DECKS_KEY))
   const[lastBoosterAt,setLastBoosterAt]=useState(()=>loadLastBoosterAt())
   const[opening,setOpening]=useState(false)
   const[pendingCards,setPendingCards]=useState(null)
@@ -1701,20 +1749,39 @@ function BoosterScreen({onBack,user,ownedSkins,coins,onEarnCoins,onSellCard,onDe
     if(user&&cloudReadyRef.current)saveCloudDecks(user.uid,decks).catch(()=>{})
   },[decks])
   useEffect(()=>{
+    saveDeletedIds(DELETED_COLLECTION_KEY,deletedCollectionIds)
+    if(user&&cloudReadyRef.current)saveCloudDeletedIds(user.uid,'deletedCollectionIds',deletedCollectionIds).catch(()=>{})
+  },[deletedCollectionIds])
+  useEffect(()=>{
+    saveDeletedIds(DELETED_DECKS_KEY,deletedDeckIds)
+    if(user&&cloudReadyRef.current)saveCloudDeletedIds(user.uid,'deletedDeckIds',deletedDeckIds).catch(()=>{})
+  },[deletedDeckIds])
+  useEffect(()=>{
     cloudReadyRef.current=false
     setCloudReady(false)
     if(!user){cloudReadyRef.current=true;setCloudReady(true);return}
-    Promise.all([loadCloudCollection(user.uid),loadCloudDecks(user.uid),loadCloudLastBooster(user.uid)]).then(([cCollection,cDecks,cLast])=>{
+    Promise.all([
+      loadCloudCollection(user.uid),loadCloudDecks(user.uid),loadCloudLastBooster(user.uid),
+      loadCloudDeletedIds(user.uid,'deletedCollectionIds'),loadCloudDeletedIds(user.uid,'deletedDeckIds'),
+    ]).then(([cCollection,cDecks,cLast,cDeletedCollection,cDeletedDecks])=>{
       // Merge instead of overwrite — a device that pulled boosters offline (or
       // before ever logging in) must not have its cards wiped by another
-      // device's cloud state; both converge to the union of both.
-      const mergedCollection=mergeById(collection,cCollection)
-      const mergedDecks=mergeById(decks,cDecks)
+      // device's cloud state; both converge to the union of both. Tombstones
+      // (ids sold/deleted elsewhere) are unioned too — they only ever grow, so
+      // that side of the merge can't lose data.
+      const mergedDeletedCollection=Array.from(new Set([...deletedCollectionIds,...(cDeletedCollection||[])]))
+      const mergedDeletedDecks=Array.from(new Set([...deletedDeckIds,...(cDeletedDecks||[])]))
+      const mergedCollection=mergeById(collection,cCollection,mergedDeletedCollection)
+      const mergedDecks=mergeById(decks,cDecks,mergedDeletedDecks)
       cloudReadyRef.current=true
       setCollection(mergedCollection)
       setDecks(mergedDecks)
+      setDeletedCollectionIds(mergedDeletedCollection)
+      setDeletedDeckIds(mergedDeletedDecks)
       saveCloudCollection(user.uid,mergedCollection).catch(()=>{})
       saveCloudDecks(user.uid,mergedDecks).catch(()=>{})
+      saveCloudDeletedIds(user.uid,'deletedCollectionIds',mergedDeletedCollection).catch(()=>{})
+      saveCloudDeletedIds(user.uid,'deletedDeckIds',mergedDeletedDecks).catch(()=>{})
       if(cLast)setLastBoosterAt(prev=>Math.max(prev,cLast))
       setCloudReady(true)
     }).catch(()=>{cloudReadyRef.current=true;setCloudReady(true)})
@@ -1757,11 +1824,13 @@ function BoosterScreen({onBack,user,ownedSkins,coins,onEarnCoins,onSellCard,onDe
     const card=collection.find(c=>c.id===cardId);if(!card)return
     const deck=decks.find(d=>d.id===deckId);if(!deck||deck.cards.length>=DECK_MAX_CARDS)return
     setCollection(c=>c.filter(x=>x.id!==cardId))
+    setDeletedCollectionIds(ids=>ids.includes(cardId)?ids:[...ids,cardId])
     setDecks(ds=>ds.map(d=>d.id===deckId?{...d,cards:[...d.cards,card],updatedAt:Date.now()}:d))
   }
   function handleSellCard(cardId){
     const card=collection.find(c=>c.id===cardId);if(!card)return
     setCollection(c=>c.filter(x=>x.id!==cardId))
+    setDeletedCollectionIds(ids=>ids.includes(cardId)?ids:[...ids,cardId])
     onSellCard(card.rarity)
   }
 
@@ -1962,7 +2031,7 @@ function DeckSelectScreen({mode,onBack,onSelect}){
 // ═══════════════════════════════════════════════════════════════════════════════
 //  ACCOUNT SCREEN — email/password + Google auth, stats, cache reset
 // ═══════════════════════════════════════════════════════════════════════════════
-function AccountScreen({onBack,user,stats}){
+function AccountScreen({onBack,user,stats,onDeckBuilder,onBooster,onRules,onAccount,onShop}){
   const[authMode,setAuthMode]=useState('login') // 'login'|'register'
   const[email,setEmail]=useState('');const[password,setPassword]=useState('')
   const[error,setError]=useState('');const[loading,setLoading]=useState(false)
@@ -1980,7 +2049,7 @@ function AccountScreen({onBack,user,stats}){
   }
   const total=stats?.gamesPlayed||0
   return(
-    <div className="bg-charta min-h-screen py-8 px-4 flex flex-col items-center overflow-y-auto">
+    <div className="bg-charta min-h-screen py-8 pb-28 px-4 flex flex-col items-center overflow-y-auto">
       <div className="max-w-sm w-full">
         <BackButton onClick={onBack} className="mb-6">Menu</BackButton>
         <h2 className="text-3xl font-black mb-5" style={{...CINZEL_DEC,background:'linear-gradient(to bottom,#ffe566,#c9a020)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',filter:'drop-shadow(0 1px 10px rgba(0,0,0,1))'}}>Mon Compte</h2>
@@ -2031,6 +2100,7 @@ function AccountScreen({onBack,user,stats}){
           <MedBtn onClick={forceClearCacheAndReload} color="#fbbf24" icon={<RefreshCw size={14}/>} className="w-full">Vider le cache & recharger</MedBtn>
         </div>
       </div>
+      <BottomNav onDeckBuilder={onDeckBuilder} onBooster={onBooster} onRules={onRules} onAccount={onAccount} onShop={onShop} user={user}/>
     </div>
   )
 }
@@ -2164,17 +2234,39 @@ function GameOverScreen({winner,isAI,surrendered,onReplay,onMenu}){
   const msg=surrendered
     ?`Joueur ${loser} a capitulé.`
     :isAI&&winner===2?'L\'IA a éliminé toutes vos cartes.':'L\'adversaire n\'a plus aucune carte.'
+  // In Solo mode the human is always P1 — treat an AI win as the somber outcome
+  const defeat=isAI&&winner===2
   return(
-    <div className="bg-charta min-h-screen flex flex-col items-center justify-center gap-5 px-4">
-      <div className="text-7xl mb-2 animate-bounce">{surrendered?'🏳️':'🏆'}</div>
-      <h2 className="text-4xl font-black text-center" style={CINZEL_DEC}>
-        <span className={winner===1?'text-blue-400':'text-red-400'}>{winLabel}</span>
-        <span className="text-amber-200"> gagne !</span>
-      </h2>
-      <p className="text-slate-300 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">{msg}</p>
-      <div className="flex gap-3 mt-4">
-        <MedBtn onClick={onReplay} icon={<Play size={16}/>} color="#60a5fa">Rejouer</MedBtn>
-        <BackButton onClick={onMenu}>Menu</BackButton>
+    <div className="bg-charta relative min-h-screen flex flex-col items-center justify-center gap-5 px-4 overflow-hidden">
+      {!defeat&&(
+        <>
+          <div className="menu-embers" aria-hidden="true">
+            {MENU_EMBERS.map((e,i)=>(
+              <span key={i} className="menu-ember" style={{
+                left:`${e.left}%`, width:e.size, height:e.size,
+                animationDuration:`${e.duration}s`, animationDelay:`${e.delay}s`,
+                '--drift':`${e.drift}px`,
+              }}/>
+            ))}
+          </div>
+          <div className="menu-vignette-pulse" aria-hidden="true"/>
+        </>
+      )}
+      <div className="relative z-10 flex flex-col items-center gap-5">
+        <div className="text-7xl mb-2 animate-bounce">{surrendered?'🏳️':defeat?'💀':'🏆'}</div>
+        <h2 className="text-4xl sm:text-5xl font-black text-center leading-tight"
+          style={defeat
+            ?{...CINZEL_DEC,color:'#94a3b8'}
+            :{...CINZEL_DEC,
+              background:'linear-gradient(115deg,#7a5c0a 0%,#ffe566 20%,#fff8dc 32%,#ffe566 44%,#c9a020 60%,#7a5c0a 100%)',
+              backgroundSize:'250% auto', WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent'}}>
+          {winLabel} gagne !
+        </h2>
+        <p className="text-slate-300 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">{msg}</p>
+        <div className="flex gap-3 mt-4">
+          <MedBtn onClick={onReplay} icon={<Play size={16}/>} color="#60a5fa">Rejouer</MedBtn>
+          <BackButton onClick={onMenu}>Menu</BackButton>
+        </div>
       </div>
     </div>
   )
@@ -2263,6 +2355,8 @@ export default function App(){
       if(user&&(gameMode==='ai'||gameMode==='online')){
         const iWon=gameMode==='ai'?game.winner===1:game.winner===myPlayer
         recordGameResult(user.uid,iWon).catch(()=>{})
+        // Online wins carry a coin reward — AI/local practice matches don't
+        if(gameMode==='online'&&iWon)earnCoins(ONLINE_WIN_COIN_REWARD)
       }
     }
     if(screen!=='gameover')statsRecordedRef.current=false
@@ -2271,9 +2365,17 @@ export default function App(){
   // ── Music ─────────────────────────────────────────────────────
   useEffect(()=>{
     if(screen==='game') startMusic(soundOn, false)
+    else if(screen==='gameover'){
+      // Only AI/online have a clear "did I win" perspective — local hotseat
+      // matches have two real players sharing the screen, so no personal outcome.
+      if(game?.winner&&(gameMode==='ai'||gameMode==='online')){
+        const iWon=gameMode==='ai'?game.winner===1:game.winner===myPlayer
+        startMusic(soundOn,false,iWon?'victory':'defeat')
+      }else stopMusic()
+    }
     else if(['menu','rules','online','deckselect','account','booster','deckbuilder','shop'].includes(screen)) startMusic(soundOn, true)
     else stopMusic()
-  },[screen,soundOn])
+  },[screen,soundOn,gameMode,myPlayer,game?.winner])
   useEffect(()=>()=>stopMusic(),[])
 
   // ── AI loop ──────────────────────────────────────────────────
@@ -2419,12 +2521,12 @@ export default function App(){
     <>
       <SoundToggle enabled={soundOn} onToggle={()=>setSoundOn(v=>!v)}/>
       {screen==='menu'     && <MenuScreen onAI={()=>goToDeckSelect('ai')} onLocal={()=>goToDeckSelect('local')} onOnline={()=>goToDeckSelect('online')} onRules={()=>setScreen('rules')} onDeckBuilder={()=>setScreen('deckbuilder')} onAccount={()=>setScreen('account')} onBooster={()=>setScreen('booster')} onShop={()=>setScreen('shop')} user={user} coins={coins}/>}
-      {screen==='rules'    && <RulesScreen onBack={()=>setScreen('menu')}/>}
+      {screen==='rules'    && <RulesScreen onBack={()=>setScreen('menu')} user={user} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')}/>}
       {screen==='deckbuilder' && <DeckBuilderScreen onBack={()=>setScreen('menu')} user={user} ownedSkins={ownedSkins} coins={coins} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')}/>}
       {screen==='booster'  && <BoosterScreen onBack={()=>setScreen('menu')} user={user} ownedSkins={ownedSkins} coins={coins} onEarnCoins={earnCoins} onSellCard={sellCard} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')}/>}
       {screen==='shop'     && <ShopScreen onBack={()=>setScreen('menu')} user={user} coins={coins} ownedSkins={ownedSkins} onBuySkin={buySkin} onEarnCoins={earnCoins} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')}/>}
       {screen==='deckselect' && <DeckSelectScreen mode={pendingMode} onBack={()=>setScreen('menu')} onSelect={handleDeckChosen}/>}
-      {screen==='account'  && <AccountScreen onBack={()=>setScreen('menu')} user={user} stats={stats}/>}
+      {screen==='account'  && <AccountScreen onBack={()=>setScreen('menu')} user={user} stats={stats} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')}/>}
       {screen==='online'   && <OnlineLobbyScreen onBack={()=>setScreen('menu')} onGameStart={handleOnlineStart} deck={chosenDeck} ownedSkins={ownedSkins}/>}
       {screen==='game'     && game && <GameScreen game={game} soundEnabled={soundOn} myPlayer={myPlayer} isAI={gameMode==='ai'} onAction={handleAction} onEndTurn={handleEndTurn} onHome={closeGame} onPowerAction={handlePowerAction} onSurrender={handleSurrender} lastAnim={lastAnim} syncError={roomCode?syncError:null}/>}
       {screen==='gameover' && game && <GameOverScreen winner={game.winner} isAI={gameMode==='ai'} surrendered={!!game.surrendered} onReplay={()=>startGame(gameMode)} onMenu={()=>setScreen('menu')}/>}

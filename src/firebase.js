@@ -109,6 +109,18 @@ export async function saveCloudLastBooster(uid, ts) {
   await set(ref(db, `users/${uid}/lastBoosterAt`), ts)
 }
 
+// ─── Tombstones — ids of sold/deleted decks or collection cards ────
+export async function loadCloudDeletedIds(uid, field) {
+  if (!db) return null
+  const snap = await get(ref(db, `users/${uid}/${field}`))
+  if (!snap.exists()) return null
+  return toArray(snap.val())
+}
+export async function saveCloudDeletedIds(uid, field, ids) {
+  if (!db) return
+  await set(ref(db, `users/${uid}/${field}`), ids)
+}
+
 // ─── Economy — coins & owned cosmetic skins ────────────────────
 export async function loadCloudEconomy(uid) {
   if (!db) return null
