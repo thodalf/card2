@@ -1187,12 +1187,9 @@ const CINZEL     = {fontFamily:"'Cinzel', serif"}
 function MenuBtn({onClick, icon, color, children, delay}){
   return(
     <button onClick={onClick}
-      className="menu-fade-up w-full flex items-center gap-3 px-5 py-3.5 sm:py-3 rounded-lg transition-all duration-200 hover:scale-105 active:scale-95 select-none cursor-pointer"
-      style={{...CINZEL, fontSize:'0.88rem', letterSpacing:'0.08em', animationDelay:delay,
-        background:'linear-gradient(135deg,rgba(12,8,3,0.90),rgba(28,18,6,0.88))',
-        border:`2px solid ${color}`, color,
-        textShadow:`0 0 10px ${color}99`,
-        boxShadow:`0 4px 18px rgba(0,0,0,0.65), inset 0 1px 0 rgba(255,255,255,0.06), 0 0 8px ${color}33`}}>
+      className="wood-btn menu-fade-up w-full flex items-center gap-3 px-5 py-3.5 sm:py-3 rounded-lg transition-all duration-200 hover:scale-105 active:scale-95 select-none cursor-pointer"
+      style={{...CINZEL, fontSize:'0.88rem', letterSpacing:'0.08em', animationDelay:delay, color,
+        textShadow:'0 1px 2px rgba(0,0,0,0.85)'}}>
       {icon}<span>{children}</span>
     </button>
   )
@@ -1202,12 +1199,9 @@ function MenuBtn({onClick, icon, color, children, delay}){
 function BackButton({onClick, children='Menu', compact=false, disabled=false, className=''}){
   return(
     <button onClick={onClick} disabled={disabled}
-      className={`inline-flex items-center gap-2 rounded-lg transition-all duration-200 select-none ${disabled?'opacity-40 cursor-not-allowed':'hover:scale-105 active:scale-95 cursor-pointer'} ${compact?'px-2.5 py-1.5 text-xs':'px-4 py-2 text-sm'} ${className}`}
-      style={{...CINZEL, letterSpacing:'0.06em',
-        background:'linear-gradient(135deg,rgba(12,8,3,0.90),rgba(28,18,6,0.88))',
-        border:'2px solid #c9a020', color:'#e8c766',
-        textShadow:'0 0 8px rgba(201,160,32,0.55)',
-        boxShadow:'0 3px 14px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.06), 0 0 6px rgba(201,160,32,0.25)'}}>
+      className={`wood-btn inline-flex items-center gap-2 rounded-lg transition-all duration-200 select-none ${disabled?'opacity-40 cursor-not-allowed':'hover:scale-105 active:scale-95 cursor-pointer'} ${compact?'px-2.5 py-1.5 text-xs':'px-4 py-2 text-sm'} ${className}`}
+      style={{...CINZEL, letterSpacing:'0.06em', color:'#e8c766',
+        textShadow:'0 1px 2px rgba(0,0,0,0.85)'}}>
       <Home size={compact?14:16}/><span>{children}</span>
     </button>
   )
@@ -1218,12 +1212,9 @@ function MedBtn({onClick, icon, color='#c9a020', children, className='', disable
   const Tag = as
   return(
     <Tag onClick={onClick} title={title} disabled={as==='button'?disabled:undefined}
-      className={`inline-flex items-center justify-center gap-2 rounded-lg transition-all duration-200 select-none ${disabled?'opacity-40 cursor-not-allowed':'hover:scale-105 active:scale-95 cursor-pointer'} ${className}`}
-      style={{...CINZEL, fontSize:'0.8rem', letterSpacing:'0.06em', padding:'0.55rem 1.1rem',
-        background:'linear-gradient(135deg,rgba(12,8,3,0.90),rgba(28,18,6,0.88))',
-        border:`2px solid ${color}`, color,
-        textShadow:`0 0 8px ${color}99`,
-        boxShadow:`0 3px 14px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.06), 0 0 6px ${color}33`}}>
+      className={`wood-btn inline-flex items-center justify-center gap-2 rounded-lg transition-all duration-200 select-none ${disabled?'opacity-40 cursor-not-allowed':'hover:scale-105 active:scale-95 cursor-pointer'} ${className}`}
+      style={{...CINZEL, fontSize:'0.8rem', letterSpacing:'0.06em', padding:'0.55rem 1.1rem', color,
+        textShadow:'0 1px 2px rgba(0,0,0,0.85)'}}>
       {icon}{children&&<span>{children}</span>}
     </Tag>
   )
@@ -1244,8 +1235,7 @@ function MenuIconBtn({onClick, icon, label, color, delay, title}){
     <button onClick={onClick} title={title}
       className="menu-fade-up flex-1 min-w-0 flex flex-col items-center gap-1 py-2 rounded-lg transition-all duration-200 hover:scale-110 active:scale-90 select-none cursor-pointer"
       style={{animationDelay:delay}}>
-      <span className="w-10 h-10 flex items-center justify-center rounded-full border-2"
-        style={{borderColor:color, color, background:'rgba(10,7,3,0.8)', boxShadow:`0 0 10px ${color}55, inset 0 1px 0 rgba(255,255,255,0.06)`}}>
+      <span className="wood-btn w-10 h-10 flex items-center justify-center rounded-full" style={{color}}>
         {icon}
       </span>
       <span className="text-[10px] font-bold tracking-wide truncate max-w-full" style={{...CINZEL, color}}>{label}</span>
@@ -1998,10 +1988,10 @@ function OnlineLobbyScreen({onBack,onGameStart,deck}){
   if(waiting)return(
     <div className="min-h-screen flex flex-col items-center justify-center gap-6" style={bg}>
       <div className="text-4xl animate-spin">⚙</div>
-      <p className="text-white text-xl font-bold drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">Code : <span className="text-purple-400 tracking-widest font-black">{code}</span></p>
+      <p className="text-white text-xl font-bold drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">Code : <span className="text-amber-300 tracking-widest font-black">{code}</span></p>
       <p className="text-slate-300 animate-pulse drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">En attente du joueur 2…</p>
-      <button onClick={copyCode} className="flex items-center gap-2 text-slate-300 hover:text-white bg-slate-700 hover:bg-slate-600 py-2 px-4 rounded-lg transition-colors text-sm">{copied?<><Check size={14}/> Copié !</>:<><Copy size={14}/> Copier le code</>}</button>
-      <button onClick={()=>{setWaiting(false);setMode(null)}} className="text-slate-300 hover:text-slate-100 text-sm drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">Annuler</button>
+      <MedBtn onClick={copyCode} color="#e8c766" icon={copied?<Check size={14}/>:<Copy size={14}/>}>{copied?'Copié !':'Copier le code'}</MedBtn>
+      <MedBtn onClick={()=>{setWaiting(false);setMode(null)}} color="#a89484">Annuler</MedBtn>
     </div>
   )
 
@@ -2011,7 +2001,7 @@ function OnlineLobbyScreen({onBack,onGameStart,deck}){
       <p className="text-white text-xl font-bold drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">Recherche d'un adversaire…</p>
       <p className="text-slate-300 text-sm max-w-xs drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">La partie démarre automatiquement dès qu'un autre joueur rejoint le matchmaking.</p>
       {error&&<p className="text-red-400 text-sm bg-red-900/30 px-4 py-2 rounded-lg text-center max-w-sm">{error}</p>}
-      <button onClick={handleCancelMatchmaking} className="text-slate-300 hover:text-slate-100 text-sm drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">Annuler</button>
+      <MedBtn onClick={handleCancelMatchmaking} color="#a89484">Annuler</MedBtn>
     </div>
   )
 
@@ -2022,19 +2012,19 @@ function OnlineLobbyScreen({onBack,onGameStart,deck}){
       {error&&<p className="text-red-400 text-sm bg-red-900/30 px-4 py-2 rounded-lg text-center max-w-sm">{error}</p>}
       {!mode&&(
         <div className="flex flex-col items-center gap-4">
-          <button onClick={handleMatchmaking} className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 px-6 rounded-xl transition-all hover:scale-105"><Swords size={18}/> Trouver une partie</button>
+          <MedBtn onClick={handleMatchmaking} color="#7cb87c" icon={<Swords size={18}/>} className="!py-3 !px-6 !text-base">Trouver une partie</MedBtn>
           <div className="flex gap-4">
-            <button onClick={handleCreate} className="bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-6 rounded-xl transition-all hover:scale-105">Créer</button>
-            <button onClick={()=>setMode('join')} className="bg-purple-600 hover:bg-purple-500 text-white font-bold py-3 px-6 rounded-xl transition-all hover:scale-105">Rejoindre</button>
+            <MedBtn onClick={handleCreate} color="#7fa8d9" className="!py-3 !px-6 !text-base">Créer</MedBtn>
+            <MedBtn onClick={()=>setMode('join')} color="#c9a5e0" className="!py-3 !px-6 !text-base">Rejoindre</MedBtn>
           </div>
         </div>
       )}
       {mode==='join'&&(
-        <div className="bg-slate-800 rounded-2xl p-6 border border-slate-700 w-72">
-          <p className="text-slate-400 text-sm mb-2">Code de la partie :</p>
-          <input value={inputCode} onChange={e=>setInputCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,6))} className="bg-slate-700 text-white font-black text-2xl tracking-widest text-center border border-slate-600 rounded-lg px-4 py-2 w-full outline-none focus:border-purple-500 mb-3" placeholder="XXXXXX" maxLength={6}/>
-          <button onClick={handleJoin} disabled={inputCode.length!==6} className="w-full bg-purple-600 hover:bg-purple-500 disabled:opacity-40 text-white font-bold py-2 rounded-lg transition-colors">Rejoindre</button>
-          <button onClick={()=>setMode(null)} className="w-full text-slate-500 hover:text-slate-300 text-sm mt-2">Retour</button>
+        <div className="wood-btn rounded-2xl p-6 w-72">
+          <p className="text-amber-200/80 text-sm mb-2">Code de la partie :</p>
+          <input value={inputCode} onChange={e=>setInputCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,6))} className="bg-black/40 text-white font-black text-2xl tracking-widest text-center border border-amber-800/50 rounded-lg px-4 py-2 w-full outline-none focus:border-amber-400 mb-3" placeholder="XXXXXX" maxLength={6}/>
+          <MedBtn onClick={handleJoin} disabled={inputCode.length!==6} color="#c9a5e0" className="w-full">Rejoindre</MedBtn>
+          <MedBtn onClick={()=>setMode(null)} color="#a89484" className="w-full mt-2">Retour</MedBtn>
         </div>
       )}
     </div>
