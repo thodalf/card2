@@ -80,6 +80,10 @@ function cardImageGallery(ownedSkins){
   const owned=SKIN_CATALOG.filter(s=>(ownedSkins||[]).includes(s.id)).map(s=>`/images/card/${s.file}`)
   return [...FREE_CARD_IMAGES,...owned]
 }
+// Every portrait that could possibly appear in a match (free tiers + every purchasable
+// skin, owned or not — an opponent in online play may have skins we don't) plus the
+// board background, preloaded on the match-start loading screen.
+const ALL_MATCH_IMAGES=[...FREE_CARD_IMAGES,...SKIN_CATALOG.map(s=>`/images/card/${s.file}`),'/images/plateau.png']
 function genValues(total) {
   // Each value is 1–9: distribute (total - 8) extra points across 8 slots of [0, 8]
   const extra=total-8
@@ -283,7 +287,7 @@ function newGame(p1Deck,p2Deck,ownedSkins) {
     },
     currentPlayer:1, actionsLeft:{...FRESH_ACTIONS},
     winner:null, turn:1,
-    powerCardHand:{1:['block','block','switch'],2:['block','block','switch']}, blockedCells:[], boardTiles:genBoardTiles(),
+    powerCardHand:{1:['buff','recall','switch','block'],2:['buff','recall','switch','block']}, blockedCells:[], boardTiles:genBoardTiles(),
   }
 }
 const cardPts  = c => Object.values(c.values).reduce((a,b)=>a+b,0)
@@ -972,7 +976,7 @@ function PowerCardDisplay({type,onClick,isActive=false,animClass='',compact=fals
   const nameSz=compact?'text-[7px]':'text-[9px]'
   return(
     <div onClick={onClick} style={{height:h}}
-      className={`${w} border-2 ${info.border} ${info.glow} rounded-xl bg-gradient-to-br ${info.bg} flex flex-col items-center justify-center gap-0.5 p-1 cursor-pointer select-none transition-all hover:scale-105 hover:brightness-110 ${isActive?'ring-2 ring-yellow-400 ring-offset-1 ring-offset-slate-900 scale-105':''} ${animClass}`}>
+      className={`${w} border-2 ${info.border} ${info.glow} rounded-xl bg-gradient-to-br ${info.bg} flex flex-col items-center justify-center gap-0.5 p-1 cursor-pointer select-none transition-all duration-200 hover:scale-110 hover:brightness-110 active:scale-95 ${isActive?'ring-2 ring-yellow-400 ring-offset-1 ring-offset-slate-900 scale-105':''} ${animClass}`}>
       <span className={`${iconSz} leading-none`}>{info.icon}</span>
       <span className={`${nameSz} font-bold text-center text-slate-200 leading-tight px-0.5`}>{info.name}</span>
     </div>
@@ -1007,6 +1011,47 @@ function PowerBar({game,isMyTurn,targeting,onActivatePower,onCancelTargeting,com
           {myHand.length===0&&<span className="text-slate-600 text-xs">Aucune carte pouvoir</span>}
         </div>
       )}
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  LOADING SCREEN — preloads match assets (card portraits, board, audio) before
+//  GameScreen mounts, so nothing pops in mid-battle. Shown between choosing a
+//  match and actually playing it.
+// ═══════════════════════════════════════════════════════════════════════════════
+function LoadingScreen({onDone}){
+  const[progress,setProgress]=useState(0)
+  useEffect(()=>{
+    let cancelled=false,loaded=0
+    const total=ALL_MATCH_IMAGES.length
+    const preloadImage=src=>new Promise(resolve=>{
+      const img=new window.Image()
+      img.onload=img.onerror=()=>{loaded++;if(!cancelled)setProgress(Math.round(loaded/total*100));resolve()}
+      img.src=src
+    })
+    try{getCtx()}catch(e){} // warm up the WebAudio context so the first SFX isn't delayed
+    const minDelay=new Promise(resolve=>setTimeout(resolve,1300))
+    Promise.all([Promise.all(ALL_MATCH_IMAGES.map(preloadImage)),minDelay]).then(()=>{if(!cancelled)onDone()})
+    return()=>{cancelled=true}
+  },[])
+  return(
+    <div className="min-h-screen relative flex flex-col items-center justify-center px-4 overflow-hidden">
+      <div className="bg-charta fixed inset-0" aria-hidden="true"/>
+      <div className="relative flex flex-col items-center gap-5 rounded-2xl px-8 py-10 border border-amber-900/40" style={{background:'rgba(8,5,2,0.82)'}}>
+        <div className="loading-spin text-6xl" aria-hidden="true">⚔</div>
+        <h2 className="charta-title text-2xl sm:text-3xl font-black tracking-wide text-center"
+          style={{...CINZEL_DEC,
+            background:'linear-gradient(115deg,#7a5c0a 0%,#ffe566 20%,#fff8dc 32%,#ffe566 44%,#c9a020 60%,#7a5c0a 100%)',
+            backgroundSize:'250% auto',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent'}}>
+          Préparation du combat…
+        </h2>
+        <p className="text-slate-300 text-xs text-center" style={CINZEL}>Chargement des images et des sons</p>
+        <div className="w-64 max-w-[60vw] h-2.5 rounded-full bg-black/50 border border-amber-900/40 overflow-hidden">
+          <div className="h-full rounded-full bg-gradient-to-r from-amber-700 via-amber-400 to-amber-200 transition-all duration-200 ease-out" style={{width:`${progress}%`}}/>
+        </div>
+        <p className="text-amber-200/70 text-xs" style={CINZEL}>{progress}%</p>
+      </div>
     </div>
   )
 }
@@ -1261,7 +1306,7 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
             {isMyTurn&&!targeting&&!(isAI&&currentPlayer===2)&&(
               <button onClick={onEndTurn} disabled={!canEndTurn}
                 title={canEndTurn?undefined:'Effectuez au moins une action (pose, déplacement ou attaque) avant de terminer votre tour.'}
-                className={`font-bold py-1.5 px-4 rounded-lg text-sm transition-colors ${canEndTurn?'bg-emerald-700 hover:bg-emerald-600 text-white':'bg-slate-700 text-slate-400 cursor-not-allowed opacity-60'}`}>
+                className={`font-bold py-1.5 px-4 rounded-lg text-sm transition-all duration-200 ${canEndTurn?'bg-emerald-700 hover:bg-emerald-600 hover:scale-105 active:scale-95 text-white':'bg-slate-700 text-slate-400 cursor-not-allowed opacity-60'}`}>
                 Fin du tour ▶
               </button>
             )}
@@ -1272,11 +1317,11 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
               confirmSurrender?(
                 <span className="flex items-center gap-1.5">
                   <span className="text-slate-400 text-xs">Capituler ?</span>
-                  <button onClick={()=>{onSurrender(myPlayer??currentPlayer);setConfirmSurrender(false)}} className="bg-red-700 hover:bg-red-600 text-white font-bold py-0.5 px-2 rounded text-xs transition-colors">Oui</button>
-                  <button onClick={()=>setConfirmSurrender(false)} className="bg-slate-700 hover:bg-slate-600 text-white font-bold py-0.5 px-2 rounded text-xs transition-colors">Non</button>
+                  <button onClick={()=>{onSurrender(myPlayer??currentPlayer);setConfirmSurrender(false)}} className="bg-red-700 hover:bg-red-600 hover:scale-110 active:scale-95 text-white font-bold py-0.5 px-2 rounded text-xs transition-all duration-200">Oui</button>
+                  <button onClick={()=>setConfirmSurrender(false)} className="bg-slate-700 hover:bg-slate-600 hover:scale-110 active:scale-95 text-white font-bold py-0.5 px-2 rounded text-xs transition-all duration-200">Non</button>
                 </span>
               ):(
-                <button onClick={()=>setConfirmSurrender(true)} className="text-slate-500 hover:text-red-400 text-xs transition-colors">⚑ Cap.</button>
+                <button onClick={()=>setConfirmSurrender(true)} className="text-slate-500 hover:text-red-400 hover:scale-110 active:scale-95 inline-block transition-all duration-200">⚑ Cap.</button>
               )
             )}
           </div>
@@ -1299,7 +1344,7 @@ const CINZEL     = {fontFamily:"'Cinzel', serif"}
 function MenuBtn({onClick, icon, color, children, delay}){
   return(
     <button onClick={onClick}
-      className="wood-btn menu-fade-up w-full flex items-center gap-3 px-5 py-3.5 sm:py-3 rounded-lg transition-all duration-200 hover:scale-105 active:scale-95 select-none cursor-pointer"
+      className="wood-btn menu-fade-up w-full flex items-center gap-3 px-5 py-3.5 sm:py-3 rounded-lg select-none cursor-pointer"
       style={{...CINZEL, fontSize:'0.88rem', letterSpacing:'0.08em', animationDelay:delay, color,
         textShadow:'0 1px 2px rgba(0,0,0,0.85)'}}>
       {icon}<span>{children}</span>
@@ -1311,7 +1356,7 @@ function MenuBtn({onClick, icon, color, children, delay}){
 function BackButton({onClick, children='Menu', compact=false, disabled=false, className=''}){
   return(
     <button onClick={onClick} disabled={disabled}
-      className={`wood-btn inline-flex items-center gap-2 rounded-lg transition-all duration-200 select-none ${disabled?'opacity-40 cursor-not-allowed':'hover:scale-105 active:scale-95 cursor-pointer'} ${compact?'px-2.5 py-1.5 text-xs':'px-4 py-2 text-sm'} ${className}`}
+      className={`wood-btn inline-flex items-center gap-2 rounded-lg select-none ${disabled?'opacity-40 cursor-not-allowed':'cursor-pointer'} ${compact?'px-2.5 py-1.5 text-xs':'px-4 py-2 text-sm'} ${className}`}
       style={{...CINZEL, letterSpacing:'0.06em', color:'#e8c766',
         textShadow:'0 1px 2px rgba(0,0,0,0.85)'}}>
       <Home size={compact?14:16}/><span>{children}</span>
@@ -1324,7 +1369,7 @@ function MedBtn({onClick, icon, color='#c9a020', children, className='', disable
   const Tag = as
   return(
     <Tag onClick={onClick} title={title} disabled={as==='button'?disabled:undefined}
-      className={`wood-btn inline-flex items-center justify-center gap-2 rounded-lg transition-all duration-200 select-none ${disabled?'opacity-40 cursor-not-allowed':'hover:scale-105 active:scale-95 cursor-pointer'} ${className}`}
+      className={`wood-btn inline-flex items-center justify-center gap-2 rounded-lg select-none ${disabled?'opacity-40 cursor-not-allowed':'cursor-pointer'} ${className}`}
       style={{...CINZEL, fontSize:'0.8rem', letterSpacing:'0.06em', padding:'0.55rem 1.1rem', color,
         textShadow:'0 1px 2px rgba(0,0,0,0.85)'}}>
       {icon}{children&&<span>{children}</span>}
@@ -1504,7 +1549,7 @@ function CardEditor({card,onUpdate,onRemove,otherDecks,onMoveCard,onZoom,ownedSk
                   const selected=card.imageUrl===src
                   return(
                     <button key={src} onClick={()=>onUpdate({imageUrl:src})} title={src.split('/').pop()}
-                      className={`w-9 h-9 rounded-md overflow-hidden border-2 transition-colors shrink-0 ${selected?'border-amber-400':'border-slate-700 hover:border-amber-600'}`}>
+                      className={`w-9 h-9 rounded-md overflow-hidden border-2 transition-all duration-200 hover:scale-110 active:scale-95 shrink-0 ${selected?'border-amber-400':'border-slate-700 hover:border-amber-600'}`}>
                       <img src={src} alt="" className="w-full h-full object-cover"/>
                     </button>
                   )
@@ -1521,7 +1566,7 @@ function CardEditor({card,onUpdate,onRemove,otherDecks,onMoveCard,onZoom,ownedSk
                 const full=d.cardCount>=DECK_MAX_CARDS
                 return(
                   <button key={d.id} onClick={()=>!full&&onMoveCard(d.id)} disabled={full} title={full?`Deck complet (${DECK_MAX_CARDS} max)`:undefined}
-                    className={`text-[11px] px-2 py-0.5 rounded-md border transition-colors ${full?'border-slate-700 text-slate-600 cursor-not-allowed':'border-slate-600 text-slate-300 hover:border-amber-500 hover:text-amber-300'}`}>
+                    className={`text-[11px] px-2 py-0.5 rounded-md border transition-all duration-200 ${full?'border-slate-700 text-slate-600 cursor-not-allowed':'border-slate-600 text-slate-300 hover:border-amber-500 hover:text-amber-300 hover:scale-110 active:scale-95'}`}>
                     {d.name}{full?' (plein)':''}
                   </button>
                 )
@@ -2077,14 +2122,14 @@ function DeckSelectScreen({mode,onBack,onSelect}){
         <h2 className="text-3xl font-black mb-2" style={{...CINZEL_DEC,background:'linear-gradient(to bottom,#ffe566,#c9a020)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',filter:'drop-shadow(0 1px 10px rgba(0,0,0,1))'}}>Choisissez votre deck</h2>
         {DECKSELECT_SUBTITLE[mode]&&<p className="text-slate-300 text-sm mb-5 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">{DECKSELECT_SUBTITLE[mode]}</p>}
         <div className="flex flex-col gap-3">
-          <button onClick={()=>onSelect(null)} className="rounded-xl p-4 border border-amber-900/40 text-left transition-colors hover:border-amber-500" style={{background:'rgba(8,5,2,0.78)'}}>
+          <button onClick={()=>onSelect(null)} className="rounded-xl p-4 border border-amber-900/40 text-left transition-all duration-200 hover:border-amber-500 hover:-translate-y-0.5 hover:scale-[1.015] active:scale-[0.99]" style={{background:'rgba(8,5,2,0.78)'}}>
             <span className="text-amber-200 font-bold" style={CINZEL}>Deck aléatoire</span>
             <p className="text-slate-400 text-xs mt-0.5">6 cartes générées aléatoirement (2 faibles, 2 moyennes, 2 fortes)</p>
           </button>
           {decks.map(d=>{
             const total=deckTotalPts(d)
             return(
-              <button key={d.id} onClick={()=>onSelect(d)} className="rounded-xl p-4 border border-amber-900/40 text-left transition-colors hover:border-amber-500 flex items-center gap-2" style={{background:'rgba(8,5,2,0.78)'}}>
+              <button key={d.id} onClick={()=>onSelect(d)} className="rounded-xl p-4 border border-amber-900/40 text-left transition-all duration-200 hover:border-amber-500 hover:-translate-y-0.5 hover:scale-[1.015] active:scale-[0.99] flex items-center gap-2" style={{background:'rgba(8,5,2,0.78)'}}>
                 {d.isDefault&&<Star size={14} className="text-amber-400 shrink-0" fill="currentColor"/>}
                 <div className="min-w-0">
                   <span className="text-amber-200 font-bold truncate block" style={CINZEL}>{d.name}</span>
@@ -2143,9 +2188,9 @@ function AccountScreen({onBack,user,stats,onDeckBuilder,onBooster,onRules,onAcco
           <div className="rounded-xl p-4 mb-4 border border-amber-900/40" style={{background:'rgba(8,5,2,0.78)'}}>
             <div className="flex gap-2 mb-3">
               <button type="button" onClick={()=>setAuthMode('login')}
-                className={`flex-1 text-xs font-bold py-1.5 rounded-lg transition-colors ${authMode==='login'?'bg-amber-600/30 text-amber-300':'text-slate-400 hover:text-white'}`} style={CINZEL}>Connexion</button>
+                className={`flex-1 text-xs font-bold py-1.5 rounded-lg transition-all duration-200 hover:scale-105 active:scale-95 ${authMode==='login'?'bg-amber-600/30 text-amber-300':'text-slate-400 hover:text-white'}`} style={CINZEL}>Connexion</button>
               <button type="button" onClick={()=>setAuthMode('register')}
-                className={`flex-1 text-xs font-bold py-1.5 rounded-lg transition-colors ${authMode==='register'?'bg-amber-600/30 text-amber-300':'text-slate-400 hover:text-white'}`} style={CINZEL}>Créer un compte</button>
+                className={`flex-1 text-xs font-bold py-1.5 rounded-lg transition-all duration-200 hover:scale-105 active:scale-95 ${authMode==='register'?'bg-amber-600/30 text-amber-300':'text-slate-400 hover:text-white'}`} style={CINZEL}>Créer un compte</button>
             </div>
             <form onSubmit={handleEmailSubmit} className="flex flex-col gap-2 mb-3">
               <label className="flex items-center gap-2 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 focus-within:border-amber-500">
@@ -2350,7 +2395,7 @@ function GameOverScreen({winner,isAI,surrendered,onReplay,onMenu}){
   )
 }
 function SoundToggle({enabled,onToggle}){
-  return(<button onClick={onToggle} className="fixed top-3 right-3 z-50 text-slate-400 hover:text-white bg-slate-800/80 backdrop-blur-sm p-2 rounded-lg transition-colors">{enabled?<Volume2 size={18}/>:<VolumeX size={18}/>}</button>)
+  return(<button onClick={onToggle} className="fixed top-3 right-3 z-50 text-slate-400 hover:text-white bg-slate-800/80 backdrop-blur-sm p-2 rounded-lg transition-all duration-200 hover:scale-110 active:scale-90">{enabled?<Volume2 size={18}/>:<VolumeX size={18}/>}</button>)
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -2586,7 +2631,7 @@ export default function App(){
   function startGame(mode,deck=chosenDeck){
     if(aiTimerRef.current){clearTimeout(aiTimerRef.current);aiTimerRef.current=null}
     const p1Deck=deck,p2Deck=mode==='local'?deck:null
-    setGameMode(mode);setRoomCode(null);setMyPlayer(mode==='ai'?1:null);setGame(newGame(p1Deck,p2Deck,ownedSkins));setScreen('game')
+    setGameMode(mode);setRoomCode(null);setMyPlayer(mode==='ai'?1:null);setGame(newGame(p1Deck,p2Deck,ownedSkins));setScreen('loading')
     if(mode==='ai'&&!loadTutorialSeen())setShowTutorial(true)
   }
   function handleTutorialClose(){saveTutorialSeen();setShowTutorial(false)}
@@ -2599,7 +2644,7 @@ export default function App(){
   }
 
   function handleOnlineStart(state,code,player){
-    setGameMode('online');setRoomCode(code);setMyPlayer(player);setGame(state);setScreen('game');setSyncError(null)
+    setGameMode('online');setRoomCode(code);setMyPlayer(player);setGame(state);setScreen('loading');setSyncError(null)
     remoteAnimSeqRef.current=state?.lastActionAnim?.seq??null
     if(unsubRef.current){unsubRef.current();unsubRef.current=null}
     unsubRef.current=subscribeRoom(code,data=>{
@@ -2635,6 +2680,7 @@ export default function App(){
       {screen==='deckselect' && <DeckSelectScreen mode={pendingMode} onBack={()=>setScreen('menu')} onSelect={handleDeckChosen}/>}
       {screen==='account'  && <AccountScreen onBack={()=>setScreen('menu')} user={user} stats={stats} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')}/>}
       {screen==='online'   && <OnlineLobbyScreen onBack={()=>setScreen('menu')} onGameStart={handleOnlineStart} deck={chosenDeck} ownedSkins={ownedSkins}/>}
+      {screen==='loading'  && game && <LoadingScreen onDone={()=>setScreen('game')}/>}
       {screen==='game'     && game && <GameScreen game={game} soundEnabled={soundOn} myPlayer={myPlayer} isAI={gameMode==='ai'} onAction={handleAction} onEndTurn={handleEndTurn} onHome={closeGame} onPowerAction={handlePowerAction} onSurrender={handleSurrender} lastAnim={lastAnim} syncError={roomCode?syncError:null} showTutorial={gameMode==='ai'&&showTutorial} onTutorialClose={handleTutorialClose}/>}
       {screen==='gameover' && game && <GameOverScreen winner={game.winner} isAI={gameMode==='ai'} surrendered={!!game.surrendered} onReplay={()=>startGame(gameMode)} onMenu={()=>setScreen('menu')}/>}
     </>
