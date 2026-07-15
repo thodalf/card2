@@ -341,6 +341,7 @@ function snd(type,enabled){
     if(type==='power'){tone(660,'triangle',0.35,0.2).frequency.exponentialRampToValueAtTime(990,t+0.2);tone(880,'sine',0.2,0.12).frequency.exponentialRampToValueAtTime(1320,t+0.18)}
     if(type==='attack'){const o=tone(200,'sawtooth',0.2,0.35);o.frequency.exponentialRampToValueAtTime(60,t+0.15);const buf=c.createBuffer(1,c.sampleRate*0.08,c.sampleRate);const d=buf.getChannelData(0);for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1;const n=c.createBufferSource(),ng=c.createGain();n.buffer=buf;n.connect(ng);ng.connect(c.destination);ng.gain.setValueAtTime(0.2,t);ng.gain.exponentialRampToValueAtTime(0.001,t+0.08);n.start(t)}
     if(type==='destroy'){const buf=c.createBuffer(1,c.sampleRate*0.5,c.sampleRate);const d=buf.getChannelData(0);for(let i=0;i<d.length;i++)d[i]=(Math.random()*2-1)*Math.pow(1-i/d.length,1.5);const n=c.createBufferSource(),ng=c.createGain();n.buffer=buf;n.connect(ng);ng.connect(c.destination);ng.gain.setValueAtTime(0.5,t);ng.gain.exponentialRampToValueAtTime(0.001,t+0.5);n.start(t);const o=tone(80,'sine',0.5,0.5);o.frequency.exponentialRampToValueAtTime(15,t+0.5)}
+    if(type==='coin'){tone(1318.5,'sine',0.18,0.22);tone(1975.5,'triangle',0.22,0.15)}
   }catch(e){}
 }
 
@@ -1437,10 +1438,30 @@ function BottomNav({onDeckBuilder,onBooster,onRules,onAccount,onShop,user,classN
 // Small fixed coin balance badge, reused on any screen where coins are earned/spent.
 // Sits below the sound toggle (also fixed top-right) so the two never overlap.
 function CoinBadge({coins,onClick}){
+  const[displayCoins,setDisplayCoins]=useState(coins)
+  const[pulse,setPulse]=useState(false)
+  const prevRef=useRef(coins)
+  useEffect(()=>{
+    const from=prevRef.current,to=coins
+    if(from===to)return
+    prevRef.current=to
+    setPulse(false);requestAnimationFrame(()=>setPulse(true)) // restart the animation even if it's already mid-run
+    const duration=600,start=performance.now()
+    let raf
+    const step=(now)=>{
+      const p=Math.min(1,(now-start)/duration)
+      const eased=1-Math.pow(1-p,3)
+      setDisplayCoins(Math.round(from+(to-from)*eased))
+      if(p<1)raf=requestAnimationFrame(step)
+    }
+    raf=requestAnimationFrame(step)
+    const clearPulse=setTimeout(()=>setPulse(false),650)
+    return()=>{cancelAnimationFrame(raf);clearTimeout(clearPulse)}
+  },[coins])
   return(
     <button onClick={onClick} title="Boutique"
-      className="wood-btn fixed top-14 right-3 z-20 flex items-center gap-1.5 px-3 py-1.5 rounded-lg cursor-pointer" style={{color:'#fbbf24'}}>
-      <Coins size={15}/><span className="font-bold text-sm" style={CINZEL}>{coins}</span>
+      className={`wood-btn fixed top-14 right-3 z-20 flex items-center gap-1.5 px-3 py-1.5 rounded-lg cursor-pointer ${pulse?'coin-badge-pulse':''}`} style={{color:'#fbbf24'}}>
+      <Coins size={15} className={pulse?'coin-flip':''}/><span className="font-bold text-sm tabular-nums" style={CINZEL}>{displayCoins}</span>
     </button>
   )
 }
@@ -1841,7 +1862,7 @@ function mergeById(localList,cloudList,deletedIds){
   })
   return Array.from(map.values())
 }
-function BoosterScreen({onBack,user,ownedSkins,coins,onEarnCoins,onSellCard,onDeckBuilder,onBooster,onRules,onAccount,onShop}){
+function BoosterScreen({onBack,user,ownedSkins,coins,onEarnCoins,onSellCard,soundEnabled,onDeckBuilder,onBooster,onRules,onAccount,onShop}){
   const[collection,setCollection]=useState(()=>loadCollection())
   const[decks,setDecks]=useState(()=>loadDecks())
   const[deletedCollectionIds,setDeletedCollectionIds]=useState(()=>loadDeletedIds(DELETED_COLLECTION_KEY))
@@ -1952,6 +1973,7 @@ function BoosterScreen({onBack,user,ownedSkins,coins,onEarnCoins,onSellCard,onDe
     setCollection(c=>c.filter(x=>x.id!==cardId))
     setDeletedCollectionIds(ids=>ids.includes(cardId)?ids:[...ids,cardId])
     onSellCard(card.rarity)
+    snd('coin',soundEnabled)
   }
 
   if(!user)return(
@@ -2725,7 +2747,7 @@ export default function App(){
       {screen==='menu'     && <MenuScreen onAI={()=>goToDeckSelect('ai')} onLocal={()=>goToDeckSelect('local')} onOnline={()=>goToDeckSelect('online')} onRules={()=>setScreen('rules')} onDeckBuilder={()=>setScreen('deckbuilder')} onAccount={()=>setScreen('account')} onBooster={()=>setScreen('booster')} onShop={()=>setScreen('shop')} user={user} coins={coins}/>}
       {screen==='rules'    && <RulesScreen onBack={()=>setScreen('menu')} user={user} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')}/>}
       {screen==='deckbuilder' && <DeckBuilderScreen onBack={()=>setScreen('menu')} user={user} ownedSkins={ownedSkins} coins={coins} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')}/>}
-      {screen==='booster'  && <BoosterScreen onBack={()=>setScreen('menu')} user={user} ownedSkins={ownedSkins} coins={coins} onEarnCoins={earnCoins} onSellCard={sellCard} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')}/>}
+      {screen==='booster'  && <BoosterScreen onBack={()=>setScreen('menu')} user={user} ownedSkins={ownedSkins} coins={coins} onEarnCoins={earnCoins} onSellCard={sellCard} soundEnabled={soundOn} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')}/>}
       {screen==='shop'     && <ShopScreen onBack={()=>setScreen('menu')} user={user} coins={coins} ownedSkins={ownedSkins} onBuySkin={buySkin} onEarnCoins={earnCoins} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')}/>}
       {screen==='deckselect' && <DeckSelectScreen mode={pendingMode} onBack={()=>setScreen('menu')} onSelect={handleDeckChosen}/>}
       {screen==='account'  && <AccountScreen onBack={()=>setScreen('menu')} user={user} stats={stats} onProfileUpdated={refreshUser} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')}/>}
