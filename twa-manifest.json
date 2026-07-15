@@ -1,0 +1,45 @@
+{
+  "packageId": "com.chartalogica.twa",
+  "host": "resplendent-quokka-a12851.netlify.app",
+  "name": "Charta Logica",
+  "launcherName": "Charta Logica",
+  "display": "standalone",
+  "themeColor": "#0f172a",
+  "themeColorDark": "#0f172a",
+  "navigationColor": "#0f172a",
+  "navigationColorDark": "#0f172a",
+  "navigationDividerColor": "#0f172a",
+  "navigationDividerColorDark": "#0f172a",
+  "backgroundColor": "#0f172a",
+  "enableNotifications": false,
+  "startUrl": "/",
+  "iconUrl": "https://resplendent-quokka-a12851.netlify.app/icons/icon-512.png",
+  "maskableIconUrl": "https://resplendent-quokka-a12851.netlify.app/icons/icon-512.png",
+  "monochromeIconUrl": "",
+  "splashScreenFadeOutDuration": 300,
+  "signingKey": {
+    "path": "./android.keystore",
+    "alias": "android"
+  },
+  "appVersionName": "1.0.0",
+  "appVersionCode": 1,
+  "shortcuts": [],
+  "generatorApp": "bubblewrap-cli",
+  "webManifestUrl": "https://resplendent-quokka-a12851.netlify.app/manifest.webmanifest",
+  "fallbackType": "customtabs",
+  "features": {
+    "playBilling": {
+      "enabled": false
+    }
+  },
+  "alphaDependencies": {
+    "enabled": false
+  },
+  "enableSiteSettingsShortcut": true,
+  "isChromeOSOnly": false,
+  "isMetaQuest": false,
+  "fullScopeUrl": "https://resplendent-quokka-a12851.netlify.app/",
+  "minSdkVersion": 21,
+  "orientation": "portrait",
+  "fingerprints": []
+}
