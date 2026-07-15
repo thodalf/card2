@@ -236,6 +236,7 @@ function openBoosterPack(ownedSkins){
 const BOOSTER_COIN_MIN=10, BOOSTER_COIN_MAX=25
 const SELL_VALUE={common:5,uncommon:12,rare:30,legendary:100}
 const ONLINE_WIN_COIN_REWARD=20
+const BOOSTER_PURCHASE_PRICE=600
 
 // ═══════════════════════════════════════════════════════════════════════════════
 //  POWER DECK
@@ -1862,7 +1863,7 @@ function mergeById(localList,cloudList,deletedIds){
   })
   return Array.from(map.values())
 }
-function BoosterScreen({onBack,user,ownedSkins,coins,onEarnCoins,onSellCard,soundEnabled,onDeckBuilder,onBooster,onRules,onAccount,onShop}){
+function BoosterScreen({onBack,user,ownedSkins,coins,onEarnCoins,onSellCard,onSpendCoins,soundEnabled,onDeckBuilder,onBooster,onRules,onAccount,onShop}){
   const[collection,setCollection]=useState(()=>loadCollection())
   const[decks,setDecks]=useState(()=>loadDecks())
   const[deletedCollectionIds,setDeletedCollectionIds]=useState(()=>loadDeletedIds(DELETED_COLLECTION_KEY))
@@ -1939,8 +1940,13 @@ function BoosterScreen({onBack,user,ownedSkins,coins,onEarnCoins,onSellCard,soun
   const allRevealed=pendingCards&&revealCount>=pendingCards.length
   const displayCollection=pendingCards?collection.filter(c=>!pendingCards.some(p=>p.id===c.id)):collection
 
-  function handleOpenBooster(){
-    if(!canOpen)return
+  function handleOpenBooster(paid=false){
+    if(paid){
+      // A bought booster is extra — it doesn't touch the free daily slot, so it
+      // can't be used to either skip or double up on today's free one.
+      if(opening||pendingCards)return
+      if(!onSpendCoins(BOOSTER_PURCHASE_PRICE))return
+    }else if(!canOpen)return
     setOpening(true)
     timersRef.current.push(setTimeout(()=>{
       const cards=openBoosterPack(ownedSkins)
@@ -1951,9 +1957,11 @@ function BoosterScreen({onBack,user,ownedSkins,coins,onEarnCoins,onSellCard,soun
       cards.forEach((_,i)=>{
         timersRef.current.push(setTimeout(()=>setRevealCount(n=>Math.max(n,i+1)),i*650))
       })
-      const ts=Date.now()
-      setLastBoosterAt(ts);saveLastBoosterAt(ts)
-      if(user)saveCloudLastBooster(user.uid,ts).catch(()=>{})
+      if(!paid){
+        const ts=Date.now()
+        setLastBoosterAt(ts);saveLastBoosterAt(ts)
+        if(user)saveCloudLastBooster(user.uid,ts).catch(()=>{})
+      }
       const reward=rnd(BOOSTER_COIN_MIN,BOOSTER_COIN_MAX)
       onEarnCoins(reward)
       setCoinToast(reward)
@@ -2001,13 +2009,13 @@ function BoosterScreen({onBack,user,ownedSkins,coins,onEarnCoins,onSellCard,soun
       <div className="max-w-lg w-full">
         <h2 className="text-3xl font-black mb-1" style={{...CINZEL_DEC,background:'linear-gradient(to bottom,#ffe566,#c9a020)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',filter:'drop-shadow(0 1px 10px rgba(0,0,0,1))'}}>Booster de Cartes</h2>
         <p className="text-xs mb-5 text-slate-300 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">
-          Un booster gratuit de 4 cartes chaque jour. Très rarement (&lt;1%), une carte peut dépasser les {CARD_MAX_POINTS} pts habituels !
+          Un booster gratuit de 4 cartes chaque jour, ou un booster supplémentaire à tout moment pour {BOOSTER_PURCHASE_PRICE} pièces. Très rarement (&lt;1%), une carte peut dépasser les {CARD_MAX_POINTS} pts habituels !
         </p>
 
         <div className="rounded-xl p-6 mb-6 border border-amber-900/40 flex flex-col items-center gap-4 min-h-[220px] justify-center" style={{background:'rgba(8,5,2,0.78)'}}>
           {!pendingCards&&(
             <>
-              <button onClick={handleOpenBooster} disabled={!canOpen}
+              <button onClick={()=>handleOpenBooster(false)} disabled={!canOpen}
                 className={`relative w-28 h-36 rounded-2xl border-4 flex items-center justify-center transition-transform ${
                   opening?'border-amber-400 booster-pack-opening'
                     :canOpen?'border-amber-400 booster-pack-idle cursor-pointer hover:scale-105'
@@ -2025,6 +2033,10 @@ function BoosterScreen({onBack,user,ownedSkins,coins,onEarnCoins,onSellCard,soun
                   <Coins size={14}/> +{coinToast} pièces
                 </p>
               )}
+              <MedBtn onClick={()=>handleOpenBooster(true)} disabled={opening||coins<BOOSTER_PURCHASE_PRICE}
+                color="#f59e0b" icon={<Coins size={14}/>}>
+                Acheter un booster ({BOOSTER_PURCHASE_PRICE})
+              </MedBtn>
             </>
           )}
           {pendingCards&&(
@@ -2497,6 +2509,12 @@ export default function App(){
   // ── Economy — coins & owned cosmetic skins ─────────────────────
   function earnCoins(amount){coinsUpdatedAtRef.current=Date.now();setCoins(c=>c+amount)}
   function sellCard(rarity){const value=SELL_VALUE[rarity]||0;earnCoins(value);return value}
+  function spendCoins(amount){
+    if(coins<amount)return false
+    coinsUpdatedAtRef.current=Date.now()
+    setCoins(c=>c-amount)
+    return true
+  }
   function buySkin(skinId,price){
     if(ownedSkins.includes(skinId)||coins<price)return false
     coinsUpdatedAtRef.current=Date.now()
@@ -2747,7 +2765,7 @@ export default function App(){
       {screen==='menu'     && <MenuScreen onAI={()=>goToDeckSelect('ai')} onLocal={()=>goToDeckSelect('local')} onOnline={()=>goToDeckSelect('online')} onRules={()=>setScreen('rules')} onDeckBuilder={()=>setScreen('deckbuilder')} onAccount={()=>setScreen('account')} onBooster={()=>setScreen('booster')} onShop={()=>setScreen('shop')} user={user} coins={coins}/>}
       {screen==='rules'    && <RulesScreen onBack={()=>setScreen('menu')} user={user} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')}/>}
       {screen==='deckbuilder' && <DeckBuilderScreen onBack={()=>setScreen('menu')} user={user} ownedSkins={ownedSkins} coins={coins} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')}/>}
-      {screen==='booster'  && <BoosterScreen onBack={()=>setScreen('menu')} user={user} ownedSkins={ownedSkins} coins={coins} onEarnCoins={earnCoins} onSellCard={sellCard} soundEnabled={soundOn} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')}/>}
+      {screen==='booster'  && <BoosterScreen onBack={()=>setScreen('menu')} user={user} ownedSkins={ownedSkins} coins={coins} onEarnCoins={earnCoins} onSellCard={sellCard} onSpendCoins={spendCoins} soundEnabled={soundOn} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')}/>}
       {screen==='shop'     && <ShopScreen onBack={()=>setScreen('menu')} user={user} coins={coins} ownedSkins={ownedSkins} onBuySkin={buySkin} onEarnCoins={earnCoins} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')}/>}
       {screen==='deckselect' && <DeckSelectScreen mode={pendingMode} onBack={()=>setScreen('menu')} onSelect={handleDeckChosen}/>}
       {screen==='account'  && <AccountScreen onBack={()=>setScreen('menu')} user={user} stats={stats} onProfileUpdated={refreshUser} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')}/>}
