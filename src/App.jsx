@@ -287,7 +287,7 @@ function newGame(p1Deck,p2Deck,ownedSkins) {
     },
     currentPlayer:1, actionsLeft:{...FRESH_ACTIONS},
     winner:null, turn:1,
-    powerCardHand:{1:['buff','recall','switch','block'],2:['buff','recall','switch','block']}, blockedCells:[], boardTiles:genBoardTiles(),
+    powerCardHand:{1:['block','block','switch'],2:['block','block','switch']}, blockedCells:[], boardTiles:genBoardTiles(),
   }
 }
 const cardPts  = c => Object.values(c.values).reduce((a,b)=>a+b,0)
@@ -1067,7 +1067,7 @@ const TUTORIAL_STEPS=[
   {icon:'↔️',title:'Déplacer une carte',text:"Vous pouvez déplacer jusqu'à 2 cartes déjà en jeu, diagonales autorisées, en les faisant glisser vers une case adjacente libre."},
   {icon:'⚔️',title:'Attaquer',text:"Glissez une de vos cartes sur une carte adverse juste à côté (haut, bas, gauche ou droite — pas en diagonale) pour l'attaquer. Une seule attaque par tour."},
   {icon:'💥',title:'Le combat',text:"Lors d'une attaque, les faces qui se touchent perdent chacune 1 point. Si un chiffre tombe sous zéro, la carte est détruite."},
-  {icon:'🃏',title:'Les pouvoirs',text:"La barre de pouvoirs propose des cartes spéciales gratuites (Amplification, Rappel, Rotation, Barrage) qui ne consomment pas vos actions normales."},
+  {icon:'🃏',title:'Les pouvoirs',text:"La barre de pouvoirs propose des cartes spéciales gratuites, qui ne consomment pas vos actions normales : vous commencez avec 2 Barrage (bloquer définitivement une case vide) et 1 Rotation (faire tourner les chiffres d'une carte)."},
   {icon:'🏆',title:'Victoire',text:"Dès qu'un joueur n'a plus aucune carte, ni en main ni sur le plateau, la partie se termine et son adversaire gagne. Bonne chance !"},
 ]
 function TutorialOverlay({onClose}){
@@ -1478,7 +1478,7 @@ function RulesScreen({onBack,user,onDeckBuilder,onBooster,onRules,onAccount,onSh
     ['🎲 Le plateau','On joue sur une grille de 5 cases sur 5. Les 4 coins sont bloqués : personne ne peut y poser de carte. Vous démarrez en haut du plateau, votre adversaire en bas.'],
     ['⚡ Pendant votre tour','À chaque tour, vous pouvez poser une carte depuis votre main dans votre camp, déplacer deux cartes déjà en jeu (les déplacements en diagonale sont autorisés), et attaquer une fois une carte adverse juste à côté de la vôtre (seulement en haut, en bas, à gauche ou à droite — pas en diagonale). Vos pouvoirs spéciaux sont gratuits et ne comptent pas dans ces actions.'],
     ['💥 Le combat','Quand vous attaquez une carte voisine, vos deux cartes s\'affrontent sur les faces qui se touchent : chacune y perd 1 point. Si un chiffre tombe sous zéro, la carte est détruite.'],
-    ['🃏 Les pouvoirs','En plus de vos cartes classiques, vous disposez de pouvoirs gratuits, à utiliser quand vous le souhaitez : Amplification renforce une carte alliée, Rappel la ramène dans votre main, Rotation fait tourner ses chiffres, et Barrage bloque définitivement une case vide du plateau.'],
+    ['🃏 Les pouvoirs','En plus de vos cartes classiques, vous disposez de pouvoirs gratuits, à utiliser quand vous le souhaitez : vous commencez la partie avec 2 cartes Barrage (bloque définitivement une case vide du plateau) et 1 carte Rotation (fait tourner les chiffres d\'une carte).'],
     ['🤖 Face à l\'ordinateur','En mode Solo, votre adversaire est joué par une intelligence artificielle : elle pose, déplace, attaque et utilise ses pouvoirs toute seule.'],
     ['🏆 Comment gagner','Dès qu\'un joueur n\'a plus aucune carte, ni en main ni sur le plateau, la partie s\'arrête et son adversaire remporte la victoire.'],
   ]
