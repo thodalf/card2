@@ -136,6 +136,10 @@ function loadSoundPref(){
 function saveSoundPref(on){
   try{localStorage.setItem(SOUND_PREF_KEY,on?'1':'0')}catch{}
 }
+
+const TUTORIAL_SEEN_KEY='tacticalcards_tutorial_seen'
+function loadTutorialSeen(){try{return localStorage.getItem(TUTORIAL_SEEN_KEY)==='1'}catch{return false}}
+function saveTutorialSeen(){try{localStorage.setItem(TUTORIAL_SEEN_KEY,'1')}catch{}}
 function emptyCardValues(){
   return Object.fromEntries(FACE_KEYS.map(k=>[k,0]))
 }
@@ -1008,9 +1012,48 @@ function PowerBar({game,isMyTurn,targeting,onActivatePower,onCancelTargeting,com
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+//  TUTORIAL — shown automatically on a player's first Solo vs IA match
+// ═══════════════════════════════════════════════════════════════════════════════
+const TUTORIAL_STEPS=[
+  {icon:'👋',title:'Bienvenue !',text:"C'est votre première partie contre l'IA. Ce court tutoriel explique les règles et les actions — vous pouvez le passer à tout moment, le plateau reste visible derrière."},
+  {icon:'🎲',title:'Le plateau',text:"On joue sur une grille de 5×5 cases. Les 4 coins (marqués d'une croix) sont bloqués. Votre camp est en haut du plateau, celui de l'IA en bas."},
+  {icon:'🎴',title:'Vos cartes',text:"Chaque carte a un chiffre sur ses 8 faces (haut, bas, côtés, diagonales). Votre deck compte 6 cartes : 2 faibles, 2 moyennes et 2 puissantes."},
+  {icon:'✋',title:'Poser une carte',text:"Glissez une carte depuis votre main (en haut de l'écran) vers une case libre de votre camp. Une seule pose par tour."},
+  {icon:'↔️',title:'Déplacer une carte',text:"Vous pouvez déplacer jusqu'à 2 cartes déjà en jeu, diagonales autorisées, en les faisant glisser vers une case adjacente libre."},
+  {icon:'⚔️',title:'Attaquer',text:"Glissez une de vos cartes sur une carte adverse juste à côté (haut, bas, gauche ou droite — pas en diagonale) pour l'attaquer. Une seule attaque par tour."},
+  {icon:'💥',title:'Le combat',text:"Lors d'une attaque, les faces qui se touchent perdent chacune 1 point. Si un chiffre tombe sous zéro, la carte est détruite."},
+  {icon:'🃏',title:'Les pouvoirs',text:"La barre de pouvoirs propose des cartes spéciales gratuites (Amplification, Rappel, Rotation, Barrage) qui ne consomment pas vos actions normales."},
+  {icon:'🏆',title:'Victoire',text:"Dès qu'un joueur n'a plus aucune carte, ni en main ni sur le plateau, la partie se termine et son adversaire gagne. Bonne chance !"},
+]
+function TutorialOverlay({onClose}){
+  const[step,setStep]=useState(0)
+  const s=TUTORIAL_STEPS[step]
+  const isLast=step===TUTORIAL_STEPS.length-1
+  return(
+    <div className="fixed inset-0 z-40 flex items-end sm:items-center justify-center bg-black/70 backdrop-blur-sm px-4 pb-6 sm:pb-4">
+      <div className="wood-btn rounded-2xl p-5 max-w-sm w-full flex flex-col gap-3">
+        <div className="flex items-center justify-between">
+          <span className="text-amber-300 text-xs font-bold" style={CINZEL}>Tutoriel · {step+1}/{TUTORIAL_STEPS.length}</span>
+          <button onClick={onClose} className="text-slate-300 hover:text-white text-xs">Passer ✕</button>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-3xl leading-none">{s.icon}</span>
+          <h3 className="text-amber-200 font-black text-lg" style={CINZEL}>{s.title}</h3>
+        </div>
+        <p className="text-slate-200 text-sm leading-relaxed">{s.text}</p>
+        <div className="flex items-center gap-2 mt-2">
+          {step>0&&<MedBtn onClick={()=>setStep(v=>v-1)} color="#a89484" className="flex-1 justify-center">Précédent</MedBtn>}
+          <MedBtn onClick={()=>isLast?onClose():setStep(v=>v+1)} color="#7cb87c" className="flex-1 justify-center">{isLast?'Compris, jouer !':'Suivant'}</MedBtn>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 //  GAME SCREEN
 // ═══════════════════════════════════════════════════════════════════════════════
-function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,onPowerAction,onSurrender,lastAnim,syncError}){
+function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,onPowerAction,onSurrender,lastAnim,syncError,showTutorial,onTutorialClose}){
   const[drag,setDrag]=useState(null)
   const[zoomedCard,setZoomedCard]=useState(null)
   const[anims,setAnims]=useState({})
@@ -1181,6 +1224,7 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
   return(
     <div className="game-outer min-h-screen bg-gradient-to-br from-slate-900 via-slate-900 to-slate-800 overflow-y-auto relative">
       <CardZoomOverlay card={zoomedCard} onClose={()=>setZoomedCard(null)} renderCard={c=><CardFace card={c} zoom/>}/>
+      {showTutorial&&<TutorialOverlay onClose={onTutorialClose}/>}
       <BackButton onClick={onHome} compact className="absolute top-3 left-3 z-10">Menu</BackButton>
       {syncError&&(
         <div className="fixed top-0 left-0 right-0 z-30 bg-red-900/95 text-red-100 text-xs text-center py-1.5 px-10">
@@ -2325,6 +2369,7 @@ export default function App(){
   const[user,setUser]=useState(null)
   const[stats,setStats]=useState(null)
   const[lastAnim,setLastAnim]=useState(null)
+  const[showTutorial,setShowTutorial]=useState(false)
   const[coins,setCoins]=useState(()=>loadCoins())
   const[ownedSkins,setOwnedSkins]=useState(()=>loadOwnedSkins())
   const ignoreNextRef=useRef(false)
@@ -2334,6 +2379,7 @@ export default function App(){
   const aiTimerRef=useRef(null)
   const statsRecordedRef=useRef(false)
   const animSeqRef=useRef(0)
+  const remoteAnimSeqRef=useRef(null) // last opponent lastActionAnim.seq already played, online mode
   const coinsUpdatedAtRef=useRef(loadCoinsUpdatedAt())
   const economyCloudReadyRef=useRef(false)
   function nextAnimSeq(){animSeqRef.current+=1;return animSeqRef.current}
@@ -2468,14 +2514,14 @@ export default function App(){
   function handleAction({drag,targetR,targetC}){
     if(!game)return
     if(myPlayer!=null&&myPlayer!==game.currentPlayer)return // not this client's turn — reject even if the UI somehow allowed the drag
-    let g=game;const cp=g.currentPlayer,al=g.actionsLeft;let cells=null,violent=false
+    let g=game;const cp=g.currentPlayer,al=g.actionsLeft;let cells=null,violent=false,sfx=null
     if(drag.from==='hand'){
       if(al.placement<=0||drag.player!==cp)return
       if(isCellBlocked(g,targetR,targetC)||!inZone(targetR,cp)||g.board[targetR][targetC])return
       const hand=[...g.players[cp].hand];const card=hand[drag.handIdx];if(!card)return
       hand.splice(drag.handIdx,1);const nb=g.board.map(r=>[...r]);nb[targetR][targetC]=card
       g={...g,board:nb,players:{...g.players,[cp]:{...g.players[cp],hand}},actionsLeft:{...al,placement:al.placement-1}}
-      snd('place-'+cardTier(card),soundOn);cells=[{r:targetR,c:targetC,ghost:null,anim:'anim-place',dur:350}]
+      sfx='place-'+cardTier(card);snd(sfx,soundOn);cells=[{r:targetR,c:targetC,ghost:null,anim:'anim-place',dur:350}]
     }else if(drag.from==='board'){
       const{r:fr,c:fc}=drag;const moving=g.board[fr][fc]
       if(!moving||moving.owner!==cp)return
@@ -2484,7 +2530,7 @@ export default function App(){
         if(al.attack<=0||target.owner===cp||!isCardinal(fr,fc,targetR,targetC))return
         const{newBoard,aDead,dDead}=doAttack(g.board,fr,fc,targetR,targetC)
         g={...g,board:newBoard,actionsLeft:{...al,attack:al.attack-1}}
-        snd(aDead||dDead?'destroy':'attack',soundOn)
+        sfx=aDead||dDead?'destroy':'attack';snd(sfx,soundOn)
         violent=aDead||dDead
         cells=[
           {r:targetR,c:targetC,ghost:dDead?target:null,anim:dDead?'anim-destroy':'anim-attack',dur:dDead?650:350},
@@ -2493,10 +2539,13 @@ export default function App(){
       }else{
         if(al.moves<=0||isCellBlocked(g,targetR,targetC)||!isAdjacent(fr,fc,targetR,targetC))return
         const nb=g.board.map(r=>[...r]);nb[targetR][targetC]=moving;nb[fr][fc]=null
-        g={...g,board:nb,actionsLeft:{...al,moves:al.moves-1}};snd('move',soundOn);cells=[{r:targetR,c:targetC,ghost:null,anim:'anim-move',dur:220}]
+        g={...g,board:nb,actionsLeft:{...al,moves:al.moves-1}};sfx='move';snd(sfx,soundOn);cells=[{r:targetR,c:targetC,ghost:null,anim:'anim-move',dur:220}]
       }
     }
-    if(cells)setLastAnim({seq:nextAnimSeq(),cells,violent})
+    if(cells){
+      setLastAnim({seq:nextAnimSeq(),cells,violent})
+      g={...g,lastActionAnim:{cells,violent,sfx,seq:Date.now()+Math.random()}}
+    }
     const winner=checkWin(g)
     if(winner){
       const f={...g,winner};setGame(f)
@@ -2508,7 +2557,10 @@ export default function App(){
   function handlePowerAction(type,r,c){
     if(!game)return
     if(myPlayer!=null&&myPlayer!==game.currentPlayer)return
-    const g=applyPowerAction(game,type,r,c)
+    // Local anim/sound for the acting player is triggered client-side in GameScreen
+    // (handleCellClick); this descriptor is only for syncing it to the opponent.
+    let g=applyPowerAction(game,type,r,c)
+    g={...g,lastActionAnim:{cells:[{r,c,ghost:null,anim:'anim-power',dur:500}],violent:false,sfx:'power',seq:Date.now()+Math.random()}}
     const winner=checkWin(g)
     if(winner){const f={...g,winner};setGame(f);if(roomCode)syncOnline(f);setTimeout(()=>setScreen('gameover'),650)}
     else{setGame(g);if(roomCode)syncOnline(g)}
@@ -2535,7 +2587,9 @@ export default function App(){
     if(aiTimerRef.current){clearTimeout(aiTimerRef.current);aiTimerRef.current=null}
     const p1Deck=deck,p2Deck=mode==='local'?deck:null
     setGameMode(mode);setRoomCode(null);setMyPlayer(mode==='ai'?1:null);setGame(newGame(p1Deck,p2Deck,ownedSkins));setScreen('game')
+    if(mode==='ai'&&!loadTutorialSeen())setShowTutorial(true)
   }
+  function handleTutorialClose(){saveTutorialSeen();setShowTutorial(false)}
 
   function goToDeckSelect(mode){setPendingMode(mode);setScreen('deckselect')}
   function handleDeckChosen(deck){
@@ -2546,10 +2600,21 @@ export default function App(){
 
   function handleOnlineStart(state,code,player){
     setGameMode('online');setRoomCode(code);setMyPlayer(player);setGame(state);setScreen('game');setSyncError(null)
+    remoteAnimSeqRef.current=state?.lastActionAnim?.seq??null
     if(unsubRef.current){unsubRef.current();unsubRef.current=null}
     unsubRef.current=subscribeRoom(code,data=>{
       if(ignoreNextRef.current){ignoreNextRef.current=false;return}
-      if(data.state)setGame(data.state)
+      if(!data.state)return
+      const incoming=data.state
+      const remoteAnim=incoming.lastActionAnim
+      if(remoteAnim&&remoteAnim.seq!==remoteAnimSeqRef.current){
+        remoteAnimSeqRef.current=remoteAnim.seq
+        // Firebase RTDB doesn't always round-trip small arrays as real arrays
+        const cells=Array.isArray(remoteAnim.cells)?remoteAnim.cells:Object.values(remoteAnim.cells||{})
+        setLastAnim({seq:nextAnimSeq(),cells,violent:remoteAnim.violent})
+        if(remoteAnim.sfx)snd(remoteAnim.sfx,soundOnRef.current)
+      }
+      setGame(incoming)
     },e=>{console.warn(e);setSyncError(e?.message||'Connexion perdue avec la partie en ligne')})
   }
 
@@ -2570,7 +2635,7 @@ export default function App(){
       {screen==='deckselect' && <DeckSelectScreen mode={pendingMode} onBack={()=>setScreen('menu')} onSelect={handleDeckChosen}/>}
       {screen==='account'  && <AccountScreen onBack={()=>setScreen('menu')} user={user} stats={stats} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')}/>}
       {screen==='online'   && <OnlineLobbyScreen onBack={()=>setScreen('menu')} onGameStart={handleOnlineStart} deck={chosenDeck} ownedSkins={ownedSkins}/>}
-      {screen==='game'     && game && <GameScreen game={game} soundEnabled={soundOn} myPlayer={myPlayer} isAI={gameMode==='ai'} onAction={handleAction} onEndTurn={handleEndTurn} onHome={closeGame} onPowerAction={handlePowerAction} onSurrender={handleSurrender} lastAnim={lastAnim} syncError={roomCode?syncError:null}/>}
+      {screen==='game'     && game && <GameScreen game={game} soundEnabled={soundOn} myPlayer={myPlayer} isAI={gameMode==='ai'} onAction={handleAction} onEndTurn={handleEndTurn} onHome={closeGame} onPowerAction={handlePowerAction} onSurrender={handleSurrender} lastAnim={lastAnim} syncError={roomCode?syncError:null} showTutorial={gameMode==='ai'&&showTutorial} onTutorialClose={handleTutorialClose}/>}
       {screen==='gameover' && game && <GameOverScreen winner={game.winner} isAI={gameMode==='ai'} surrendered={!!game.surrendered} onReplay={()=>startGame(gameMode)} onMenu={()=>setScreen('menu')}/>}
     </>
   )
