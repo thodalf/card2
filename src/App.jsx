@@ -214,13 +214,19 @@ function msUntilNextBooster(lastAt){
   return Math.max(0,BOOSTER_COOLDOWN_MS-(Date.now()-(lastAt||0)))
 }
 function boosterCardRarity(total){
-  return total>CARD_MAX_POINTS?'legendary':total>=33?'rare':total>=25?'uncommon':'common'
+  if(total>60)return 'legendary'
+  if(total>50)return 'ultra'
+  if(total>40)return 'rare'
+  if(total>=25)return 'uncommon'
+  return 'common'
 }
 function genBoosterCardTotal(){
   const roll=Math.random()
-  if(roll<0.007)return rnd(41,64)  // legendary — breaks the normal 40-pt cap, <1% chance
-  if(roll<0.10)return rnd(33,40)   // rare
-  if(roll<0.35)return rnd(25,32)   // uncommon
+  // Breaks the normal 40-pt cap, <1% chance — lands as rare/ultra/legendary
+  // depending on where in 41-64 it falls (see boosterCardRarity)
+  if(roll<0.007)return rnd(41,64)
+  if(roll<0.10)return rnd(33,40)   // uncommon (33-40)
+  if(roll<0.35)return rnd(25,32)   // uncommon (25-32)
   return rnd(8,24)                 // common
 }
 function genBoosterCard(ownedSkins){
@@ -234,7 +240,7 @@ function openBoosterPack(ownedSkins){
   return Array.from({length:4},()=>genBoosterCard(ownedSkins))
 }
 const BOOSTER_COIN_MIN=10, BOOSTER_COIN_MAX=25
-const SELL_VALUE={common:5,uncommon:12,rare:30,legendary:100}
+const SELL_VALUE={common:5,uncommon:12,rare:30,ultra:60,legendary:100}
 const ONLINE_WIN_COIN_REWARD=20
 const BOOSTER_PURCHASE_PRICE=600
 
@@ -1795,12 +1801,13 @@ const RARITY_THEME={
   common:   {label:'Commune',     color:'#94a3b8'},
   uncommon: {label:'Peu commune', color:'#34d399'},
   rare:     {label:'Rare',        color:'#60a5fa'},
+  ultra:    {label:'Ultra rare',  color:'#c084fc'},
   legendary:{label:'Légendaire',  color:'#fbbf24'},
 }
 function BoosterCardFace({card,animate=false,revealed=true,size='normal',onClick}){
   const rarity=card.rarity||'common'
   const theme=RARITY_THEME[rarity]
-  const isRare=rarity==='rare'||rarity==='legendary'
+  const isRare=rarity==='rare'||rarity==='ultra'||rarity==='legendary'
   const pts=FACE_KEYS.reduce((s,k)=>s+(card.values[k]||0),0)
   const animClass=animate?(revealed?(isRare?'card-reveal-rare':'card-reveal'):'opacity-0'):(isRare?'rare-glow':'')
   const dim=size==='small'?'w-[68px] h-[68px]':size==='large'?'w-[88vw] h-[88vw] max-w-[420px] max-h-[420px]':'w-[104px] h-[104px]'
@@ -2422,7 +2429,7 @@ function OnlineLobbyScreen({onBack,onGameStart,deck,ownedSkins}){
     </div>
   )
 }
-function GameOverScreen({winner,isAI,surrendered,onReplay,onMenu}){
+function GameOverScreen({winner,isAI,surrendered,onReplay,onMenu,coinsAwarded}){
   const isDraw=winner==='draw'
   const loser=winner===1?2:1
   const winLabel=isAI&&winner===2?'L\'IA':`Joueur ${winner}`
@@ -2463,6 +2470,11 @@ function GameOverScreen({winner,isAI,surrendered,onReplay,onMenu}){
           {isDraw?'Égalité !':`${winLabel} gagne !`}
         </h2>
         <p className="text-slate-100 font-bold text-center px-4 py-1.5 rounded-full bg-black/55 border border-amber-900/40 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">{msg}</p>
+        {coinsAwarded&&(
+          <p className="text-amber-300 text-sm font-bold flex items-center gap-1.5 menu-fade-up" style={CINZEL}>
+            <Coins size={14}/> +{coinsAwarded} pièces
+          </p>
+        )}
         <div className="flex gap-3 mt-4">
           <MedBtn onClick={onReplay} icon={<Play size={16}/>} color="#60a5fa">Rejouer</MedBtn>
           <BackButton onClick={onMenu}>Menu</BackButton>
@@ -2494,6 +2506,7 @@ export default function App(){
   const[showTutorial,setShowTutorial]=useState(false)
   const[coins,setCoins]=useState(()=>loadCoins())
   const[ownedSkins,setOwnedSkins]=useState(()=>loadOwnedSkins())
+  const[gameOverCoinsAwarded,setGameOverCoinsAwarded]=useState(null)
   const ignoreNextRef=useRef(false)
   const unsubRef=useRef(null)
   const gameRef=useRef(game)
@@ -2564,10 +2577,13 @@ export default function App(){
         const iWon=gameMode==='ai'?game.winner===1:game.winner===myPlayer
         recordGameResult(user.uid,iWon).catch(()=>{})
         // Online wins carry a coin reward — AI/local practice matches don't
-        if(gameMode==='online'&&iWon)earnCoins(ONLINE_WIN_COIN_REWARD)
+        if(gameMode==='online'&&iWon){
+          earnCoins(ONLINE_WIN_COIN_REWARD)
+          setGameOverCoinsAwarded(ONLINE_WIN_COIN_REWARD)
+        }
       }
     }
-    if(screen!=='gameover')statsRecordedRef.current=false
+    if(screen!=='gameover'){statsRecordedRef.current=false;setGameOverCoinsAwarded(null)}
   },[screen])
 
   // ── Music ─────────────────────────────────────────────────────
@@ -2772,7 +2788,7 @@ export default function App(){
       {screen==='online'   && <OnlineLobbyScreen onBack={()=>setScreen('menu')} onGameStart={handleOnlineStart} deck={chosenDeck} ownedSkins={ownedSkins}/>}
       {screen==='loading'  && game && <LoadingScreen onDone={()=>setScreen('game')}/>}
       {screen==='game'     && game && <GameScreen game={game} soundEnabled={soundOn} myPlayer={myPlayer} isAI={gameMode==='ai'} onAction={handleAction} onEndTurn={handleEndTurn} onHome={closeGame} onPowerAction={handlePowerAction} onSurrender={handleSurrender} lastAnim={lastAnim} syncError={roomCode?syncError:null} showTutorial={gameMode==='ai'&&showTutorial} onTutorialClose={handleTutorialClose} pseudo={user?.displayName}/>}
-      {screen==='gameover' && game && <GameOverScreen winner={game.winner} isAI={gameMode==='ai'} surrendered={!!game.surrendered} onReplay={()=>startGame(gameMode)} onMenu={()=>setScreen('menu')}/>}
+      {screen==='gameover' && game && <GameOverScreen winner={game.winner} isAI={gameMode==='ai'} surrendered={!!game.surrendered} onReplay={()=>startGame(gameMode)} onMenu={()=>setScreen('menu')} coinsAwarded={gameOverCoinsAwarded}/>}
     </>
   )
 }
