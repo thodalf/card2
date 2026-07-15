@@ -3,6 +3,7 @@ import { Copy, Volume2, VolumeX, Home, BookOpen, Wifi, Play, Users, Check, X, Za
 import {
   genRoomCode, createRoom, joinRoom, pushState, subscribeRoom, removeRoom,
   onAuthChange, registerWithEmail, loginWithEmail, loginWithGoogle, logout,
+  updateDisplayName, currentUserSnapshot,
   loadCloudDecks, saveCloudDecks, subscribeStats, recordGameResult,
   joinMatchmaking, leaveMatchmaking, publishMatchResult, subscribeMatchResult, clearMatchResult,
   loadCloudCollection, saveCloudCollection, loadCloudLastBooster, saveCloudLastBooster,
@@ -1098,7 +1099,7 @@ function TutorialOverlay({onClose}){
 // ═══════════════════════════════════════════════════════════════════════════════
 //  GAME SCREEN
 // ═══════════════════════════════════════════════════════════════════════════════
-function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,onPowerAction,onSurrender,lastAnim,syncError,showTutorial,onTutorialClose}){
+function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,onPowerAction,onSurrender,lastAnim,syncError,showTutorial,onTutorialClose,pseudo}){
   const[drag,setDrag]=useState(null)
   const[zoomedCard,setZoomedCard]=useState(null)
   const[anims,setAnims]=useState({})
@@ -1240,14 +1241,26 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
       document.removeEventListener('touchend',onEnd)
     }
   },[])
-  const badge=(label,count,color)=>`px-2.5 py-1 rounded-full text-xs font-bold border ${count>0?`bg-${color}-900/50 text-${color}-300 border-${color}-700`:'bg-slate-800/60 text-slate-600 border-slate-700/50'}`
+  // Tailwind can't statically see classes built from a template string like
+  // `bg-${color}-900/50` — they never made it into the compiled CSS, so these
+  // badges rendered with no color at all. Use a lookup of complete class
+  // strings instead, with solid/opaque colors for real contrast.
+  const ACTION_BADGE_COLOR={green:'bg-emerald-600 text-white border-emerald-300',yellow:'bg-amber-400 text-black border-amber-200',red:'bg-red-600 text-white border-red-300'}
+  const badge=(label,count,color)=>`px-2.5 py-1 rounded-full text-xs font-bold border shadow-sm ${count>0?ACTION_BADGE_COLOR[color]:'bg-slate-800/60 text-slate-500 border-slate-700/50'}`
 
   // Render function (not a component) — avoids remount-on-render which kills drag events
   const renderHand=(player,canDrag)=>{
     const isP1=player===1
     const activeColor=isP1?'text-blue-400':'text-red-400'
     const pts=isP1?p1pts:p2pts
-    const label=isP1?'J1':(isAI?<span className="flex items-center gap-1"><Bot size={11}/>IA</span>:'J2')
+    // Show the logged-in player's pseudo on their own hand (Solo vs IA: always P1;
+    // online: whichever side myPlayer is). Local hotseat has no single "you" — both
+    // sides are physically shared on one device — so it keeps J1/J2. The opponent's
+    // identity isn't synced anywhere yet, so it also falls back to J1/J2.
+    const isYou=myPlayer!=null&&player===myPlayer
+    const label=isAI&&!isP1
+      ?<span className="flex items-center gap-1"><Bot size={11}/>IA</span>
+      :(isYou&&pseudo?pseudo:(isP1?'J1':'J2'))
     return(
       <div className="game-hand-section flex flex-col items-center gap-1.5">
         <div className="flex items-center gap-2">
@@ -1423,11 +1436,12 @@ function BottomNav({onDeckBuilder,onBooster,onRules,onAccount,onShop,user,classN
 
 // Small fixed coin balance badge, reused on any screen where coins are earned/spent.
 // Sits below the sound toggle (also fixed top-right) so the two never overlap.
-function CoinBadge({coins}){
+function CoinBadge({coins,onClick}){
   return(
-    <div className="wood-btn fixed top-14 right-3 z-20 flex items-center gap-1.5 px-3 py-1.5 rounded-lg" style={{color:'#fbbf24'}}>
+    <button onClick={onClick} title="Boutique"
+      className="wood-btn fixed top-14 right-3 z-20 flex items-center gap-1.5 px-3 py-1.5 rounded-lg cursor-pointer" style={{color:'#fbbf24'}}>
       <Coins size={15}/><span className="font-bold text-sm" style={CINZEL}>{coins}</span>
-    </div>
+    </button>
   )
 }
 
@@ -1435,7 +1449,7 @@ function MenuScreen({onLocal,onAI,onOnline,onRules,onDeckBuilder,onAccount,onBoo
   return(
     <div className="bg-charta menu-screen relative flex flex-col items-center gap-4 px-4 overflow-hidden">
 
-      <CoinBadge coins={coins}/>
+      <CoinBadge coins={coins} onClick={onShop}/>
       <div className="menu-embers" aria-hidden="true">
         {MENU_EMBERS.map((e,i)=>(
           <span key={i} className="menu-ember" style={{
@@ -1717,7 +1731,7 @@ function DeckBuilderScreen({onBack,user,ownedSkins,coins,onDeckBuilder,onBooster
 
   return(
     <div className="bg-charta min-h-screen pt-8 pb-28 px-4 flex flex-col items-center overflow-y-auto">
-      <CoinBadge coins={coins}/>
+      <CoinBadge coins={coins} onClick={onShop}/>
       <div className="max-w-lg w-full">
         <BackButton onClick={onBack} className="mb-6">Menu</BackButton>
         <h2 className="text-3xl font-black mb-1" style={{...CINZEL_DEC,background:'linear-gradient(to bottom,#ffe566,#c9a020)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',filter:'drop-shadow(0 1px 10px rgba(0,0,0,1))'}}>Deck Builder</h2>
@@ -1958,7 +1972,7 @@ function BoosterScreen({onBack,user,ownedSkins,coins,onEarnCoins,onSellCard,onDe
       <div className="min-h-screen pt-14 pb-28 px-4 flex flex-col items-center overflow-y-auto">
       {/* Fixed back button */}
       <BackButton onClick={onBack} compact className="fixed top-3 left-3 z-20">Menu</BackButton>
-      <CoinBadge coins={coins}/>
+      <CoinBadge coins={coins} onClick={onShop}/>
 
       <CardZoomOverlay card={zoomedCard} onClose={()=>setZoomedCard(null)}/>
 
@@ -2148,10 +2162,19 @@ function DeckSelectScreen({mode,onBack,onSelect}){
 // ═══════════════════════════════════════════════════════════════════════════════
 //  ACCOUNT SCREEN — email/password + Google auth, stats, cache reset
 // ═══════════════════════════════════════════════════════════════════════════════
-function AccountScreen({onBack,user,stats,onDeckBuilder,onBooster,onRules,onAccount,onShop}){
+function AccountScreen({onBack,user,stats,onProfileUpdated,onDeckBuilder,onBooster,onRules,onAccount,onShop}){
   const[authMode,setAuthMode]=useState('login') // 'login'|'register'
   const[email,setEmail]=useState('');const[password,setPassword]=useState('')
   const[error,setError]=useState('');const[loading,setLoading]=useState(false)
+  const[pseudo,setPseudo]=useState('')
+  const[pseudoSaving,setPseudoSaving]=useState(false)
+  const[pseudoSaved,setPseudoSaved]=useState(false)
+  const[pseudoError,setPseudoError]=useState('')
+
+  // Pre-fill with the current pseudo, defaulting to the email prefix if none is set yet
+  useEffect(()=>{
+    if(user)setPseudo(user.displayName||user.email?.split('@')[0]||'')
+  },[user?.uid,user?.displayName])
 
   async function handleEmailSubmit(e){
     e.preventDefault();setError('');setLoading(true)
@@ -2163,6 +2186,16 @@ function AccountScreen({onBack,user,stats,onDeckBuilder,onBooster,onRules,onAcco
     setError('');setLoading(true)
     try{await loginWithGoogle()}catch(err){setError(err.message)}
     setLoading(false)
+  }
+  async function handleSavePseudo(){
+    const trimmed=pseudo.trim();if(!trimmed)return
+    setPseudoSaving(true);setPseudoError('');setPseudoSaved(false)
+    try{
+      await updateDisplayName(trimmed)
+      onProfileUpdated?.()
+      setPseudoSaved(true);setTimeout(()=>setPseudoSaved(false),2000)
+    }catch(e){setPseudoError(e.message)}
+    setPseudoSaving(false)
   }
   const total=stats?.gamesPlayed||0
   return(
@@ -2177,7 +2210,17 @@ function AccountScreen({onBack,user,stats,onDeckBuilder,onBooster,onRules,onAcco
               <UserCircle size={22} className="text-amber-400 shrink-0"/>
               <span className="text-amber-200 font-bold truncate" style={CINZEL}>{user.displayName||user.email}</span>
             </div>
-            <div className="grid grid-cols-3 gap-2 text-center mb-4">
+            <label className="text-slate-400 text-[11px] mb-1 block">Pseudo (affiché en partie)</label>
+            <div className="flex gap-2 mb-1">
+              <input value={pseudo} onChange={e=>setPseudo(e.target.value)} maxLength={24} placeholder="Pseudo"
+                className="flex-1 min-w-0 bg-slate-800 text-slate-200 text-sm border border-slate-700 rounded-lg px-3 py-2 outline-none focus:border-amber-500"/>
+              <MedBtn onClick={handleSavePseudo} disabled={pseudoSaving||!pseudo.trim()||pseudo.trim()===(user.displayName||'')}
+                color={pseudoSaved?'#34d399':'#c9a020'} icon={<Check size={14}/>} className="shrink-0">
+                {pseudoSaving?'…':pseudoSaved?'Enregistré':'Valider'}
+              </MedBtn>
+            </div>
+            {pseudoError&&<p className="text-red-400 text-xs mb-3">{pseudoError}</p>}
+            <div className="grid grid-cols-3 gap-2 text-center mb-4 mt-3">
               <div><div className="text-xl font-black text-amber-300">{total}</div><div className="text-[10px] text-slate-400 uppercase tracking-wide">Parties</div></div>
               <div><div className="text-xl font-black text-emerald-400">{stats?.wins||0}</div><div className="text-[10px] text-slate-400 uppercase tracking-wide">Victoires</div></div>
               <div><div className="text-xl font-black text-red-400">{stats?.losses||0}</div><div className="text-[10px] text-slate-400 uppercase tracking-wide">Défaites</div></div>
@@ -2669,6 +2712,13 @@ export default function App(){
     setScreen('menu')
   }
 
+  // updateProfile() (pseudo change) doesn't trigger onAuthChange, so pull a fresh
+  // snapshot manually after any profile edit to reflect it in the UI immediately.
+  function refreshUser(){
+    const u=currentUserSnapshot()
+    if(u)setUser(u)
+  }
+
   return(
     <>
       <SoundToggle enabled={soundOn} onToggle={()=>setSoundOn(v=>!v)}/>
@@ -2678,10 +2728,10 @@ export default function App(){
       {screen==='booster'  && <BoosterScreen onBack={()=>setScreen('menu')} user={user} ownedSkins={ownedSkins} coins={coins} onEarnCoins={earnCoins} onSellCard={sellCard} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')}/>}
       {screen==='shop'     && <ShopScreen onBack={()=>setScreen('menu')} user={user} coins={coins} ownedSkins={ownedSkins} onBuySkin={buySkin} onEarnCoins={earnCoins} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')}/>}
       {screen==='deckselect' && <DeckSelectScreen mode={pendingMode} onBack={()=>setScreen('menu')} onSelect={handleDeckChosen}/>}
-      {screen==='account'  && <AccountScreen onBack={()=>setScreen('menu')} user={user} stats={stats} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')}/>}
+      {screen==='account'  && <AccountScreen onBack={()=>setScreen('menu')} user={user} stats={stats} onProfileUpdated={refreshUser} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')}/>}
       {screen==='online'   && <OnlineLobbyScreen onBack={()=>setScreen('menu')} onGameStart={handleOnlineStart} deck={chosenDeck} ownedSkins={ownedSkins}/>}
       {screen==='loading'  && game && <LoadingScreen onDone={()=>setScreen('game')}/>}
-      {screen==='game'     && game && <GameScreen game={game} soundEnabled={soundOn} myPlayer={myPlayer} isAI={gameMode==='ai'} onAction={handleAction} onEndTurn={handleEndTurn} onHome={closeGame} onPowerAction={handlePowerAction} onSurrender={handleSurrender} lastAnim={lastAnim} syncError={roomCode?syncError:null} showTutorial={gameMode==='ai'&&showTutorial} onTutorialClose={handleTutorialClose}/>}
+      {screen==='game'     && game && <GameScreen game={game} soundEnabled={soundOn} myPlayer={myPlayer} isAI={gameMode==='ai'} onAction={handleAction} onEndTurn={handleEndTurn} onHome={closeGame} onPowerAction={handlePowerAction} onSurrender={handleSurrender} lastAnim={lastAnim} syncError={roomCode?syncError:null} showTutorial={gameMode==='ai'&&showTutorial} onTutorialClose={handleTutorialClose} pseudo={user?.displayName}/>}
       {screen==='gameover' && game && <GameOverScreen winner={game.winner} isAI={gameMode==='ai'} surrendered={!!game.surrendered} onReplay={()=>startGame(gameMode)} onMenu={()=>setScreen('menu')}/>}
     </>
   )

@@ -7,7 +7,7 @@
 import { initializeApp } from 'firebase/app'
 import { getDatabase, ref, set, get, onValue, update, remove, runTransaction, onDisconnect } from 'firebase/database'
 import {
-  getAuth, onAuthStateChanged,
+  getAuth, onAuthStateChanged, updateProfile,
   createUserWithEmailAndPassword, signInWithEmailAndPassword,
   GoogleAuthProvider, signInWithPopup, signOut,
 } from 'firebase/auth'
@@ -51,8 +51,23 @@ function authError(e) {
 
 export async function registerWithEmail(email, password) {
   if (!auth) throw authError()
-  try { return (await createUserWithEmailAndPassword(auth, email, password)).user }
+  try {
+    const user = (await createUserWithEmailAndPassword(auth, email, password)).user
+    // Default pseudo is the part of the email before "@" — the player can rename later.
+    await updateProfile(user, { displayName: email.split('@')[0] }).catch(() => {})
+    return user
+  } catch (e) { throw authError(e) }
+}
+export async function updateDisplayName(name) {
+  if (!auth?.currentUser) throw new Error('Non connecté')
+  try { await updateProfile(auth.currentUser, { displayName: name }) }
   catch (e) { throw authError(e) }
+}
+// updateProfile() mutates auth.currentUser locally but does NOT re-fire
+// onAuthStateChanged, so callers must pull a fresh snapshot to update UI state.
+export function currentUserSnapshot() {
+  const u = auth?.currentUser
+  return u ? { uid: u.uid, email: u.email, displayName: u.displayName } : null
 }
 export async function loginWithEmail(email, password) {
   if (!auth) throw authError()
