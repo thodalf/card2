@@ -9,7 +9,7 @@ import { getDatabase, ref, set, get, push, onValue, update, remove, runTransacti
 import {
   getAuth, onAuthStateChanged, updateProfile,
   createUserWithEmailAndPassword, signInWithEmailAndPassword,
-  GoogleAuthProvider, signInWithPopup, signOut,
+  GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signOut,
 } from 'firebase/auth'
 
 const firebaseConfig = {
@@ -84,10 +84,34 @@ export async function loginWithEmail(email, password) {
   try { return (await signInWithEmailAndPassword(auth, email, password)).user }
   catch (e) { throw authError(e) }
 }
+// signInWithPopup needs a real browser window to open into — it silently fails
+// (or the popup never returns) in an installed/standalone PWA, since there's no
+// window chrome for the popup to live in. Redirect works everywhere instead, at
+// the cost of a full navigation away and back, so it's only used when actually
+// running standalone.
+function isStandalonePwa() {
+  return typeof window !== 'undefined' && (
+    window.matchMedia?.('(display-mode: standalone)').matches ||
+    window.navigator.standalone === true // iOS Safari "Add to Home Screen"
+  )
+}
 export async function loginWithGoogle() {
   if (!auth) throw authError()
-  try { return (await signInWithPopup(auth, new GoogleAuthProvider())).user }
-  catch (e) { throw authError(e) }
+  const provider = new GoogleAuthProvider()
+  try {
+    if (isStandalonePwa()) {
+      await signInWithRedirect(auth, provider)
+      return null // page is navigating away — onAuthChange picks up the result after the redirect back
+    }
+    return (await signInWithPopup(auth, provider)).user
+  } catch (e) { throw authError(e) }
+}
+// Call once at startup so a redirect-based Google login (see above) that just
+// navigated back into the app surfaces its result/errors instead of failing silently.
+export async function completeRedirectLogin() {
+  if (!auth) return null
+  try { return (await getRedirectResult(auth))?.user || null }
+  catch (e) { console.warn('Redirect login failed:', e.message); return null }
 }
 export async function logout() {
   if (!auth) return

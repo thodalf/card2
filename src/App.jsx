@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Copy, Volume2, VolumeX, Home, BookOpen, Wifi, Play, Users, Check, X, Zap, Bot, Layers, Plus, Trash2, Star, UserCircle, LogIn, LogOut, Mail, Lock, RefreshCw, Swords, Gift, ArrowRightLeft, Sparkles, Store, Coins, Bell, UserPlus, Send } from 'lucide-react'
 import {
   genRoomCode, createRoom, joinRoom, pushState, subscribeRoom, removeRoom,
-  onAuthChange, registerWithEmail, loginWithEmail, loginWithGoogle, logout,
+  onAuthChange, registerWithEmail, loginWithEmail, loginWithGoogle, logout, completeRedirectLogin,
   updateDisplayName, currentUserSnapshot,
   loadCloudDecks, saveCloudDecks, subscribeStats, recordGameResult,
   joinMatchmaking, leaveMatchmaking, publishMatchResult, subscribeMatchResult, clearMatchResult,
@@ -276,6 +276,9 @@ function openBoosterPack(ownedSkins){
 const BOOSTER_COIN_MIN=10, BOOSTER_COIN_MAX=25
 const SELL_VALUE={common:5,uncommon:12,rare:30,ultra:60,legendary:100}
 const ONLINE_WIN_COIN_REWARD=20
+// Lower than the online reward — an AI match can be replayed instantly with no
+// real cost or wait, unlike finding an online opponent, so it stays a smaller trickle.
+const AI_WIN_COIN_REWARD=8
 const BOOSTER_PURCHASE_PRICE=300
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -2135,11 +2138,6 @@ function BoosterScreen({onBack,user,ownedSkins,coins,onEarnCoins,onSellCard,onSp
                 :canOpen
                   ?<p className="text-amber-300 font-bold" style={CINZEL}>Ouvrir le booster du jour</p>
                   :<p className="text-slate-400 text-sm">Prochain booster dans {formatDuration(remainingMs)}</p>}
-              {coinToast&&(
-                <p className="text-amber-300 text-sm font-bold flex items-center gap-1.5 menu-fade-up" style={CINZEL}>
-                  <Coins size={14}/> +{coinToast} pièces
-                </p>
-              )}
               <MedBtn onClick={()=>handleOpenBooster(true)} disabled={opening||coins<BOOSTER_PURCHASE_PRICE}
                 color="#f59e0b" icon={<Coins size={14}/>}>
                 Acheter un booster ({BOOSTER_PURCHASE_PRICE})
@@ -2155,6 +2153,14 @@ function BoosterScreen({onBack,user,ownedSkins,coins,onEarnCoins,onSellCard,onSp
               </div>
               {allRevealed&&<MedBtn onClick={handleCloseReveal} color="#34d399" icon={<Sparkles size={14}/>}>Continuer</MedBtn>}
             </>
+          )}
+          {/* Rendered outside both branches above — the reward is set at the same time as
+              pendingCards, so nesting this inside the `!pendingCards` block hid it for the
+              entire reveal (it used to expire before the user ever got back to that view). */}
+          {coinToast&&(
+            <p className="text-amber-300 text-sm font-bold flex items-center gap-1.5 menu-fade-up" style={CINZEL}>
+              <Coins size={14}/> +{coinToast} pièces
+            </p>
           )}
         </div>
 
@@ -2829,6 +2835,10 @@ export default function App(){
 
   // ── Account ───────────────────────────────────────────────────
   useEffect(()=>onAuthChange(setUser),[])
+  // Picks up the result of a signInWithRedirect (standalone/PWA Google login,
+  // see firebase.js) that just navigated back into the app — onAuthChange above
+  // already updates `user` once Firebase processes it, this just surfaces errors.
+  useEffect(()=>{completeRedirectLogin().catch(()=>{})},[])
   useEffect(()=>{
     if(!user){setStats(null);return}
     return subscribeStats(user.uid,setStats)
@@ -2855,10 +2865,12 @@ export default function App(){
       if(user&&game.winner!=='draw'&&(gameMode==='ai'||gameMode==='online')){
         const iWon=gameMode==='ai'?game.winner===1:game.winner===myPlayer
         recordGameResult(user.uid,iWon).catch(()=>{})
-        // Online wins carry a coin reward — AI/local practice matches don't
-        if(gameMode==='online'&&iWon){
-          earnCoins(ONLINE_WIN_COIN_REWARD)
-          setGameOverCoinsAwarded(ONLINE_WIN_COIN_REWARD)
+        // Online and AI wins carry a coin reward — local hotseat practice matches
+        // don't (no single "you" to reward when two people share the screen).
+        if(iWon){
+          const reward=gameMode==='online'?ONLINE_WIN_COIN_REWARD:AI_WIN_COIN_REWARD
+          earnCoins(reward)
+          setGameOverCoinsAwarded(reward)
         }
       }
       // Match history notification — every online game, win/loss/draw, against
