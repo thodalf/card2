@@ -88,6 +88,29 @@ function cardImageGallery(ownedSkins){
 // skin, owned or not — an opponent in online play may have skins we don't) plus the
 // board background, preloaded on the match-start loading screen.
 const ALL_MATCH_IMAGES=[...FREE_CARD_IMAGES,...SKIN_CATALOG.map(s=>`/images/card/${s.file}`),'/images/plateau.png']
+// App-boot preload set: every match image (so the first match never pops in) plus the
+// two menu background variants (landscape/portrait) and the menu music track — the
+// one audio file guaranteed to play within seconds of the app opening.
+const BOOT_IMAGES=['/images/menu.png','/images/menuvertical.png',...ALL_MATCH_IMAGES]
+const BOOT_AUDIO=['/musiques/menu.mp3']
+function preloadImage(src){
+  return new Promise(resolve=>{
+    const img=new window.Image()
+    img.onload=img.onerror=resolve
+    img.src=src
+  })
+}
+function preloadAudio(src){
+  return new Promise(resolve=>{
+    const audio=new window.Audio()
+    const done=()=>resolve()
+    audio.addEventListener('canplaythrough',done,{once:true})
+    audio.addEventListener('error',done,{once:true})
+    setTimeout(done,4000) // don't let one slow/unbuffered track stall the whole boot screen
+    audio.preload='auto'
+    audio.src=src
+  })
+}
 function genValues(total) {
   // Each value is 1–9: distribute (total - 8) extra points across 8 slots of [0, 8]
   const extra=total-8
@@ -489,7 +512,11 @@ function createDragGhost(card) {
 //  AI — pure computation functions (Player 2)
 // ═══════════════════════════════════════════════════════════════════════════════
 
-// Snapshot of the board situation from cp's perspective
+// Snapshot of the board situation from cp's perspective — also classifies how the
+// match is going (`posture`) and turns that into a single `aggression` multiplier
+// (>1 when behind, <1 when ahead) that every scoring function below leans on, so
+// the AI actually plays differently depending on whether it's winning or losing
+// instead of always following the same fixed heuristics.
 function getSituation(game,cp){
   const opp=cp===1?2:1
   const myPts=playerPts(game,cp),oppPts=playerPts(game,opp)
@@ -506,7 +533,15 @@ function getSituation(game,cp){
       if(ourFaces.some(k=>card.values[k]<=1)){cardsInDanger++;break}
     }
   }
-  return{myPts,oppPts,ptDelta:myPts-oppPts,myCards,oppCards,cardDelta:myCards-oppCards,cardsInDanger}
+  const ptDelta=myPts-oppPts,cardDelta=myCards-oppCards
+  // Cards on board/hand decide the match (hitting zero is an instant loss), so they
+  // dominate the advantage read; points and immediate board threats refine it.
+  const advantage=cardDelta*30+ptDelta*0.8-cardsInDanger*12
+  const posture=advantage<=-25?'losing':advantage>=25?'winning':'even'
+  // Smooth multiplier (not just 3 buckets) so borderline situations don't cause an
+  // abrupt behavior flip: ~1.6 when badly behind, ~1.0 when even, ~0.6 when well ahead.
+  const aggression=Math.min(1.6,Math.max(0.6,1-advantage/80))
+  return{myPts,oppPts,ptDelta,myCards,oppCards,cardDelta,cardsInDanger,advantage,posture,aggression}
 }
 
 // Returns {dangerScore, killScore} of a potential attack without committing
@@ -520,6 +555,7 @@ function analyzeAttack(game,ar,ac,dr,dc){
 
 function scoreAttack(game,ar,ac,dr,dc,sit){
   const{aDies,dDies,ak,dk,atk,def}=analyzeAttack(game,ar,ac,dr,dc)
+  const aggr=sit?.aggression??1
 
   // Hard rules — never suicide for nothing
   if(aDies&&!dDies) return -99999
@@ -528,8 +564,8 @@ function scoreAttack(game,ar,ac,dr,dc,sit){
     const stillValuable=cardPts(atk)>20               // our card still carries a lot of points
     if(!stillValuable) return 200+def.total*2         // take the kill even though we lose our card
     const gain=def.total-atk.total
-    if(gain<10) return -99999                         // don't sacrifice a valuable card for a bad trade
-    return gain*3                                     // only if clearly outvalued
+    if(gain<10/aggr) return -99999                    // behind: accept a worse trade to try to swing the match
+    return gain*3
   }
 
   let s=0
@@ -538,29 +574,30 @@ function scoreAttack(game,ar,ac,dr,dc,sit){
     if(cardTier(def)==='strong')s+=200  // huge bonus: killing a strong card is always worth it
     if((sit?.oppCards??9)<=2)s+=100
   } else {
-    // Reward hitting low-value faces — brings them closer to death
+    // Reward hitting low-value faces — brings them closer to death. Scaled by
+    // aggression: chipping away matters more when behind and needs to matter less
+    // when a lead just needs protecting.
     dk.forEach(k=>{
       const v=def.values[k]
-      if(v===1)s+=95   // → 0 next attack kills
-      else if(v===2)s+=50
-      else if(v===3)s+=20
-      else if(v<=5)s+=7
+      if(v===1)s+=95*aggr   // → 0 next attack kills
+      else if(v===2)s+=50*aggr
+      else if(v===3)s+=20*aggr
+      else if(v<=5)s+=7*aggr
     })
   }
-  // Penalise risk to attacker's own faces (slightly relaxed)
+  // Penalise risk to attacker's own faces — divided by aggression so a losing AI
+  // (aggr>1) discounts the risk and a winning one (aggr<1) is extra cautious.
   ak.forEach(k=>{
     const v=atk.values[k]
-    if(v===1)s-=45   // face becomes 0 = vulnerable next turn
-    else if(v===2)s-=18
-    else if(v===3)s-=6
+    if(v===1)s-=45/aggr   // face becomes 0 = vulnerable next turn
+    else if(v===2)s-=18/aggr
+    else if(v===3)s-=6/aggr
   })
-  // Slight aggression bonus when losing on points
-  if((sit?.ptDelta??0)<-20)s+=18
   return s
 }
 
 function findBestAttack(game,cp,sit){
-  let best=null,bestS=-25  // allow moderately risky non-lethal attacks
+  let best=null,bestS=-25*(sit?.aggression??1)  // behind: tolerate riskier attacks; ahead: only the clean ones
   for(let ar=0;ar<5;ar++)for(let ac=0;ac<5;ac++){
     if(!game.board[ar][ac]||game.board[ar][ac].owner!==cp)continue
     for(const[ddr,ddc]of[[-1,0],[1,0],[0,-1],[0,1]]){
@@ -587,12 +624,15 @@ function wouldBePlacedInDanger(game,card,r,c){
 }
 
 function scorePlacement(game,card,r,c,sit){
+  const aggr=sit?.aggression??1
   let s=0
-  // Row 3 = attack row, row 4 = safe back row
-  s+=r===3?20:0
+  // Row 3 = attack row, row 4 = safe back row — the pull toward the front line
+  // scales with aggression, same idea as the attack-row bonus below.
+  s+=(r===3?20:0)*aggr
   // Center columns are more flexible
   s+=(2-Math.abs(c-2))*4
-  // Hard penalty: don't place where opponent can instantly destroy a face
+  // Hard penalty: don't place where opponent can instantly destroy a face — this
+  // stays fixed regardless of posture, a free kill never helps either way.
   if(wouldBePlacedInDanger(game,card,r,c))s-=150
   // Evaluate attack opportunity from this cell
   for(const[dr,dc]of[[-1,0],[1,0],[0,-1],[0,1]]){
@@ -602,21 +642,19 @@ function scorePlacement(game,card,r,c,sit){
     const[ourAtkFaces,theirFaces]=getContactKeys(r,c,nr,nc)
     theirFaces.forEach(k=>{
       const v=nb.values[k]
-      if(v===0)s+=80
-      else if(v===1)s+=40
-      else if(v<=2)s+=15
+      if(v===0)s+=80*aggr
+      else if(v===1)s+=40*aggr
+      else if(v<=2)s+=15*aggr
     })
     // But also penalise risky exposure (less severe than instant death)
     const[_,ourExp]=getContactKeys(nr,nc,r,c)
     ourExp.forEach(k=>{
       const v=card.values[k]
-      if(v===1)s-=30
-      else if(v===2)s-=10
+      if(v===1)s-=30/aggr
+      else if(v===2)s-=10/aggr
     })
   }
   s+=card.total*0.4
-  // More aggressive when losing
-  if((sit?.ptDelta??0)<-30&&r===3)s+=25
   return s
 }
 
@@ -633,7 +671,8 @@ function findBestPlacement(game,cp,sit){
   return best
 }
 
-function scoreMove(game,fr,fc,tr,tc,card,cp){
+function scoreMove(game,fr,fc,tr,tc,card,cp,sit){
+  const aggr=sit?.aggression??1
   let dangerBefore=0,dangerAfter=0,atkAfter=0
   // Danger at current position
   for(const[dr,dc]of[[-1,0],[1,0],[0,-1],[0,1]]){
@@ -652,15 +691,18 @@ function scoreMove(game,fr,fc,tr,tc,card,cp){
     const[__,theirFaces]=getContactKeys(tr,tc,nr,nc)
     theirFaces.forEach(k=>{const v=nb.values[k];if(v===0)atkAfter+=130;else if(v===1)atkAfter+=70;else if(v===2)atkAfter+=35;else if(v<=4)atkAfter+=12})
   }
-  let s=dangerBefore-dangerAfter       // reward escaping danger
-  s+=atkAfter*0.5                      // bonus for reaching attack position
-  if(tr<fr)s+=8                        // slight bias toward advancing
+  // Escaping existing danger is always rewarded; remaining/new danger at the
+  // destination is discounted when behind (aggr>1) and weighted extra when
+  // comfortably ahead (aggr<1) — same reward/risk split as scoreAttack.
+  let s=dangerBefore-dangerAfter/aggr
+  s+=atkAfter*0.5*aggr                 // bonus for reaching attack position, bigger when behind
+  if(tr<fr)s+=8*aggr                   // bias toward advancing grows when behind
   s-=5                                 // baseline cost so AI only moves for a reason
   return s
 }
 
-function findBestMove(game,cp){
-  let best=null,bestS=-8  // move if marginally beneficial or to escape danger
+function findBestMove(game,cp,sit){
+  let best=null,bestS=-8*(sit?.aggression??1)  // move if marginally beneficial or to escape danger
   for(let fr=0;fr<5;fr++)for(let fc=0;fc<5;fc++){
     const card=game.board[fr][fc];if(!card||card.owner!==cp)continue
     for(let dr=-1;dr<=1;dr++)for(let dc=-1;dc<=1;dc++){
@@ -668,7 +710,7 @@ function findBestMove(game,cp){
       const tr=fr+dr,tc=fc+dc
       if(tr<0||tr>=5||tc<0||tc>=5)continue
       if(isCellBlocked(game,tr,tc)||game.board[tr][tc])continue
-      const s=scoreMove(game,fr,fc,tr,tc,card,cp)
+      const s=scoreMove(game,fr,fc,tr,tc,card,cp,sit)
       if(s>bestS){bestS=s;best={fr,fc,tr,tc}}
     }
   }
@@ -687,8 +729,23 @@ function cardDangerScore(game,r,c,cp){
   }
   return d
 }
+// How valuable would an empty cell be to the OPPONENT — used to pick which cell
+// a Barrage (block) most usefully denies, instead of a fixed column order.
+function cellDenialValue(game,cp,r,c){
+  let s=(2-Math.abs(c-2))*4  // central columns are generically more flexible
+  for(const[dr,dc]of[[-1,0],[1,0],[0,-1],[0,1]]){
+    const nr=r+dr,nc=c+dc;if(nr<0||nr>=5||nc<0||nc>=5)continue
+    const nb=game.board[nr][nc];if(!nb||nb.owner!==cp)continue  // adjacent ally of ours
+    // A card placed here could attack this ally of ours next turn — the weaker
+    // the exposed face, the more this cell is worth denying.
+    const[_,ourFaces]=getContactKeys(r,c,nr,nc)
+    ourFaces.forEach(k=>{const v=nb.values[k];if(v===0)s+=80;else if(v===1)s+=40;else if(v<=2)s+=15})
+  }
+  return s
+}
 
 function computePowerTarget(game,cp,type,sit){
+  const aggr=sit?.aggression??1
   if(type==='buff'){
     let best=null,bestS=-Infinity
     for(let r=0;r<5;r++)for(let c=0;c<5;c++){
@@ -697,17 +754,18 @@ function computePowerTarget(game,cp,type,sit){
       const lost=Object.entries(card.values).reduce((sum,[k,v])=>sum+((card.baseValues?.[k]??v)-v),0)
       const danger=cardDangerScore(game,r,c,cp)
       const s=lost*15+danger*0.8+card.total*0.3
-      if(s>10&&s>bestS){bestS=s;best={r,c}}
+      if(s>10/aggr&&s>bestS){bestS=s;best={r,c}}  // behind: a smaller buff is still worth spending on
     }
     return best?{type:'power',powerType:'buff',...best}:null
   }
   if(type==='recall'){
-    // Only recall a card that is genuinely in mortal danger
+    // Only recall a card that is genuinely in danger — the bar for "endangered
+    // enough" drops when behind, since every remaining card matters more.
     let best=null,bestS=-Infinity
     for(let r=0;r<5;r++)for(let c=0;c<5;c++){
       if(!isValidPowerTarget(game,'recall',cp,r,c))continue
       const d=cardDangerScore(game,r,c,cp)
-      if(d<50)continue   // not endangered enough
+      if(d<50/aggr)continue
       const card=game.board[r][c]
       const s=d+card.total
       if(s>bestS){bestS=s;best={r,c}}
@@ -743,16 +801,26 @@ function computePowerTarget(game,cp,type,sit){
       }
       if(s>bestS){bestS=s;best={r,c}}
     }
-    return best&&bestS>25?{type:'power',powerType:'switch',...best}:null
+    // Only one Rotation for the whole match — behind, a decent rotation is worth
+    // gambling on; ahead, hold out for a clearly excellent one.
+    return best&&bestS>25/aggr?{type:'power',powerType:'switch',...best}:null
   }
   if(type==='block'){
     // Only block once enemy has deployed — no point blocking an empty board
     const enemyDeployed=game.board.some(row=>row.some(c=>c&&c.owner!==cp))
     if(!enemyDeployed)return null
-    for(const c of[2,1,3,0,4])for(const r of P1_ROWS)
-      if(isValidPowerTarget(game,'block',cp,r,c))
-        return{type:'power',powerType:'block',r,c}
-    return null
+    const opp=cp===1?2:1,oppRows=opp===1?P1_ROWS:P2_ROWS
+    let best=null,bestS=-Infinity
+    for(const r of oppRows)for(let c=0;c<5;c++){
+      if(!isValidPowerTarget(game,'block',cp,r,c))continue
+      const s=cellDenialValue(game,cp,r,c)
+      if(s>bestS){bestS=s;best={r,c}}
+    }
+    // Barrage is a purely defensive denial tool, not a direct path back into the
+    // match — unlike every other power/action above, being behind RAISES the bar
+    // (spend actions clawing back the game instead) while a comfortable lead
+    // lowers it (freely lock in the advantage).
+    return best&&bestS>20*aggr?{type:'power',powerType:'block',...best}:null
   }
   return null
 }
@@ -773,7 +841,7 @@ function computeAIAction(game){
         const tr=fr+dr,tc=fc+dc
         if(tr<0||tr>=5||tc<0||tc>=5)continue
         if(isCellBlocked(game,tr,tc)||game.board[tr][tc])continue
-        const s=d+scoreMove(game,fr,fc,tr,tc,card,cp)
+        const s=d+scoreMove(game,fr,fc,tr,tc,card,cp,sit)
         if(s>bestFleeS){bestFleeS=s;bestFlee={fr,fc,tr,tc}}
       }
     }
@@ -796,9 +864,14 @@ function computeAIAction(game){
     }
   }
 
-  // Power cards
+  // Power cards — which one to even consider first shifts with the match state:
+  // behind, preserving cards (recall) and setting up a swing (switch) come
+  // first; ahead, consolidating the lead (block, buff) takes priority instead.
   if(powerCards.length>0){
-    for(const type of['recall','buff','switch','block']){
+    const order=sit.posture==='losing'?['recall','switch','buff','block']
+      :sit.posture==='winning'?['block','buff','recall','switch']
+      :['recall','buff','switch','block']
+    for(const type of order){
       if(!powerCards.includes(type))continue
       const pa=computePowerTarget(game,cp,type,sit)
       if(pa)return pa
@@ -831,7 +904,7 @@ function computeAIAction(game){
 
   // Move to better position
   if(al.moves>0){
-    const m=findBestMove(game,cp)
+    const m=findBestMove(game,cp,sit)
     if(m)return{type:'move',...m}
   }
 
@@ -1047,23 +1120,21 @@ function PowerBar({game,isMyTurn,targeting,onActivatePower,onCancelTargeting,com
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-//  LOADING SCREEN — preloads match assets (card portraits, board, audio) before
-//  GameScreen mounts, so nothing pops in mid-battle. Shown between choosing a
-//  match and actually playing it.
+//  LOADING SCREEN — preloads a set of images/audio before revealing the next
+//  screen, so nothing pops in or plays silently-late. Used both for the
+//  app-boot preload (menu backgrounds + menu music) and the per-match one
+//  (card portraits, board) shown between choosing a match and playing it.
 // ═══════════════════════════════════════════════════════════════════════════════
-function LoadingScreen({onDone}){
+function LoadingScreen({onDone,images=ALL_MATCH_IMAGES,audio=[],title='Préparation du combat…',minDelayMs=1300}){
   const[progress,setProgress]=useState(0)
   useEffect(()=>{
     let cancelled=false,loaded=0
-    const total=ALL_MATCH_IMAGES.length
-    const preloadImage=src=>new Promise(resolve=>{
-      const img=new window.Image()
-      img.onload=img.onerror=()=>{loaded++;if(!cancelled)setProgress(Math.round(loaded/total*100));resolve()}
-      img.src=src
-    })
+    const total=images.length+audio.length
+    const bump=()=>{loaded++;if(!cancelled)setProgress(total?Math.round(loaded/total*100):100)}
     try{getCtx()}catch(e){} // warm up the WebAudio context so the first SFX isn't delayed
-    const minDelay=new Promise(resolve=>setTimeout(resolve,1300))
-    Promise.all([Promise.all(ALL_MATCH_IMAGES.map(preloadImage)),minDelay]).then(()=>{if(!cancelled)onDone()})
+    const minDelay=new Promise(resolve=>setTimeout(resolve,minDelayMs))
+    const tasks=[...images.map(src=>preloadImage(src).then(bump)),...audio.map(src=>preloadAudio(src).then(bump))]
+    Promise.all([Promise.all(tasks),minDelay]).then(()=>{if(!cancelled)onDone()})
     return()=>{cancelled=true}
   },[])
   return(
@@ -1075,7 +1146,7 @@ function LoadingScreen({onDone}){
           style={{...CINZEL_DEC,
             background:'linear-gradient(115deg,#7a5c0a 0%,#ffe566 20%,#fff8dc 32%,#ffe566 44%,#c9a020 60%,#7a5c0a 100%)',
             backgroundSize:'250% auto',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent'}}>
-          Préparation du combat…
+          {title}
         </h2>
         <p className="text-slate-300 text-xs text-center" style={CINZEL}>Chargement des images et des sons</p>
         <div className="w-64 max-w-[60vw] h-2.5 rounded-full bg-black/50 border border-amber-900/40 overflow-hidden">
@@ -2673,6 +2744,7 @@ function SoundToggle({enabled,onToggle,volume,onVolumeChange}){
 //  MAIN APP
 // ═══════════════════════════════════════════════════════════════════════════════
 export default function App(){
+  const[booted,setBooted]=useState(false)
   const[screen,setScreen]=useState('menu')
   const[game,setGame]=useState(null)
   const[soundOn,setSoundOn]=useState(loadSoundPref)
@@ -2948,6 +3020,11 @@ export default function App(){
   function startGame(mode,deck=chosenDeck){
     if(aiTimerRef.current){clearTimeout(aiTimerRef.current);aiTimerRef.current=null}
     const p1Deck=deck,p2Deck=mode==='local'?deck:null
+    // Clear any leftover animation from a PREVIOUS match — otherwise a match that
+    // ended on a kill (e.g. two cards dying at once) replays that same explosion
+    // on the fresh board the instant the new GameScreen mounts, before anyone
+    // has acted.
+    setLastAnim(null)
     setGameMode(mode);setRoomCode(null);setMyPlayer(mode==='ai'?1:null);setGame(newGame(p1Deck,p2Deck,ownedSkins));setScreen('loading')
     if(mode==='ai'&&!loadTutorialSeen())setShowTutorial(true)
   }
@@ -2983,6 +3060,7 @@ export default function App(){
   }
 
   function handleOnlineStart(state,code,player,opponent){
+    setLastAnim(null) // don't replay the previous match's death animation on the new board
     setGameMode('online');setRoomCode(code);setMyPlayer(player);setGame(state);setScreen('loading');setSyncError(null)
     setPendingChallenge(null);setPendingJoinCode(null)
     opponentRef.current=opponent||null
@@ -3016,6 +3094,10 @@ export default function App(){
     const u=currentUserSnapshot()
     if(u)setUser(u)
   }
+
+  // App-boot preload — menu backgrounds, every match image and the menu track,
+  // so the very first screen never pops in silently/blank.
+  if(!booted)return <LoadingScreen onDone={()=>setBooted(true)} images={BOOT_IMAGES} audio={BOOT_AUDIO} title="Chargement de Charta Logica…" minDelayMs={800}/>
 
   return(
     <>
