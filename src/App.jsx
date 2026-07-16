@@ -339,6 +339,13 @@ const cardPts  = c => Object.values(c.values).reduce((a,b)=>a+b,0)
 const cardTier = c => c.total<=20?'weak':c.total<=28?'medium':'strong'
 function playerPts(game,p){let pts=game.players[p].hand?.reduce((a,c)=>a+cardPts(c),0);for(const row of game.board)for(const cell of row)if(cell?.owner===p)pts+=cardPts(cell);return pts}
 function cardCount(game,p){let n=game.players[p].hand?.length;for(const row of game.board)for(const cell of row)if(cell?.owner===p)n++;return n}
+// Down to a single card, moving it back to where it just came from is a no-op
+// that both players (and the AI) could otherwise repeat forever — block it so
+// a last-card standoff can't stall the match. With 2+ cards, backtracking is
+// still a legitimate tactic (regroup, retreat, feint), so it's left alone.
+function isBannedLastCardBacktrack(game,cp,card,tr,tc){
+  return cardCount(game,cp)===1&&card.prevPos&&card.prevPos.r===tr&&card.prevPos.c===tc
+}
 function checkWin(game){
   const p1Empty=cardCount(game,1)===0, p2Empty=cardCount(game,2)===0
   // An attack that kills both the attacker and defender can empty both sides at once
@@ -713,6 +720,7 @@ function findBestMove(game,cp,sit){
       const tr=fr+dr,tc=fc+dc
       if(tr<0||tr>=5||tc<0||tc>=5)continue
       if(isCellBlocked(game,tr,tc)||game.board[tr][tc])continue
+      if(isBannedLastCardBacktrack(game,cp,card,tr,tc))continue  // would just undo the last move with nothing else to do
       const s=scoreMove(game,fr,fc,tr,tc,card,cp,sit)
       if(s>bestS){bestS=s;best={fr,fc,tr,tc}}
     }
@@ -844,6 +852,7 @@ function computeAIAction(game){
         const tr=fr+dr,tc=fc+dc
         if(tr<0||tr>=5||tc<0||tc>=5)continue
         if(isCellBlocked(game,tr,tc)||game.board[tr][tc])continue
+        if(isBannedLastCardBacktrack(game,cp,card,tr,tc))continue
         const s=d+scoreMove(game,fr,fc,tr,tc,card,cp,sit)
         if(s>bestFleeS){bestFleeS=s;bestFlee={fr,fc,tr,tc}}
       }
@@ -924,6 +933,7 @@ function computeAIAction(game){
       for(const[ddr,ddc]of[[-1,0],[0,-1],[0,1],[1,0]]){
         const tr=fr+ddr,tc=fc+ddc
         if(tr<0||tr>=5||tc<0||tc>=5)continue
+        if(isBannedLastCardBacktrack(game,cp,card,tr,tc))continue
         if(!isCellBlocked(game,tr,tc)&&!game.board[tr][tc])return{type:'move',fr,fc,tr,tc}
       }
     }
@@ -966,7 +976,8 @@ function applyAIActionDirect(g,action){
       const{fr,fc,tr,tc}=action
       if(al.moves<=0||isCellBlocked(g,tr,tc)||!isAdjacent(fr,fc,tr,tc)||g.board[tr][tc])return null
       const card=g.board[fr][fc];if(!card||card.owner!==cp)return null
-      const nb=g.board.map(row=>[...row]);nb[tr][tc]=card;nb[fr][fc]=null
+      if(isBannedLastCardBacktrack(g,cp,card,tr,tc))return null
+      const nb=g.board.map(row=>[...row]);nb[tr][tc]={...card,prevPos:{r:fr,c:fc}};nb[fr][fc]=null
       return{...g,board:nb,actionsLeft:{...al,moves:al.moves-1}}
     }
     default:return null
@@ -2984,7 +2995,8 @@ export default function App(){
         ]
       }else{
         if(al.moves<=0||isCellBlocked(g,targetR,targetC)||!isAdjacent(fr,fc,targetR,targetC))return
-        const nb=g.board.map(r=>[...r]);nb[targetR][targetC]=moving;nb[fr][fc]=null
+        if(isBannedLastCardBacktrack(g,cp,moving,targetR,targetC))return
+        const nb=g.board.map(r=>[...r]);nb[targetR][targetC]={...moving,prevPos:{r:fr,c:fc}};nb[fr][fc]=null
         g={...g,board:nb,actionsLeft:{...al,moves:al.moves-1}};sfx='move';snd(sfx,soundOn);cells=[{r:targetR,c:targetC,ghost:null,anim:'anim-move',dur:220}]
       }
     }
