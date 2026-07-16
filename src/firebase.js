@@ -5,7 +5,7 @@
 // "Email/Password" and "Google" sign-in providers.
 
 import { initializeApp } from 'firebase/app'
-import { getDatabase, ref, set, get, onValue, update, remove, runTransaction, onDisconnect } from 'firebase/database'
+import { getDatabase, ref, set, get, push, onValue, update, remove, runTransaction, onDisconnect, query, orderByChild, limitToLast } from 'firebase/database'
 import {
   getAuth, onAuthStateChanged, updateProfile,
   createUserWithEmailAndPassword, signInWithEmailAndPassword,
@@ -53,8 +53,18 @@ export async function registerWithEmail(email, password) {
   if (!auth) throw authError()
   try {
     const user = (await createUserWithEmailAndPassword(auth, email, password)).user
-    // Default pseudo is the part of the email before "@" — the player can rename later.
-    await updateProfile(user, { displayName: email.split('@')[0] }).catch(() => {})
+    // Default pseudo is the part of the email before "@" — the player can rename
+    // later. A common prefix (e.g. "john") may already be claimed by someone
+    // else, so fall back to a random-suffixed variant rather than ever blocking
+    // registration on a name collision.
+    const base = email.split('@')[0]
+    let pseudo = base
+    try { await claimUsername(user.uid, base) }
+    catch {
+      pseudo = `${base}${Math.floor(1000 + Math.random() * 9000)}`
+      await claimUsername(user.uid, pseudo).catch(() => {})
+    }
+    await updateProfile(user, { displayName: pseudo }).catch(() => {})
     return user
   } catch (e) { throw authError(e) }
 }
@@ -204,22 +214,29 @@ function deserializeState(raw) {
   return { ...raw, board: deserializeBoard(raw.board), players: deserializePlayers(raw.players) }
 }
 
-export async function createRoom(code, state) {
+// hostUid/guestUid (+ pseudo) are optional (anonymous online play is still
+// allowed) — when present they let match-end notifications and friend
+// challenges identify who actually played, without changing anything for
+// logged-out participants.
+export async function createRoom(code, state, hostUid, hostPseudo) {
   if (!db) throw new Error('Firebase not configured')
   await set(ref(db, `rooms/${code}`), {
     state: serializeState(state),
     player2Joined: false,
     createdAt: Date.now(),
+    ...(hostUid ? { hostUid, hostPseudo: hostPseudo || null } : {}),
   })
 }
 
-export async function joinRoom(code) {
+// Returns { state, hostUid, hostPseudo } (not just the game state) so the
+// joiner immediately knows who they're playing, without a second round-trip.
+export async function joinRoom(code, guestUid, guestPseudo) {
   if (!db) throw new Error('Firebase not configured')
   const snap = await get(ref(db, `rooms/${code}`))
   if (!snap.exists()) return null
   const data = snap.val()
-  await update(ref(db, `rooms/${code}`), { player2Joined: true })
-  return deserializeState(data.state)
+  await update(ref(db, `rooms/${code}`), { player2Joined: true, ...(guestUid ? { guestUid, guestPseudo: guestPseudo || null } : {}) })
+  return { state: deserializeState(data.state), hostUid: data.hostUid || null, hostPseudo: data.hostPseudo || null }
 }
 
 export async function pushState(code, state) {
@@ -291,4 +308,140 @@ export function subscribeMatchResult(myId, callback) {
 export async function clearMatchResult(myId) {
   if (!db) return
   await remove(ref(db, mmResultPath(myId)))
+}
+
+// ─── Usernames — case-insensitive uniqueness index ─────────────
+// `usernames/{normalized}: uid` is the source of truth for "is this pseudo
+// taken", since Firebase Auth's displayName has no uniqueness constraint and
+// can't be queried by value. `users/{uid}/pseudo` mirrors the *display* form
+// (original casing) so other players can show it — Auth profiles of OTHER
+// users are never readable client-side, only your own.
+export function normalizePseudo(pseudo) {
+  return (pseudo || '').trim().toLowerCase()
+}
+
+// Claims `pseudo` for `uid`, atomically releasing whatever pseudo `uid` held
+// before. Fails if the normalized name is already claimed by a different uid.
+export async function claimUsername(uid, pseudo) {
+  if (!db) throw new Error('Firebase not configured')
+  const trimmed = (pseudo || '').trim()
+  const normalized = normalizePseudo(trimmed)
+  if (!normalized) throw new Error('Pseudo invalide.')
+  const slotRef = ref(db, `usernames/${normalized}`)
+  const result = await runTransaction(slotRef, current => {
+    if (current && current !== uid) return // abort — taken by someone else
+    return uid
+  })
+  if (!result.committed) throw new Error('Ce pseudo est déjà pris.')
+  const prevSnap = await get(ref(db, `users/${uid}/pseudoNormalized`))
+  const prevNormalized = prevSnap.exists() ? prevSnap.val() : null
+  if (prevNormalized && prevNormalized !== normalized) {
+    // Best-effort release of the old slot — only if it's still ours (guards
+    // against a rare race with a concurrent rename on another device).
+    await runTransaction(ref(db, `usernames/${prevNormalized}`), current => (current === uid ? null : current))
+  }
+  await set(ref(db, `users/${uid}/pseudo`), trimmed)
+  await set(ref(db, `users/${uid}/pseudoNormalized`), normalized)
+  return trimmed
+}
+
+export async function getUidByPseudo(pseudo) {
+  if (!db) return null
+  const snap = await get(ref(db, `usernames/${normalizePseudo(pseudo)}`))
+  return snap.exists() ? snap.val() : null
+}
+
+// ─── Friends ─────────────────────────────────────────────────────
+// `friends/{uid}/{friendUid}: {pseudo, since}` — bidirectional, one entry
+// written to each side when a request is accepted. The friend's pseudo is
+// denormalized here (can't read another user's live profile on demand) —
+// it can go stale if they rename, which is an acceptable tradeoff for
+// avoiding a lookup per friend on every render.
+// `friendRequests/{uid}/{fromUid}: {fromPseudo, at}` — pending incoming
+// requests mailbox, same one-user-writes-into-another's-path pattern
+// already used by the matchmaking mailbox above.
+export async function sendFriendRequest(fromUid, fromPseudo, toPseudo) {
+  if (!db) throw new Error('Firebase not configured')
+  const toUid = await getUidByPseudo(toPseudo)
+  if (!toUid) throw new Error('Aucun joueur avec ce pseudo.')
+  if (toUid === fromUid) throw new Error('Vous ne pouvez pas vous ajouter vous-même.')
+  const [alreadyFriends, alreadyRequested] = await Promise.all([
+    get(ref(db, `friends/${fromUid}/${toUid}`)),
+    get(ref(db, `friendRequests/${toUid}/${fromUid}`)),
+  ])
+  if (alreadyFriends.exists()) throw new Error('Déjà dans vos amis.')
+  if (alreadyRequested.exists()) throw new Error('Demande déjà envoyée.')
+  await set(ref(db, `friendRequests/${toUid}/${fromUid}`), { fromPseudo, at: Date.now() })
+  await pushNotification(toUid, { type: 'friend_request', fromUid, fromPseudo })
+  return toUid
+}
+
+export async function respondFriendRequest(myUid, myPseudo, fromUid, fromPseudo, accept) {
+  if (!db) return
+  await remove(ref(db, `friendRequests/${myUid}/${fromUid}`))
+  if (!accept) return
+  const now = Date.now()
+  await Promise.all([
+    set(ref(db, `friends/${myUid}/${fromUid}`), { pseudo: fromPseudo, since: now }),
+    set(ref(db, `friends/${fromUid}/${myUid}`), { pseudo: myPseudo, since: now }),
+  ])
+  await pushNotification(fromUid, { type: 'friend_accept', byUid: myUid, byPseudo: myPseudo })
+}
+
+export function subscribeFriends(uid, callback) {
+  if (!db) { callback([]); return () => {} }
+  return onValue(ref(db, `friends/${uid}`), snap => {
+    const v = snap.val() || {}
+    callback(Object.entries(v).map(([friendUid, f]) => ({ uid: friendUid, pseudo: f.pseudo, since: f.since })))
+  })
+}
+
+export function subscribeFriendRequests(uid, callback) {
+  if (!db) { callback([]); return () => {} }
+  return onValue(ref(db, `friendRequests/${uid}`), snap => {
+    const v = snap.val() || {}
+    callback(Object.entries(v).map(([fromUid, r]) => ({ fromUid, fromPseudo: r.fromPseudo, at: r.at })))
+  })
+}
+
+// ─── Notifications ───────────────────────────────────────────────
+// `notifications/{uid}/{pushId}: {type, at, read, ...payload}`. Types:
+// 'friend_request', 'friend_accept', 'challenge', 'match_result'. Capped to
+// the most recent 50 per user on write — RTDB has no server-side cron here,
+// so pruning has to happen opportunistically from a client that's already
+// writing to the list.
+const NOTIFICATIONS_CAP = 50
+
+export async function pushNotification(uid, payload) {
+  if (!db) return
+  const listRef = ref(db, `notifications/${uid}`)
+  await push(listRef, { ...payload, at: Date.now(), read: false })
+  const snap = await get(query(listRef, orderByChild('at'), limitToLast(NOTIFICATIONS_CAP + 1)))
+  const entries = snap.val()
+  if (entries && Object.keys(entries).length > NOTIFICATIONS_CAP) {
+    const oldestId = Object.entries(entries).sort((a, b) => (a[1].at || 0) - (b[1].at || 0))[0][0]
+    await remove(ref(db, `notifications/${uid}/${oldestId}`)).catch(() => {})
+  }
+}
+
+export function subscribeNotifications(uid, callback) {
+  if (!db) { callback([]); return () => {} }
+  const listRef = query(ref(db, `notifications/${uid}`), orderByChild('at'), limitToLast(NOTIFICATIONS_CAP))
+  return onValue(listRef, snap => {
+    const v = snap.val() || {}
+    const list = Object.entries(v).map(([id, n]) => ({ id, ...n })).sort((a, b) => (b.at || 0) - (a.at || 0))
+    callback(list)
+  })
+}
+
+export async function markNotificationRead(uid, notifId) {
+  if (!db) return
+  await update(ref(db, `notifications/${uid}/${notifId}`), { read: true })
+}
+
+export async function markAllNotificationsRead(uid, ids) {
+  if (!db || !ids?.length) return
+  const updates = {}
+  ids.forEach(id => { updates[`notifications/${uid}/${id}/read`] = true })
+  await update(ref(db), updates)
 }

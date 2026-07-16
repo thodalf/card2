@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Copy, Volume2, VolumeX, Home, BookOpen, Wifi, Play, Users, Check, X, Zap, Bot, Layers, Plus, Trash2, Star, UserCircle, LogIn, LogOut, Mail, Lock, RefreshCw, Swords, Gift, ArrowRightLeft, Sparkles, Store, Coins } from 'lucide-react'
+import { Copy, Volume2, VolumeX, Home, BookOpen, Wifi, Play, Users, Check, X, Zap, Bot, Layers, Plus, Trash2, Star, UserCircle, LogIn, LogOut, Mail, Lock, RefreshCw, Swords, Gift, ArrowRightLeft, Sparkles, Store, Coins, Bell, UserPlus, Send } from 'lucide-react'
 import {
   genRoomCode, createRoom, joinRoom, pushState, subscribeRoom, removeRoom,
   onAuthChange, registerWithEmail, loginWithEmail, loginWithGoogle, logout,
@@ -8,6 +8,9 @@ import {
   joinMatchmaking, leaveMatchmaking, publishMatchResult, subscribeMatchResult, clearMatchResult,
   loadCloudCollection, saveCloudCollection, loadCloudLastBooster, saveCloudLastBooster,
   loadCloudEconomy, saveCloudEconomy, loadCloudDeletedIds, saveCloudDeletedIds,
+  claimUsername, getUidByPseudo, sendFriendRequest, respondFriendRequest,
+  subscribeFriends, subscribeFriendRequests,
+  pushNotification, subscribeNotifications, markNotificationRead, markAllNotificationsRead,
 } from './firebase.js'
 
 // Nukes any service-worker cache so a stale PWA build can't keep serving old code
@@ -140,6 +143,14 @@ function loadSoundPref(){
 }
 function saveSoundPref(on){
   try{localStorage.setItem(SOUND_PREF_KEY,on?'1':'0')}catch{}
+}
+
+const MUSIC_VOLUME_PREF_KEY='tacticalcards_music_volume'
+function loadMusicVolumePref(){
+  try{const v=parseFloat(localStorage.getItem(MUSIC_VOLUME_PREF_KEY));return Number.isFinite(v)?Math.min(1,Math.max(0,v)):0.5}catch{return 0.5}
+}
+function saveMusicVolumePref(v){
+  try{localStorage.setItem(MUSIC_VOLUME_PREF_KEY,String(v))}catch{}
 }
 
 const TUTORIAL_SEEN_KEY='tacticalcards_tutorial_seen'
@@ -358,7 +369,13 @@ function snd(type,enabled){
 let _audio = null
 let _gameTrackIdx = 0
 let _currentMode = null
-const GAME_TRACKS = ['/musiques/music1.mp3', '/musiques/music2.mp3', '/musiques/music3.mp3', '/musiques/music4.mp3', '/musiques/music5.mp3', '/musiques/music6.mp3']
+let _musicVolume = loadMusicVolumePref()
+function setMusicVolume(v) {
+  _musicVolume = Math.min(1, Math.max(0, v))
+  saveMusicVolumePref(_musicVolume)
+  if (_audio) _audio.volume = _musicVolume
+}
+const GAME_TRACKS = ['/musiques/music1.mp3', '/musiques/music2.mp3', '/musiques/music3.mp3', '/musiques/music4.mp3', '/musiques/music5.mp3', '/musiques/music6.mp3', '/musiques/music7.mp3']
 
 // Random pick that avoids repeating the track that just ended
 function _randomTrackIdx(excludeIdx) {
@@ -381,7 +398,7 @@ function startMusic(enabled, isMenu = false, outcome = null) {
   stopMusic()
   _currentMode = mode
   _audio = new Audio()
-  _audio.volume = 0.5
+  _audio.volume = _musicVolume
   if (outcome) {
     // One-shot victory/defeat stinger — doesn't loop, doesn't fall back to game tracks
     _audio.src = outcome === 'victory' ? '/musiques/victory.mp3' : '/musiques/defeat.mp3'
@@ -1433,7 +1450,7 @@ function MenuIconBtn({onClick, icon, label, color, delay, title}){
 // so switching between these sections never requires a trip back through the menu.
 // Fixed to the bottom of the viewport on every screen that uses it, so it's
 // always reachable without scrolling — like a native app's tab bar.
-function BottomNav({onDeckBuilder,onBooster,onRules,onAccount,onShop,user,className=''}){
+function BottomNav({onDeckBuilder,onBooster,onRules,onAccount,onShop,onSocial,unreadCount=0,user,className=''}){
   return(
     <div className={`fixed inset-x-0 z-20 mx-auto w-[calc(100%-1.5rem)] max-w-md flex items-stretch justify-around gap-1 px-2 py-2 rounded-2xl border border-amber-900/50 ${className}`}
       style={{background:'linear-gradient(135deg,rgba(10,7,3,0.85),rgba(20,13,5,0.82))', boxShadow:'0 4px 20px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.05)',
@@ -1444,6 +1461,10 @@ function BottomNav({onDeckBuilder,onBooster,onRules,onAccount,onShop,user,classN
         :<MenuIconBtn onClick={onAccount} icon={<Lock size={16}/>} label="Booster" color="#64748b"/>
       }
       <MenuIconBtn onClick={onShop}    icon={<Store size={18}/>}    label="Boutique" color="#f59e0b"/>
+      {user
+        ?<MenuIconBtn onClick={onSocial} icon={<span className="relative">{unreadCount>0&&<span className="absolute -top-1 -right-1.5 w-3.5 h-3.5 rounded-full bg-red-600 text-white text-[8px] font-bold flex items-center justify-center leading-none">{unreadCount>9?'9+':unreadCount}</span>}<Bell size={18}/></span>} label="Amis" color="#c084fc"/>
+        :<MenuIconBtn onClick={onAccount} icon={<Lock size={16}/>} label="Amis" color="#64748b"/>
+      }
       <MenuIconBtn onClick={onRules}   icon={<BookOpen size={18}/>} label="Règles"   color="#fbbf24"/>
       <MenuIconBtn onClick={onAccount} icon={<UserCircle size={18}/>} label={user?'Compte':'Connexion'} color="#38bdf8" title={user?(user.displayName||user.email):undefined}/>
     </div>
@@ -1481,7 +1502,7 @@ function CoinBadge({coins,onClick}){
   )
 }
 
-function MenuScreen({onLocal,onAI,onOnline,onRules,onDeckBuilder,onAccount,onBooster,onShop,user,coins}){
+function MenuScreen({onLocal,onAI,onOnline,onRules,onDeckBuilder,onAccount,onBooster,onShop,onSocial,unreadCount,user,coins}){
   return(
     <div className="bg-charta menu-screen relative flex flex-col items-center gap-4 px-4 overflow-hidden">
 
@@ -1518,11 +1539,11 @@ function MenuScreen({onLocal,onAI,onOnline,onRules,onDeckBuilder,onAccount,onBoo
         </div>
       </div>
 
-      <BottomNav onDeckBuilder={onDeckBuilder} onBooster={onBooster} onRules={onRules} onAccount={onAccount} onShop={onShop} user={user}/>
+      <BottomNav onDeckBuilder={onDeckBuilder} onBooster={onBooster} onRules={onRules} onAccount={onAccount} onShop={onShop} onSocial={onSocial} unreadCount={unreadCount} user={user}/>
     </div>
   )
 }
-function RulesScreen({onBack,user,onDeckBuilder,onBooster,onRules,onAccount,onShop}){
+function RulesScreen({onBack,user,onDeckBuilder,onBooster,onRules,onAccount,onShop,onSocial,unreadCount}){
   const S=[
     ['🎴 Les cartes','Chaque carte a un chiffre sur chacune de ses 8 faces (haut, bas, les côtés, et les diagonales). Votre deck compte 6 cartes : deux plutôt faibles, deux moyennes et deux très puissantes. Vous pouvez créer les vôtres dans le Deck Builder, avec vos propres chiffres et un portrait de votre choix (d\'autres s\'achètent dans la Boutique).'],
     ['🎲 Le plateau','On joue sur une grille de 5 cases sur 5. Les 4 coins sont bloqués : personne ne peut y poser de carte. Vous démarrez en haut du plateau, votre adversaire en bas.'],
@@ -1547,7 +1568,7 @@ function RulesScreen({onBack,user,onDeckBuilder,onBooster,onRules,onAccount,onSh
           ))}
         </div>
       </div>
-      <BottomNav onDeckBuilder={onDeckBuilder} onBooster={onBooster} onRules={onRules} onAccount={onAccount} onShop={onShop} user={user}/>
+      <BottomNav onDeckBuilder={onDeckBuilder} onBooster={onBooster} onRules={onRules} onAccount={onAccount} onShop={onShop} onSocial={onSocial} unreadCount={unreadCount} user={user}/>
     </div>
   )
 }
@@ -1669,7 +1690,7 @@ function DeckEditor({deck,onBack,onRename,onAddCard,onRemoveCard,onUpdateCard,on
     </div>
   )
 }
-function DeckBuilderScreen({onBack,user,ownedSkins,coins,onDeckBuilder,onBooster,onRules,onAccount,onShop}){
+function DeckBuilderScreen({onBack,user,ownedSkins,coins,onDeckBuilder,onBooster,onRules,onAccount,onShop,onSocial,unreadCount}){
   const[decks,setDecks]=useState(()=>loadDecks())
   const[collection,setCollection]=useState(()=>loadCollection())
   const[deletedCollectionIds,setDeletedCollectionIds]=useState(()=>loadDeletedIds(DELETED_COLLECTION_KEY))
@@ -1797,7 +1818,7 @@ function DeckBuilderScreen({onBack,user,ownedSkins,coins,onDeckBuilder,onBooster
         <MedBtn onClick={createDeck} color="#34d399" icon={<Plus size={16}/>} className="w-full">Nouveau deck</MedBtn>
         <p className="text-slate-300 text-xs mt-4 text-center drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">Max {CARD_MAX_POINTS} pts/carte · Max {DECK_MAX_POINTS} pts/deck · Le deck par défaut est utilisé en partie Locale et Solo vs IA.</p>
       </div>
-      <BottomNav onDeckBuilder={onDeckBuilder} onBooster={onBooster} onRules={onRules} onAccount={onAccount} onShop={onShop} user={user}/>
+      <BottomNav onDeckBuilder={onDeckBuilder} onBooster={onBooster} onRules={onRules} onAccount={onAccount} onShop={onShop} onSocial={onSocial} unreadCount={unreadCount} user={user}/>
     </div>
   )
 }
@@ -1878,7 +1899,7 @@ function mergeById(localList,cloudList,deletedIds){
   })
   return Array.from(map.values())
 }
-function BoosterScreen({onBack,user,ownedSkins,coins,onEarnCoins,onSellCard,onSpendCoins,soundEnabled,onDeckBuilder,onBooster,onRules,onAccount,onShop}){
+function BoosterScreen({onBack,user,ownedSkins,coins,onEarnCoins,onSellCard,onSpendCoins,soundEnabled,onDeckBuilder,onBooster,onRules,onAccount,onShop,onSocial,unreadCount}){
   const[collection,setCollection]=useState(()=>loadCollection())
   const[decks,setDecks]=useState(()=>loadDecks())
   const[deletedCollectionIds,setDeletedCollectionIds]=useState(()=>loadDeletedIds(DELETED_COLLECTION_KEY))
@@ -2103,7 +2124,7 @@ function BoosterScreen({onBack,user,ownedSkins,coins,onEarnCoins,onSellCard,onSp
             </div>
           )}
       </div>
-      <BottomNav onDeckBuilder={onDeckBuilder} onBooster={onBooster} onRules={onRules} onAccount={onAccount} onShop={onShop} user={user}/>
+      <BottomNav onDeckBuilder={onDeckBuilder} onBooster={onBooster} onRules={onRules} onAccount={onAccount} onShop={onShop} onSocial={onSocial} unreadCount={unreadCount} user={user}/>
       </div>
     </div>
   )
@@ -2112,7 +2133,7 @@ function BoosterScreen({onBack,user,ownedSkins,coins,onEarnCoins,onSellCard,onSp
 // ═══════════════════════════════════════════════════════════════════════════════
 //  SHOP SCREEN — spend coins on cosmetic card skins
 // ═══════════════════════════════════════════════════════════════════════════════
-function ShopScreen({onBack,coins,ownedSkins,onBuySkin,onDeckBuilder,onBooster,onRules,onAccount,user}){
+function ShopScreen({onBack,coins,ownedSkins,onBuySkin,onDeckBuilder,onBooster,onRules,onAccount,onSocial,unreadCount,user}){
   const[zoomedSkin,setZoomedSkin]=useState(null)
   return(
     <div className="min-h-screen relative">
@@ -2157,7 +2178,7 @@ function ShopScreen({onBack,coins,ownedSkins,onBuySkin,onDeckBuilder,onBooster,o
             })}
           </div>
         </div>
-        <BottomNav onDeckBuilder={onDeckBuilder} onBooster={onBooster} onRules={onRules} onAccount={onAccount} onShop={()=>{}} user={user}/>
+        <BottomNav onDeckBuilder={onDeckBuilder} onBooster={onBooster} onRules={onRules} onAccount={onAccount} onShop={()=>{}} onSocial={onSocial} unreadCount={unreadCount} user={user}/>
       </div>
     </div>
   )
@@ -2203,7 +2224,7 @@ function DeckSelectScreen({mode,onBack,onSelect}){
 // ═══════════════════════════════════════════════════════════════════════════════
 //  ACCOUNT SCREEN — email/password + Google auth, stats, cache reset
 // ═══════════════════════════════════════════════════════════════════════════════
-function AccountScreen({onBack,user,stats,onProfileUpdated,onDeckBuilder,onBooster,onRules,onAccount,onShop}){
+function AccountScreen({onBack,user,stats,onProfileUpdated,onDeckBuilder,onBooster,onRules,onAccount,onShop,onSocial,unreadCount}){
   const[authMode,setAuthMode]=useState('login') // 'login'|'register'
   const[email,setEmail]=useState('');const[password,setPassword]=useState('')
   const[error,setError]=useState('');const[loading,setLoading]=useState(false)
@@ -2232,6 +2253,7 @@ function AccountScreen({onBack,user,stats,onProfileUpdated,onDeckBuilder,onBoost
     const trimmed=pseudo.trim();if(!trimmed)return
     setPseudoSaving(true);setPseudoError('');setPseudoSaved(false)
     try{
+      await claimUsername(user.uid,trimmed) // throws if already taken by someone else
       await updateDisplayName(trimmed)
       onProfileUpdated?.()
       setPseudoSaved(true);setTimeout(()=>setPseudoSaved(false),2000)
@@ -2301,10 +2323,132 @@ function AccountScreen({onBack,user,stats,onProfileUpdated,onDeckBuilder,onBoost
           <MedBtn onClick={forceClearCacheAndReload} color="#fbbf24" icon={<RefreshCw size={14}/>} className="w-full">Vider le cache & recharger</MedBtn>
         </div>
       </div>
-      <BottomNav onDeckBuilder={onDeckBuilder} onBooster={onBooster} onRules={onRules} onAccount={onAccount} onShop={onShop} user={user}/>
+      <BottomNav onDeckBuilder={onDeckBuilder} onBooster={onBooster} onRules={onRules} onAccount={onAccount} onShop={onShop} onSocial={onSocial} unreadCount={unreadCount} user={user}/>
     </div>
   )
 }
+// ═══════════════════════════════════════════════════════════════════════════════
+//  SOCIAL SCREEN — friends, friend requests, notifications
+// ═══════════════════════════════════════════════════════════════════════════════
+const NOTIF_ICON={friend_request:UserPlus,friend_accept:Check,challenge:Swords,match_result:Bell}
+function notifText(n){
+  if(n.type==='friend_request')return `${n.fromPseudo} vous a envoyé une demande d'ami.`
+  if(n.type==='friend_accept')return `${n.byPseudo} a accepté votre demande d'ami.`
+  if(n.type==='challenge')return `${n.fromPseudo} vous défie en duel !`
+  if(n.type==='match_result')return n.result==='draw'?`Partie nulle contre ${n.opponentPseudo}.`:n.result==='win'?`Victoire contre ${n.opponentPseudo} !`:`Défaite contre ${n.opponentPseudo}.`
+  return ''
+}
+function SocialScreen({onBack,user,friends,friendRequests,notifications,onSendRequest,onRespondRequest,onChallengeFriend,onAcceptChallenge,onMarkAllRead,onDeckBuilder,onBooster,onRules,onAccount,onShop}){
+  const[pseudoInput,setPseudoInput]=useState('')
+  const[sendError,setSendError]=useState('')
+  const[sendOk,setSendOk]=useState('')
+  const[sending,setSending]=useState(false)
+
+  // Opening this screen is the read receipt — simplest model that keeps the
+  // BottomNav badge in sync without per-item "mark as read" bookkeeping.
+  useEffect(()=>{if(user)onMarkAllRead()},[user])
+
+  if(!user)return(
+    <div className="bg-charta min-h-screen flex flex-col items-center justify-center gap-5 px-4">
+      <div className="text-6xl select-none">🔒</div>
+      <p className="text-amber-300 font-bold text-xl text-center drop-shadow-[0_1px_4px_rgba(0,0,0,0.9)]" style={CINZEL}>Connexion requise</p>
+      <p className="text-slate-300 text-sm text-center max-w-xs drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">Connectez-vous pour ajouter des amis, envoyer des défis et voir vos notifications.</p>
+      <BackButton onClick={onBack}>Menu</BackButton>
+    </div>
+  )
+
+  async function handleSend(e){
+    e.preventDefault()
+    const p=pseudoInput.trim();if(!p)return
+    setSendError('');setSendOk('');setSending(true)
+    try{await onSendRequest(p);setSendOk('Demande envoyée !');setPseudoInput('')}
+    catch(err){setSendError(err.message)}
+    setSending(false)
+  }
+
+  const sectionCls="rounded-xl p-4 mb-4 border border-amber-900/40"
+  const sectionStyle={background:'rgba(8,5,2,0.78)'}
+
+  return(
+    <div className="bg-charta min-h-screen py-8 pb-28 px-4 flex flex-col items-center overflow-y-auto">
+      <div className="max-w-sm w-full">
+        <BackButton onClick={onBack} className="mb-6">Menu</BackButton>
+        <h2 className="text-3xl font-black mb-5" style={{...CINZEL_DEC,background:'linear-gradient(to bottom,#ffe566,#c9a020)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',filter:'drop-shadow(0 1px 10px rgba(0,0,0,1))'}}>Amis</h2>
+
+        <div className={sectionCls} style={sectionStyle}>
+          <h3 className="text-amber-300 font-bold mb-2 flex items-center gap-1.5" style={CINZEL}><UserPlus size={15}/> Ajouter un ami</h3>
+          <form onSubmit={handleSend} className="flex gap-2">
+            <input value={pseudoInput} onChange={e=>setPseudoInput(e.target.value)} maxLength={24} placeholder="Pseudo"
+              className="flex-1 min-w-0 bg-slate-800 text-slate-200 text-sm border border-slate-700 rounded-lg px-3 py-2 outline-none focus:border-amber-500"/>
+            <MedBtn disabled={sending||!pseudoInput.trim()} color="#7cb87c" icon={<Send size={14}/>} className="shrink-0">Envoyer</MedBtn>
+          </form>
+          {sendError&&<p className="text-red-400 text-xs mt-2">{sendError}</p>}
+          {sendOk&&<p className="text-emerald-400 text-xs mt-2">{sendOk}</p>}
+        </div>
+
+        {friendRequests.length>0&&(
+          <div className={sectionCls} style={sectionStyle}>
+            <h3 className="text-amber-300 font-bold mb-2" style={CINZEL}>Demandes reçues</h3>
+            <div className="flex flex-col gap-2">
+              {friendRequests.map(r=>(
+                <div key={r.fromUid} className="flex items-center justify-between gap-2">
+                  <span className="text-slate-200 text-sm truncate">{r.fromPseudo}</span>
+                  <div className="flex gap-1.5 shrink-0">
+                    <MedBtn onClick={()=>onRespondRequest(r.fromUid,r.fromPseudo,true)} color="#34d399" icon={<Check size={12}/>} className="!px-2 !py-1.5 !text-xs">Accepter</MedBtn>
+                    <MedBtn onClick={()=>onRespondRequest(r.fromUid,r.fromPseudo,false)} color="#ef4444" icon={<X size={12}/>} className="!px-2 !py-1.5 !text-xs">Refuser</MedBtn>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className={sectionCls} style={sectionStyle}>
+          <h3 className="text-amber-300 font-bold mb-2" style={CINZEL}>Mes amis ({friends.length})</h3>
+          {friends.length===0
+            ?<p className="text-slate-400 text-xs">Aucun ami pour l'instant — ajoutez-en un par pseudo ci-dessus.</p>
+            :(
+              <div className="flex flex-col gap-2">
+                {friends.map(f=>(
+                  <div key={f.uid} className="flex items-center justify-between gap-2">
+                    <span className="text-slate-200 text-sm truncate">{f.pseudo}</span>
+                    <MedBtn onClick={()=>onChallengeFriend(f.uid,f.pseudo)} color="#7cb87c" icon={<Swords size={12}/>} className="!px-2 !py-1.5 !text-xs shrink-0">Défier</MedBtn>
+                  </div>
+                ))}
+              </div>
+            )}
+        </div>
+
+        <div className={sectionCls} style={sectionStyle}>
+          <h3 className="text-amber-300 font-bold mb-2 flex items-center gap-1.5" style={CINZEL}><Bell size={15}/> Notifications</h3>
+          {notifications.length===0
+            ?<p className="text-slate-400 text-xs">Aucune notification pour l'instant.</p>
+            :(
+              <div className="flex flex-col gap-2.5">
+                {notifications.map(n=>{
+                  const Icon=NOTIF_ICON[n.type]||Bell
+                  return(
+                    <div key={n.id} className={`flex items-start gap-2 pb-2.5 border-b border-amber-900/20 last:border-0 last:pb-0 ${n.read?'opacity-60':''}`}>
+                      <Icon size={14} className="text-amber-400 shrink-0 mt-0.5"/>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-slate-200 text-xs">{notifText(n)}</p>
+                        {n.type==='challenge'&&(
+                          <MedBtn onClick={()=>onAcceptChallenge(n.code)} color="#7cb87c" icon={<Swords size={12}/>} className="!px-2 !py-1.5 !text-xs mt-1.5">Accepter le défi</MedBtn>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+        </div>
+
+        <BottomNav onDeckBuilder={onDeckBuilder} onBooster={onBooster} onRules={onRules} onAccount={onAccount} onShop={onShop} onSocial={()=>{}} unreadCount={0} user={user}/>
+      </div>
+    </div>
+  )
+}
+
 // Surfaces the real Firebase error instead of a blanket "not configured" message,
 // so a misconfigured security rule (the most common real-world cause of "nothing
 // syncs") is actually visible instead of silently failing.
@@ -2312,13 +2456,14 @@ function friendlyFirebaseError(e){
   if(e?.message==='Firebase not configured')return 'Firebase non configuré — renseignez src/firebase.js'
   return `Erreur Firebase : ${e?.message||'inconnue'} — vérifiez les règles de sécurité de votre Realtime Database.`
 }
-function OnlineLobbyScreen({onBack,onGameStart,deck,ownedSkins}){
+function OnlineLobbyScreen({onBack,onGameStart,deck,ownedSkins,user,challengeTarget,autoJoinCode}){
   const[mode,setMode]=useState(null)
   const[code,setCode]=useState('')
   const[inputCode,setInputCode]=useState('')
   const[waiting,setWaiting]=useState(false)
   const[error,setError]=useState('')
   const[copied,setCopied]=useState(false)
+  const[challengeSent,setChallengeSent]=useState(false)
   const[initialGame]=useState(()=>newGame(deck,null,ownedSkins))
   const unsubRef=useRef(null)
   const mmIdRef=useRef(null)
@@ -2333,30 +2478,54 @@ function OnlineLobbyScreen({onBack,onGameStart,deck,ownedSkins}){
   async function handleCreate(){
     setError('');const c=genRoomCode();setCode(c);setMode('create')
     try{
-      await createRoom(c,initialGame);setWaiting(true)
+      await createRoom(c,initialGame,user?.uid,user?.displayName);setWaiting(true)
       unsubRef.current=subscribeRoom(c,data=>{
         if(data.player2Joined){
           if(unsubRef.current){unsubRef.current();unsubRef.current=null}
-          onGameStart(data.state??initialGame,c,1)
+          const opponent=data.guestUid?{uid:data.guestUid,pseudo:data.guestPseudo}:null
+          onGameStart(data.state??initialGame,c,1,opponent)
         }
       })
     }catch(e){setError(friendlyFirebaseError(e))}
   }
-  async function handleJoin(){
-    setError('');const c=inputCode.trim().toUpperCase()
+  // Same as handleCreate, but also drops a notification in the friend's
+  // mailbox with the room code so their "Accepter" button can auto-join.
+  async function handleChallengeCreate(){
+    setError('');const c=genRoomCode();setCode(c);setMode('create')
+    try{
+      await createRoom(c,initialGame,user?.uid,user?.displayName)
+      await pushNotification(challengeTarget.uid,{type:'challenge',fromUid:user.uid,fromPseudo:user.displayName,code:c})
+      setChallengeSent(true);setWaiting(true)
+      unsubRef.current=subscribeRoom(c,data=>{
+        if(data.player2Joined){
+          if(unsubRef.current){unsubRef.current();unsubRef.current=null}
+          const opponent=data.guestUid?{uid:data.guestUid,pseudo:data.guestPseudo}:{uid:challengeTarget.uid,pseudo:challengeTarget.pseudo}
+          onGameStart(data.state??initialGame,c,1,opponent)
+        }
+      })
+    }catch(e){setError(friendlyFirebaseError(e))}
+  }
+  async function handleJoin(codeOverride){
+    setError('');const c=(codeOverride??inputCode).trim().toUpperCase()
     if(c.length!==6){setError('Code invalide.');return}
     try{
-      const state=await joinRoom(c)
+      const state=await joinRoom(c,user?.uid,user?.displayName)
       if(!state){setError('Partie introuvable.');return}
       setCode(c);setWaiting(true)
       unsubRef.current=subscribeRoom(c,data=>{
         if(data.state){
           if(unsubRef.current){unsubRef.current();unsubRef.current=null}
-          onGameStart(data.state,c,2)
+          const opponent=data.hostUid?{uid:data.hostUid,pseudo:data.hostPseudo}:null
+          onGameStart(data.state,c,2,opponent)
         }
       })
     }catch(e){setError(friendlyFirebaseError(e))}
   }
+  useEffect(()=>{
+    if(challengeTarget)handleChallengeCreate()
+    else if(autoJoinCode)handleJoin(autoJoinCode)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[])
   async function handleMatchmaking(){
     setError('');setMode('matchmaking')
     const myId=crypto.randomUUID()
@@ -2366,7 +2535,7 @@ function OnlineLobbyScreen({onBack,onGameStart,deck,ownedSkins}){
       if(mmIdRef.current!==myId)return // cancelled while the request was in flight
       if(res.role==='host'){
         const c=genRoomCode()
-        await createRoom(c,initialGame)
+        await createRoom(c,initialGame,user?.uid,user?.displayName)
         await publishMatchResult(res.opponentId,c)
         mmIdRef.current=null
         onGameStart(initialGame,c,1)
@@ -2375,8 +2544,9 @@ function OnlineLobbyScreen({onBack,onGameStart,deck,ownedSkins}){
           if(mmUnsubRef.current){mmUnsubRef.current();mmUnsubRef.current=null}
           mmIdRef.current=null
           clearMatchResult(myId).catch(()=>{})
-          const state=await joinRoom(result.code)
-          onGameStart(state??initialGame,result.code,2)
+          const joined=await joinRoom(result.code,user?.uid,user?.displayName)
+          const opponent=joined?.hostUid?{uid:joined.hostUid,pseudo:joined.hostPseudo}:null
+          onGameStart(joined?.state??initialGame,result.code,2,opponent)
         })
       }
     }catch(e){setError(friendlyFirebaseError(e));mmIdRef.current=null;setMode(null)}
@@ -2385,11 +2555,13 @@ function OnlineLobbyScreen({onBack,onGameStart,deck,ownedSkins}){
   function copyCode(){navigator.clipboard.writeText(code).then(()=>{setCopied(true);setTimeout(()=>setCopied(false),2000)})}
 
   if(waiting)return(
-    <div className="bg-charta min-h-screen flex flex-col items-center justify-center gap-6">
+    <div className="bg-charta min-h-screen flex flex-col items-center justify-center gap-6 px-4 text-center">
       <div className="text-4xl animate-spin">⚙</div>
-      <p className="text-white text-xl font-bold drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">Code : <span className="text-amber-300 tracking-widest font-black">{code}</span></p>
-      <p className="text-slate-300 animate-pulse drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">En attente du joueur 2…</p>
-      <MedBtn onClick={copyCode} color="#e8c766" icon={copied?<Check size={14}/>:<Copy size={14}/>}>{copied?'Copié !':'Copier le code'}</MedBtn>
+      {challengeSent
+        ?<p className="text-white text-xl font-bold drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">Défi envoyé à <span className="text-amber-300">{challengeTarget?.pseudo}</span></p>
+        :<p className="text-white text-xl font-bold drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">Code : <span className="text-amber-300 tracking-widest font-black">{code}</span></p>}
+      <p className="text-slate-300 animate-pulse drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">En attente {challengeSent?'que votre ami accepte':'du joueur 2'}…</p>
+      {!challengeSent&&<MedBtn onClick={copyCode} color="#e8c766" icon={copied?<Check size={14}/>:<Copy size={14}/>}>{copied?'Copié !':'Copier le code'}</MedBtn>}
       <MedBtn onClick={()=>{setWaiting(false);setMode(null)}} color="#a89484">Annuler</MedBtn>
     </div>
   )
@@ -2483,8 +2655,18 @@ function GameOverScreen({winner,isAI,surrendered,onReplay,onMenu,coinsAwarded}){
     </div>
   )
 }
-function SoundToggle({enabled,onToggle}){
-  return(<button onClick={onToggle} className="fixed top-3 right-3 z-50 text-slate-400 hover:text-white bg-slate-800/80 backdrop-blur-sm p-2 rounded-lg transition-all duration-200 hover:scale-110 active:scale-90">{enabled?<Volume2 size={18}/>:<VolumeX size={18}/>}</button>)
+function SoundToggle({enabled,onToggle,volume,onVolumeChange}){
+  return(
+    <div className="fixed top-3 right-3 z-50 flex items-center gap-1.5 bg-slate-800/80 backdrop-blur-sm p-2 rounded-lg">
+      <button onClick={onToggle} className="text-slate-400 hover:text-white transition-all duration-200 hover:scale-110 active:scale-90 shrink-0">
+        {enabled?<Volume2 size={18}/>:<VolumeX size={18}/>}
+      </button>
+      <input type="range" min={0} max={1} step={0.05} value={volume} disabled={!enabled}
+        onChange={e=>onVolumeChange(parseFloat(e.target.value))}
+        title="Volume de la musique"
+        className="w-16 accent-amber-500 disabled:opacity-30 cursor-pointer"/>
+    </div>
+  )
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -2494,6 +2676,7 @@ export default function App(){
   const[screen,setScreen]=useState('menu')
   const[game,setGame]=useState(null)
   const[soundOn,setSoundOn]=useState(loadSoundPref)
+  const[musicVolume,setMusicVolumeState]=useState(loadMusicVolumePref)
   const[gameMode,setGameMode]=useState('local') // 'local'|'ai'|'online'
   const[roomCode,setRoomCode]=useState(null)
   const[myPlayer,setMyPlayer]=useState(null)
@@ -2507,6 +2690,12 @@ export default function App(){
   const[coins,setCoins]=useState(()=>loadCoins())
   const[ownedSkins,setOwnedSkins]=useState(()=>loadOwnedSkins())
   const[gameOverCoinsAwarded,setGameOverCoinsAwarded]=useState(null)
+  const[friends,setFriends]=useState([])
+  const[friendRequests,setFriendRequests]=useState([])
+  const[notifications,setNotifications]=useState([])
+  const[pendingChallenge,setPendingChallenge]=useState(null) // {uid,pseudo} — "Défier" was clicked, going through deck-select
+  const[pendingJoinCode,setPendingJoinCode]=useState(null) // a challenge notification was accepted, going through deck-select
+  const unreadCount=notifications.filter(n=>!n.read).length
   const ignoreNextRef=useRef(false)
   const unsubRef=useRef(null)
   const gameRef=useRef(game)
@@ -2515,6 +2704,7 @@ export default function App(){
   const statsRecordedRef=useRef(false)
   const animSeqRef=useRef(0)
   const remoteAnimSeqRef=useRef(null) // last opponent lastActionAnim.seq already played, online mode
+  const opponentRef=useRef(null) // {uid,pseudo} of the current online opponent, when known
   const coinsUpdatedAtRef=useRef(loadCoinsUpdatedAt())
   const economyCloudReadyRef=useRef(false)
   function nextAnimSeq(){animSeqRef.current+=1;return animSeqRef.current}
@@ -2571,6 +2761,21 @@ export default function App(){
     if(!user){setStats(null);return}
     return subscribeStats(user.uid,setStats)
   },[user?.uid])
+  // Best-effort backfill: accounts created before the friends system existed
+  // never claimed a `usernames/` slot, so they'd be unfindable by pseudo.
+  // Silently (re-)claims the current displayName on every login; a no-op if
+  // already owned, harmless to retry if it fails (e.g. name taken meanwhile).
+  useEffect(()=>{
+    if(user?.uid&&user?.displayName)claimUsername(user.uid,user.displayName).catch(()=>{})
+  },[user?.uid])
+  // ── Social — friends, pending requests, notifications ───────────
+  useEffect(()=>{
+    if(!user){setFriends([]);setFriendRequests([]);setNotifications([]);return}
+    const unsubFriends=subscribeFriends(user.uid,setFriends)
+    const unsubRequests=subscribeFriendRequests(user.uid,setFriendRequests)
+    const unsubNotifs=subscribeNotifications(user.uid,setNotifications)
+    return()=>{unsubFriends();unsubRequests();unsubNotifs()}
+  },[user?.uid])
   // Record win/loss once a match tied to a real opponent (AI or online) ends
   useEffect(()=>{
     if(screen==='gameover'&&game?.winner&&!statsRecordedRef.current){
@@ -2583,6 +2788,16 @@ export default function App(){
           earnCoins(ONLINE_WIN_COIN_REWARD)
           setGameOverCoinsAwarded(ONLINE_WIN_COIN_REWARD)
         }
+      }
+      // Match history notification — every online game, win/loss/draw, against
+      // whichever opponent identity the room happened to carry.
+      if(user&&gameMode==='online'){
+        const result=game.winner==='draw'?'draw':(game.winner===myPlayer?'win':'loss')
+        pushNotification(user.uid,{
+          type:'match_result',result,
+          opponentUid:opponentRef.current?.uid||null,
+          opponentPseudo:opponentRef.current?.pseudo||'Adversaire',
+        }).catch(()=>{})
       }
     }
     if(screen!=='gameover'){statsRecordedRef.current=false;setGameOverCoinsAwarded(null)}
@@ -2600,7 +2815,7 @@ export default function App(){
         startMusic(soundOn,false,iWon?'victory':'defeat')
       }else stopMusic()
     }
-    else if(['menu','rules','online','deckselect','account','booster','deckbuilder','shop'].includes(screen)) startMusic(soundOn, true)
+    else if(['menu','rules','online','deckselect','account','booster','deckbuilder','shop','social'].includes(screen)) startMusic(soundOn, true)
     else stopMusic()
   },[screen,soundOn,gameMode,myPlayer,game?.winner])
   useEffect(()=>()=>stopMusic(),[])
@@ -2745,8 +2960,32 @@ export default function App(){
     else startGame(pendingMode,deck)
   }
 
-  function handleOnlineStart(state,code,player){
+  // ── Friends / challenges ─────────────────────────────────────────
+  function handleChallengeFriend(friendUid,friendPseudo){
+    setPendingChallenge({uid:friendUid,pseudo:friendPseudo})
+    setPendingJoinCode(null)
+    goToDeckSelect('online')
+  }
+  function handleAcceptChallenge(code){
+    setPendingJoinCode(code)
+    setPendingChallenge(null)
+    goToDeckSelect('online')
+  }
+  async function handleSendFriendRequest(toPseudo){
+    await sendFriendRequest(user.uid,user.displayName,toPseudo)
+  }
+  async function handleRespondFriendRequest(fromUid,fromPseudo,accept){
+    await respondFriendRequest(user.uid,user.displayName,fromUid,fromPseudo,accept)
+  }
+  function handleMarkAllNotifsRead(){
+    const unreadIds=notifications.filter(n=>!n.read).map(n=>n.id)
+    if(user&&unreadIds.length)markAllNotificationsRead(user.uid,unreadIds).catch(()=>{})
+  }
+
+  function handleOnlineStart(state,code,player,opponent){
     setGameMode('online');setRoomCode(code);setMyPlayer(player);setGame(state);setScreen('loading');setSyncError(null)
+    setPendingChallenge(null);setPendingJoinCode(null)
+    opponentRef.current=opponent||null
     remoteAnimSeqRef.current=state?.lastActionAnim?.seq??null
     if(unsubRef.current){unsubRef.current();unsubRef.current=null}
     unsubRef.current=subscribeRoom(code,data=>{
@@ -2780,15 +3019,16 @@ export default function App(){
 
   return(
     <>
-      <SoundToggle enabled={soundOn} onToggle={()=>setSoundOn(v=>!v)}/>
-      {screen==='menu'     && <MenuScreen onAI={()=>goToDeckSelect('ai')} onLocal={()=>goToDeckSelect('local')} onOnline={()=>goToDeckSelect('online')} onRules={()=>setScreen('rules')} onDeckBuilder={()=>setScreen('deckbuilder')} onAccount={()=>setScreen('account')} onBooster={()=>setScreen('booster')} onShop={()=>setScreen('shop')} user={user} coins={coins}/>}
-      {screen==='rules'    && <RulesScreen onBack={()=>setScreen('menu')} user={user} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')}/>}
-      {screen==='deckbuilder' && <DeckBuilderScreen onBack={()=>setScreen('menu')} user={user} ownedSkins={ownedSkins} coins={coins} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')}/>}
-      {screen==='booster'  && <BoosterScreen onBack={()=>setScreen('menu')} user={user} ownedSkins={ownedSkins} coins={coins} onEarnCoins={earnCoins} onSellCard={sellCard} onSpendCoins={spendCoins} soundEnabled={soundOn} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')}/>}
-      {screen==='shop'     && <ShopScreen onBack={()=>setScreen('menu')} user={user} coins={coins} ownedSkins={ownedSkins} onBuySkin={buySkin} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')}/>}
+      <SoundToggle enabled={soundOn} onToggle={()=>setSoundOn(v=>!v)} volume={musicVolume} onVolumeChange={v=>{setMusicVolumeState(v);setMusicVolume(v)}}/>
+      {screen==='menu'     && <MenuScreen onAI={()=>goToDeckSelect('ai')} onLocal={()=>goToDeckSelect('local')} onOnline={()=>{setPendingChallenge(null);setPendingJoinCode(null);goToDeckSelect('online')}} onRules={()=>setScreen('rules')} onDeckBuilder={()=>setScreen('deckbuilder')} onAccount={()=>setScreen('account')} onBooster={()=>setScreen('booster')} onShop={()=>setScreen('shop')} onSocial={()=>setScreen('social')} unreadCount={unreadCount} user={user} coins={coins}/>}
+      {screen==='rules'    && <RulesScreen onBack={()=>setScreen('menu')} user={user} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')} onSocial={()=>setScreen('social')} unreadCount={unreadCount}/>}
+      {screen==='deckbuilder' && <DeckBuilderScreen onBack={()=>setScreen('menu')} user={user} ownedSkins={ownedSkins} coins={coins} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')} onSocial={()=>setScreen('social')} unreadCount={unreadCount}/>}
+      {screen==='booster'  && <BoosterScreen onBack={()=>setScreen('menu')} user={user} ownedSkins={ownedSkins} coins={coins} onEarnCoins={earnCoins} onSellCard={sellCard} onSpendCoins={spendCoins} soundEnabled={soundOn} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')} onSocial={()=>setScreen('social')} unreadCount={unreadCount}/>}
+      {screen==='shop'     && <ShopScreen onBack={()=>setScreen('menu')} user={user} coins={coins} ownedSkins={ownedSkins} onBuySkin={buySkin} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')} onSocial={()=>setScreen('social')} unreadCount={unreadCount}/>}
       {screen==='deckselect' && <DeckSelectScreen mode={pendingMode} onBack={()=>setScreen('menu')} onSelect={handleDeckChosen}/>}
-      {screen==='account'  && <AccountScreen onBack={()=>setScreen('menu')} user={user} stats={stats} onProfileUpdated={refreshUser} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')}/>}
-      {screen==='online'   && <OnlineLobbyScreen onBack={()=>setScreen('menu')} onGameStart={handleOnlineStart} deck={chosenDeck} ownedSkins={ownedSkins}/>}
+      {screen==='account'  && <AccountScreen onBack={()=>setScreen('menu')} user={user} stats={stats} onProfileUpdated={refreshUser} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')} onSocial={()=>setScreen('social')} unreadCount={unreadCount}/>}
+      {screen==='social'   && <SocialScreen onBack={()=>setScreen('menu')} user={user} friends={friends} friendRequests={friendRequests} notifications={notifications} onSendRequest={handleSendFriendRequest} onRespondRequest={handleRespondFriendRequest} onChallengeFriend={handleChallengeFriend} onAcceptChallenge={handleAcceptChallenge} onMarkAllRead={handleMarkAllNotifsRead} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')}/>}
+      {screen==='online'   && <OnlineLobbyScreen onBack={()=>{setPendingChallenge(null);setPendingJoinCode(null);setScreen('menu')}} onGameStart={handleOnlineStart} deck={chosenDeck} ownedSkins={ownedSkins} user={user} challengeTarget={pendingChallenge} autoJoinCode={pendingJoinCode}/>}
       {screen==='loading'  && game && <LoadingScreen onDone={()=>setScreen('game')}/>}
       {screen==='game'     && game && <GameScreen game={game} soundEnabled={soundOn} myPlayer={myPlayer} isAI={gameMode==='ai'} onAction={handleAction} onEndTurn={handleEndTurn} onHome={closeGame} onPowerAction={handlePowerAction} onSurrender={handleSurrender} lastAnim={lastAnim} syncError={roomCode?syncError:null} showTutorial={gameMode==='ai'&&showTutorial} onTutorialClose={handleTutorialClose} pseudo={user?.displayName}/>}
       {screen==='gameover' && game && <GameOverScreen winner={game.winner} isAI={gameMode==='ai'} surrendered={!!game.surrendered} onReplay={()=>startGame(gameMode)} onMenu={()=>setScreen('menu')} coinsAwarded={gameOverCoinsAwarded}/>}
