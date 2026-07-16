@@ -242,7 +242,7 @@ function openBoosterPack(ownedSkins){
 const BOOSTER_COIN_MIN=10, BOOSTER_COIN_MAX=25
 const SELL_VALUE={common:5,uncommon:12,rare:30,ultra:60,legendary:100}
 const ONLINE_WIN_COIN_REWARD=20
-const BOOSTER_PURCHASE_PRICE=600
+const BOOSTER_PURCHASE_PRICE=300
 
 // ═══════════════════════════════════════════════════════════════════════════════
 //  POWER DECK
@@ -390,9 +390,14 @@ function startMusic(enabled, isMenu = false, outcome = null) {
   } else if (isMenu) {
     _audio.src = '/musiques/menu.mp3'
     _audio.loop = true
-    const tryPlay = () => _audio && _audio.play().catch(() => {})
+    // Browsers block audio with sound until a genuine user gesture — retry on
+    // whichever gesture type the browser actually honors (pointerdown covers
+    // most desktop/Android cases, but Safari/iOS sometimes only counts a
+    // real 'click' or 'touchend').
+    const GESTURE_EVENTS = ['pointerdown', 'click', 'touchend', 'keydown']
+    const tryPlay = () => { if (_audio) _audio.play().catch(() => {}) }
+    GESTURE_EVENTS.forEach(ev => document.addEventListener(ev, tryPlay, { once: true }))
     tryPlay()
-    document.addEventListener('pointerdown', tryPlay, { once: true })
   } else {
     _gameTrackIdx = _randomTrackIdx(-1)
     _audio.addEventListener('ended', () => {
@@ -1122,6 +1127,7 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
   const myPlayerRef_=useRef(myPlayer)
   const targetingRef_=useRef(targeting)
   const cbRef=useRef({})
+  const animTimersRef=useRef([])
   useEffect(()=>{localGameRef.current=game},[game])
   useEffect(()=>{myPlayerRef_.current=myPlayer},[myPlayer])
   useEffect(()=>{targetingRef_.current=targeting},[targeting])
@@ -1147,26 +1153,28 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
   }
   // Central animation pipeline — driven by the parent, covers both human and AI actions.
   // Cards that die are rendered as a "ghost" snapshot since the board already nulled them out.
+  // Timers are kept in a ref (not a useEffect cleanup) so a NEW action's effect run never
+  // cancels a still-pending ghost/anim removal from a PREVIOUS action — cancelling it would
+  // leave e.g. `ghosts[key]` stuck forever, permanently hiding any card later placed there.
   useEffect(()=>{
     if(!lastAnim)return
-    const timers=[]
     lastAnim.cells.forEach(({r,c,ghost,anim,dur})=>{
       const key=`${r},${c}`
       if(ghost){
         setGhosts(p=>({...p,[key]:{card:ghost,anim}}))
-        timers.push(setTimeout(()=>setGhosts(p=>{const n={...p};delete n[key];return n}),dur))
+        animTimersRef.current.push(setTimeout(()=>setGhosts(p=>{const n={...p};delete n[key];return n}),dur))
       }else{
         setAnims(p=>({...p,[key]:anim}))
-        timers.push(setTimeout(()=>setAnims(p=>{const n={...p};delete n[key];return n}),dur))
+        animTimersRef.current.push(setTimeout(()=>setAnims(p=>{const n={...p};delete n[key];return n}),dur))
       }
     })
     if(lastAnim.violent){
       const keys=lastAnim.cells.filter(c=>c.ghost).map(c=>`${c.r},${c.c}`)
       setViolentKeys(p=>{const n={...p};keys.forEach(k=>n[k]=true);return n})
-      timers.push(setTimeout(()=>setViolentKeys(p=>{const n={...p};keys.forEach(k=>delete n[k]);return n}),700))
+      animTimersRef.current.push(setTimeout(()=>setViolentKeys(p=>{const n={...p};keys.forEach(k=>delete n[k]);return n}),700))
     }
-    return()=>timers.forEach(clearTimeout)
   },[lastAnim])
+  useEffect(()=>()=>animTimersRef.current.forEach(clearTimeout),[])
   function handleDragStart(e,from,...args){
     if(targeting)return
     e.dataTransfer.effectAllowed='move'
@@ -2104,7 +2112,7 @@ function BoosterScreen({onBack,user,ownedSkins,coins,onEarnCoins,onSellCard,onSp
 // ═══════════════════════════════════════════════════════════════════════════════
 //  SHOP SCREEN — spend coins on cosmetic card skins
 // ═══════════════════════════════════════════════════════════════════════════════
-function ShopScreen({onBack,coins,ownedSkins,onBuySkin,onEarnCoins,onDeckBuilder,onBooster,onRules,onAccount,user}){
+function ShopScreen({onBack,coins,ownedSkins,onBuySkin,onDeckBuilder,onBooster,onRules,onAccount,user}){
   const[zoomedSkin,setZoomedSkin]=useState(null)
   return(
     <div className="min-h-screen relative">
@@ -2127,14 +2135,6 @@ function ShopScreen({onBack,coins,ownedSkins,onBuySkin,onEarnCoins,onDeckBuilder
           <p className="text-xs mb-5 text-slate-300 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">
             Achetez des portraits exclusifs avec les pièces gagnées en ouvrant des boosters ou en vendant des cartes. Une fois possédé, un portrait est utilisable dans le Deck Builder et peut apparaître sur vos cartes générées aléatoirement.
           </p>
-
-          <div className="rounded-xl p-4 mb-5 border border-amber-900/40" style={{background:'rgba(8,5,2,0.78)'}}>
-            <h3 className="text-amber-300 font-bold mb-1 flex items-center gap-1.5" style={CINZEL}><Coins size={15}/> Obtenir des pièces</h3>
-            <p className="text-slate-400 text-[11px] mb-3">
-              L'achat de pièces avec de l'argent réel n'est pas encore disponible. En attendant, ce bouton en ajoute gratuitement pour tester.
-            </p>
-            <MedBtn onClick={()=>onEarnCoins(100)} color="#f59e0b" icon={<Coins size={14}/>} className="w-fit">+100 pièces (test)</MedBtn>
-          </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             {SKIN_CATALOG.map(skin=>{
@@ -2526,6 +2526,7 @@ export default function App(){
     if(coins<amount)return false
     coinsUpdatedAtRef.current=Date.now()
     setCoins(c=>c-amount)
+    snd('coin',soundOnRef.current)
     return true
   }
   function buySkin(skinId,price){
@@ -2533,6 +2534,7 @@ export default function App(){
     coinsUpdatedAtRef.current=Date.now()
     setCoins(c=>c-price)
     setOwnedSkins(s=>[...s,skinId])
+    snd('coin',soundOnRef.current)
     return true
   }
   useEffect(()=>{saveCoins(coins);saveCoinsUpdatedAt(coinsUpdatedAtRef.current)},[coins])
@@ -2592,7 +2594,8 @@ export default function App(){
     else if(screen==='gameover'){
       // Only AI/online have a clear "did I win" perspective — local hotseat
       // matches have two real players sharing the screen, so no personal outcome.
-      if(game?.winner&&game.winner!=='draw'&&(gameMode==='ai'||gameMode==='online')){
+      if(game?.winner==='draw')startMusic(soundOn,false,'defeat')
+      else if(game?.winner&&(gameMode==='ai'||gameMode==='online')){
         const iWon=gameMode==='ai'?game.winner===1:game.winner===myPlayer
         startMusic(soundOn,false,iWon?'victory':'defeat')
       }else stopMusic()
@@ -2782,7 +2785,7 @@ export default function App(){
       {screen==='rules'    && <RulesScreen onBack={()=>setScreen('menu')} user={user} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')}/>}
       {screen==='deckbuilder' && <DeckBuilderScreen onBack={()=>setScreen('menu')} user={user} ownedSkins={ownedSkins} coins={coins} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')}/>}
       {screen==='booster'  && <BoosterScreen onBack={()=>setScreen('menu')} user={user} ownedSkins={ownedSkins} coins={coins} onEarnCoins={earnCoins} onSellCard={sellCard} onSpendCoins={spendCoins} soundEnabled={soundOn} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')}/>}
-      {screen==='shop'     && <ShopScreen onBack={()=>setScreen('menu')} user={user} coins={coins} ownedSkins={ownedSkins} onBuySkin={buySkin} onEarnCoins={earnCoins} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')}/>}
+      {screen==='shop'     && <ShopScreen onBack={()=>setScreen('menu')} user={user} coins={coins} ownedSkins={ownedSkins} onBuySkin={buySkin} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')}/>}
       {screen==='deckselect' && <DeckSelectScreen mode={pendingMode} onBack={()=>setScreen('menu')} onSelect={handleDeckChosen}/>}
       {screen==='account'  && <AccountScreen onBack={()=>setScreen('menu')} user={user} stats={stats} onProfileUpdated={refreshUser} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')}/>}
       {screen==='online'   && <OnlineLobbyScreen onBack={()=>setScreen('menu')} onGameStart={handleOnlineStart} deck={chosenDeck} ownedSkins={ownedSkins}/>}
