@@ -9,3 +9,11 @@ yarn-error.log*
 .pnp.js
 
 .vscode/*
+
+# Secrets — never commit real credentials or the Android signing key.
+# .env.local is untracked going forward (see CLAUDE.md: it was previously
+# committed with placeholder values only, but must not be going forward).
+.env.local
+.env*.local
+*.keystore
+*.jks

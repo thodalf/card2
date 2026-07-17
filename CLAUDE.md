@@ -12,9 +12,11 @@ npm run preview   # preview the production build locally
 
 There is no lint or test script configured — `package.json` only defines `dev`, `build`, `preview`.
 
-Firebase is optional at runtime: `src/firebase.js` wraps all calls in `if (!db)`/`if (!auth)` guards, so the app degrades gracefully (local-only, no auth) when `VITE_FIREBASE_*` env vars are absent. Required vars (see `.env.local`, which is currently committed — treat any key rotation as needed): `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_DATABASE_URL`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_STORAGE_BUCKET`, `VITE_FIREBASE_MESSAGING_SENDER_ID`, `VITE_FIREBASE_APP_ID`.
+Firebase is optional at runtime: `src/firebase.js` wraps all calls in `if (!db)`/`if (!auth)` guards, so the app degrades gracefully (local-only, no auth) when `VITE_FIREBASE_*` env vars are absent. Required vars (see `.env.local`, gitignored — was previously committed with placeholder values only, now untracked; production values live in Netlify's env var settings): `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_DATABASE_URL`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_STORAGE_BUCKET`, `VITE_FIREBASE_MESSAGING_SENDER_ID`, `VITE_FIREBASE_APP_ID`.
 
 Deploy target is Netlify (`netlify.toml`): builds with `npm run build`, publishes `dist`, SPA fallback redirect to `/index.html`.
+
+`database.rules.json` is the recommended Firebase Realtime Database security ruleset (not auto-deployed — paste into Firebase Console → Realtime Database → Rules, or deploy via the Firebase CLI). It's the actual access-control enforcement layer: everything in `firebase.js` assumes these rules (or equivalent) are live, since client code alone can't stop a direct SDK/REST call from bypassing app-level checks.
 
 ## Architecture
 

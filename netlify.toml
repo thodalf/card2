@@ -9,3 +9,18 @@
   from = "/*"
   to = "/index.html"
   status = 200
+
+# Baseline hardening headers. A Content-Security-Policy is deliberately not
+# set here yet — this app relies on Firebase Auth (incl. Google Sign-In
+# popups/redirects) and Realtime Database over a moving set of googleapis.com/
+# firebaseio.com origins, plus React's widespread inline `style={{}}` usage.
+# A CSP strict enough to matter needs to be built and tested against the real
+# Firebase project (popups are notoriously CSP-sensitive) rather than guessed
+# here — get it wrong and it silently breaks login instead of failing loudly.
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    X-Frame-Options = "DENY"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=(), usb=()"

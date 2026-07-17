@@ -1,0 +1,90 @@
+{
+  "rules": {
+    // ── Per-user data — decks, collection, economy, stats, tombstones,
+    // pseudo mirror. Nothing here is read by any user other than its owner
+    // anywhere in the app, so it's fully private.
+    "users": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && auth.uid === $uid"
+      }
+    },
+
+    // ── Username uniqueness index (usernames/{normalizedPseudo}: uid).
+    // Read must stay open to any authenticated user — sendFriendRequest()
+    // resolves a typed-in pseudo to a uid before anyone is "friends" yet.
+    // Write is restricted so a slot can only be claimed while empty, and
+    // only ever touched afterwards by the uid that already owns it
+    // (covers both claimUsername's re-claim and its release-old-slot step).
+    "usernames": {
+      "$pseudo": {
+        ".read": "auth != null",
+        ".write": "auth != null && ((!data.exists() && newData.val() === auth.uid) || (data.exists() && data.val() === auth.uid))"
+      }
+    },
+
+    // ── Friends — bidirectional. Accepting a request (respondFriendRequest)
+    // and deleting an account (deleteAccountData) both need to write the
+    // *other* person's friends/{otherUid}/{myUid} entry, so write allows
+    // either side of the pair, not just the list owner. Only the owner can
+    // read their own list.
+    "friends": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        "$friendUid": {
+          ".write": "auth != null && (auth.uid === $uid || auth.uid === $friendUid)"
+        }
+      }
+    },
+
+    // ── Friend request mailbox — sender writes into the recipient's
+    // mailbox; recipient clears it on accept/decline. Only the recipient
+    // can read their own pending requests.
+    "friendRequests": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        "$fromUid": {
+          ".write": "auth != null && (auth.uid === $uid || auth.uid === $fromUid)"
+        }
+      }
+    },
+
+    // ── Notifications — any authenticated user can drop a NEW notification
+    // into someone else's mailbox (friend request, challenge, match
+    // result). pushNotification() also opportunistically prunes the oldest
+    // entry once a mailbox passes 50, which runs as whoever triggered the
+    // new notification (not necessarily the mailbox owner) — so deleting an
+    // existing entry is allowed for anyone too, but *rewriting* one's
+    // content is owner-only. Only the owner reads their own mailbox.
+    "notifications": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        "$pushId": {
+          ".write": "auth != null && (!data.exists() || auth.uid === $uid || newData.val() === null)"
+        }
+      }
+    },
+
+    // ── Online match rooms and matchmaking queue. Deliberately NOT uid-gated:
+    // anonymous (logged-out) online play is a supported feature, and a room
+    // is a shared secret (the 6-character code) rather than an owned
+    // resource — anyone who has the code is meant to be able to join it.
+    // The practical mitigation is the code space (33^6 ≈ 1.3B combinations)
+    // and each room's short lifetime, not an auth check. If anonymous play
+    // is ever dropped, tighten this to hostUid/guestUid-based access.
+    "rooms": {
+      ".read": true,
+      ".write": true
+    },
+    "matchmaking": {
+      ".read": true,
+      ".write": true
+    },
+
+    // Deny everything else by default.
+    "$other": {
+      ".read": false,
+      ".write": false
+    }
+  }
+}

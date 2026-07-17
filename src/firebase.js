@@ -39,7 +39,7 @@ export { db, auth }
 const AUTH_ERROR_MESSAGES = {
   'auth/email-already-in-use': 'Cet email est déjà utilisé.',
   'auth/invalid-email': 'Email invalide.',
-  'auth/weak-password': 'Mot de passe trop faible (6 caractères minimum).',
+  'auth/weak-password': 'Mot de passe trop faible (8 caractères minimum).',
   'auth/user-not-found': 'Aucun compte ne correspond à cet email.',
   'auth/wrong-password': 'Mot de passe incorrect.',
   'auth/invalid-credential': 'Email ou mot de passe incorrect.',
@@ -61,10 +61,14 @@ export async function registerWithEmail(email, password) {
   try {
     const user = (await createUserWithEmailAndPassword(auth, email, password)).user
     // Default pseudo is the part of the email before "@" — the player can rename
-    // later. A common prefix (e.g. "john") may already be claimed by someone
+    // later. Email local-parts routinely contain characters RTDB keys reject
+    // (a dot is extremely common, e.g. "john.doe@…") so strip anything
+    // claimUsername would bounce, not just the ones a raw copy would hit.
+    // A common prefix (e.g. "john") may also already be claimed by someone
     // else, so fall back to a random-suffixed variant rather than ever blocking
     // registration on a name collision.
-    const base = email.split('@')[0]
+    let base = email.split('@')[0].replace(/[.#$[\]/\x00-\x1F\x7F]/g, '').slice(0, 20)
+    if (base.length < 2) base = 'joueur' // too short/empty after stripping — claimUsername requires 2-24 chars
     let pseudo = base
     try { await claimUsername(user.uid, base) }
     catch {
@@ -400,12 +404,18 @@ export async function clearMatchResult(myId) {
 export function normalizePseudo(pseudo) {
   return (pseudo || '').trim().toLowerCase()
 }
+// Realtime Database keys can't contain . # $ [ ] / or ASCII control chars —
+// reject those up front with a clear message instead of letting the SDK
+// throw an opaque "Invalid path" error deep inside the transaction below.
+const INVALID_PSEUDO_CHARS = /[.#$[\]/\x00-\x1F\x7F]/
 
 // Claims `pseudo` for `uid`, atomically releasing whatever pseudo `uid` held
 // before. Fails if the normalized name is already claimed by a different uid.
 export async function claimUsername(uid, pseudo) {
   if (!db) throw new Error('Firebase not configured')
   const trimmed = (pseudo || '').trim()
+  if (trimmed.length < 2 || trimmed.length > 24) throw new Error('Le pseudo doit contenir entre 2 et 24 caractères.')
+  if (INVALID_PSEUDO_CHARS.test(trimmed)) throw new Error('Le pseudo ne peut pas contenir . # $ [ ] / ni de caractères de contrôle.')
   const normalized = normalizePseudo(trimmed)
   if (!normalized) throw new Error('Pseudo invalide.')
   const slotRef = ref(db, `usernames/${normalized}`)

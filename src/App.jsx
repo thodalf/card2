@@ -2568,7 +2568,10 @@ function AccountScreen({onBack,user,stats,onProfileUpdated,onLegal,onDeleteAccou
               </label>
               <label className="flex items-center gap-2 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 focus-within:border-amber-500">
                 <Lock size={14} className="text-slate-500 shrink-0"/>
-                <input type="password" required minLength={6} autoComplete={authMode==='register'?'new-password':'current-password'} value={password} onChange={e=>setPassword(e.target.value)} placeholder="Mot de passe" className="bg-transparent text-slate-200 text-sm outline-none flex-1 min-w-0"/>
+                {/* Only register enforces the stronger 8-char minimum client-side — existing
+                    accounts may have a shorter (still valid) password and must still be able
+                    to log in, so login keeps Firebase's own 6-char floor. */}
+                <input type="password" required minLength={authMode==='register'?8:6} autoComplete={authMode==='register'?'new-password':'current-password'} value={password} onChange={e=>setPassword(e.target.value)} placeholder="Mot de passe" className="bg-transparent text-slate-200 text-sm outline-none flex-1 min-w-0"/>
               </label>
               {authMode==='register'&&(
                 <label className="flex items-start gap-2 text-slate-400 text-[11px] leading-snug cursor-pointer select-none">
