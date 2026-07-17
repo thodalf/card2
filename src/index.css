@@ -257,6 +257,15 @@ button.wood-btn.menu-fade-up:active:not(:disabled) {
   transform-style: preserve-3d;
   will-change: transform;
 }
+/* Same keyframes, just slower — used instead of .zoom-card-idle for cards
+   with split-layer parallax portraits (see PARALLAX_SKINS in App.jsx), so
+   the layers below (synced to this exact duration) stay locked to the
+   card's own tilt instead of visibly running on a different rhythm. */
+.zoom-card-idle-slow {
+  animation: zoom-card-idle 9.2s ease-in-out infinite;
+  transform-style: preserve-3d;
+  will-change: transform;
+}
 
 @keyframes zoom-aura-pulse {
   0%,100% { opacity: 0.5;  transform: scale(0.9); }
@@ -269,12 +278,12 @@ button.wood-btn.menu-fade-up:active:not(:disabled) {
 }
 
 /* ── Split-layer card portraits (see PARALLAX_SKINS in App.jsx) — the two
-   layers drift by a different amount each, on a cycle that's a clean 2x
-   multiple of zoom-card-idle's 4.6s (so the two stay in phase every other
-   loop) but slower on its own for a calmer drift. Riding zoom-card-idle's
-   own 3D tilt alone doesn't work: children rotating together with their
-   parent as a rigid body show no relative motion, which is what actually
-   sells depth. */
+   layers drift by a different amount each, on the SAME 9.2s duration as
+   the card's own .zoom-card-idle-slow tilt above so they stay perfectly
+   locked to it throughout the whole cycle, not just at the loop boundary.
+   Riding the tilt's own rotation alone doesn't work: children rotating
+   together with their parent as a rigid 3D body show no relative motion,
+   which is what actually sells depth. */
 @keyframes parallax-bg-idle {
   0%,100% { transform: translate(0,0) scale(1.1); }
   25%      { transform: translate(-5px,3px) scale(1.1); }

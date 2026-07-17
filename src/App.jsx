@@ -2089,12 +2089,18 @@ function BoosterCardFace({card,animate=false,revealed=true,size='normal',onClick
 }
 function CardZoomOverlay({card,onClose,renderCard}){
   if(!card)return null
+  // Parallax cards get the slow-tilt variant of the idle float (same keyframes,
+  // longer duration) so the inner layers — synced to that exact same duration,
+  // see .parallax-*-idle in index.css — stay locked to the card's own motion
+  // instead of visibly running on their own separate rhythm.
+  const resolvedFile=(card.imageUrl||(card.file?`/images/card/${card.file}`:'')).split('/').pop()
+  const idleClass=PARALLAX_SKINS[resolvedFile]?'zoom-card-idle-slow':'zoom-card-idle'
   return(
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm" onClick={onClose}>
       <div className="flex flex-col items-center gap-3 select-none">
         <div className="relative flex items-center justify-center zoom-card-perspective">
           <div className="absolute inset-0 m-auto zoom-aura rounded-full pointer-events-none" style={{width:'135%',height:'135%'}}/>
-          <div className="zoom-card-idle">
+          <div className={idleClass}>
             {renderCard?renderCard(card):<BoosterCardFace card={card} size='large'/>}
           </div>
         </div>
