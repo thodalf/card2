@@ -197,13 +197,10 @@ function saveMusicVolumePref(v){
 const TUTORIAL_SEEN_KEY='tacticalcards_tutorial_seen'
 function loadTutorialSeen(){try{return localStorage.getItem(TUTORIAL_SEEN_KEY)==='1'}catch{return false}}
 function saveTutorialSeen(){try{localStorage.setItem(TUTORIAL_SEEN_KEY,'1')}catch{}}
-function emptyCardValues(){
-  return Object.fromEntries(FACE_KEYS.map(k=>[k,0]))
-}
+const DECK_TUTORIAL_SEEN_KEY='tacticalcards_deck_tutorial_seen'
+function loadDeckTutorialSeen(){try{return localStorage.getItem(DECK_TUTORIAL_SEEN_KEY)==='1'}catch{return false}}
+function saveDeckTutorialSeen(){try{localStorage.setItem(DECK_TUTORIAL_SEEN_KEY,'1')}catch{}}
 const DEFAULT_CARD_IMAGE='/images/card/gnome.png'
-function newCustomCard(){
-  return{id:`c-${Date.now()}-${Math.random().toString(36).slice(2)}`,values:emptyCardValues(),imageUrl:null}
-}
 function customCardPts(card){
   return FACE_KEYS.reduce((s,k)=>s+(card.values[k]||0),0)
 }
@@ -1225,15 +1222,23 @@ const TUTORIAL_STEPS=[
   {icon:'🃏',title:'Les pouvoirs',text:"La barre de pouvoirs propose des cartes spéciales gratuites, qui ne consomment pas vos actions normales : vous commencez avec 2 Barrage (bloquer définitivement une case vide) et 1 Rotation (faire tourner les chiffres d'une carte)."},
   {icon:'🏆',title:'Victoire',text:"Dès qu'un joueur n'a plus aucune carte, ni en main ni sur le plateau, la partie se termine et son adversaire gagne. Bonne chance !"},
 ]
-function TutorialOverlay({onClose}){
+const DECK_TUTORIAL_STEPS=[
+  {icon:'🃏',title:'D\'où viennent les cartes ?',text:"Il n'est plus possible de créer des cartes à la main : toutes proviennent des boosters. Ouvrez-en un depuis la page Booster pour obtenir de nouvelles cartes."},
+  {icon:'📦',title:'Votre collection',text:"Les cartes obtenues attendent dans votre collection, sur la page Booster, tant qu'elles ne sont pas assignées à un deck."},
+  {icon:'➕',title:'Construire un deck',text:"Depuis la page Booster, choisissez un deck pour chaque carte de votre collection (bouton « Ajouter à un deck »). Un deck contient entre 1 et 10 cartes."},
+  {icon:'⚖️',title:'Les limites',text:`Chaque deck a un total de ${DECK_MAX_POINTS} points maximum. Les cartes classiques sont plafonnées à ${CARD_MAX_POINTS} points ; les cartes rares de booster peuvent dépasser ce plafond individuel.`},
+  {icon:'↔️',title:'Réorganiser',text:"Depuis l'éditeur d'un deck, vous pouvez retirer une carte (elle retourne dans votre collection) ou la déplacer vers un autre deck."},
+  {icon:'⭐',title:'Deck par défaut',text:"Marquez un deck comme « par défaut » : c'est celui utilisé automatiquement en Partie Locale et Solo vs IA."},
+]
+function TutorialOverlay({onClose,steps=TUTORIAL_STEPS,finalLabel='Compris, jouer !'}){
   const[step,setStep]=useState(0)
-  const s=TUTORIAL_STEPS[step]
-  const isLast=step===TUTORIAL_STEPS.length-1
+  const s=steps[step]
+  const isLast=step===steps.length-1
   return(
     <div className="fixed inset-0 z-40 flex items-end sm:items-center justify-center bg-black/70 backdrop-blur-sm px-4 pb-6 sm:pb-4">
       <div className="wood-btn rounded-2xl p-5 max-w-sm w-full flex flex-col gap-3">
         <div className="flex items-center justify-between">
-          <span className="text-amber-300 text-xs font-bold" style={CINZEL}>Tutoriel · {step+1}/{TUTORIAL_STEPS.length}</span>
+          <span className="text-amber-300 text-xs font-bold" style={CINZEL}>Tutoriel · {step+1}/{steps.length}</span>
           <button onClick={onClose} className="text-slate-300 hover:text-white text-xs">Passer ✕</button>
         </div>
         <div className="flex items-center gap-2">
@@ -1243,7 +1248,7 @@ function TutorialOverlay({onClose}){
         <p className="text-slate-200 text-sm leading-relaxed">{s.text}</p>
         <div className="flex items-center gap-2 mt-2">
           {step>0&&<MedBtn onClick={()=>setStep(v=>v-1)} color="#a89484" className="flex-1 justify-center">Précédent</MedBtn>}
-          <MedBtn onClick={()=>isLast?onClose():setStep(v=>v+1)} color="#7cb87c" className="flex-1 justify-center">{isLast?'Compris, jouer !':'Suivant'}</MedBtn>
+          <MedBtn onClick={()=>isLast?onClose():setStep(v=>v+1)} color="#7cb87c" className="flex-1 justify-center">{isLast?finalLabel:'Suivant'}</MedBtn>
         </div>
       </div>
     </div>
@@ -1874,7 +1879,7 @@ function CardEditor({card,onUpdate,onRemove,otherDecks,onMoveCard,onZoom,ownedSk
     </div>
   )
 }
-function DeckEditor({deck,onBack,onRename,onAddCard,onRemoveCard,onUpdateCard,onSetDefault,otherDecks,onMoveCard,ownedSkins}){
+function DeckEditor({deck,onBack,onRename,onRemoveCard,onUpdateCard,onSetDefault,otherDecks,onMoveCard,ownedSkins,onGoToBooster}){
   const total=deckTotalPts(deck),overTotal=total>DECK_MAX_POINTS,valid=isDeckValid(deck)
   const atMaxCards=deck.cards.length>=DECK_MAX_CARDS
   const[zoomedCard,setZoomedCard]=useState(null)
@@ -1906,11 +1911,13 @@ function DeckEditor({deck,onBack,onRename,onAddCard,onRemoveCard,onUpdateCard,on
             <CardEditor key={c.id} card={c} onUpdate={patch=>onUpdateCard(c.id,patch)} onRemove={()=>onRemoveCard(c.id)}
               otherDecks={otherDecks} onMoveCard={toDeckId=>onMoveCard(c.id,toDeckId)} onZoom={setZoomedCard} ownedSkins={ownedSkins}/>
           ))}
-          {deck.cards.length===0&&<p className="text-slate-300 text-sm text-center py-6 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">Aucune carte. Ajoutez-en une.</p>}
+          {deck.cards.length===0&&<p className="text-slate-300 text-sm text-center py-6 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">Aucune carte. Ouvrez un booster pour en obtenir, puis assignez-les ici.</p>}
         </div>
-        <MedBtn onClick={onAddCard} disabled={atMaxCards} color="#34d399" icon={<Plus size={16}/>} className="w-full">
-          {atMaxCards?`Deck complet (${DECK_MAX_CARDS} max)`:'Ajouter une carte'}
-        </MedBtn>
+        {!atMaxCards&&(
+          <MedBtn onClick={onGoToBooster} color="#34d399" icon={<Gift size={16}/>} className="w-full">
+            Ouvrir un booster pour ajouter des cartes
+          </MedBtn>
+        )}
       </div>
     </div>
   )
@@ -1921,7 +1928,9 @@ function DeckBuilderScreen({onBack,user,ownedSkins,coins,onDeckBuilder,onBooster
   const[deletedCollectionIds,setDeletedCollectionIds]=useState(()=>loadDeletedIds(DELETED_COLLECTION_KEY))
   const[deletedDeckIds,setDeletedDeckIds]=useState(()=>loadDeletedIds(DELETED_DECKS_KEY))
   const[editingId,setEditingId]=useState(null)
+  const[showDeckTutorial,setShowDeckTutorial]=useState(()=>!loadDeckTutorialSeen())
   const cloudReadyRef=useRef(false)
+  function handleDeckTutorialClose(){saveDeckTutorialSeen();setShowDeckTutorial(false)}
   useEffect(()=>{
     saveDecks(decks)
     if(user&&cloudReadyRef.current)saveCloudDecks(user.uid,decks).catch(()=>{})
@@ -1977,7 +1986,6 @@ function DeckBuilderScreen({onBack,user,ownedSkins,coins,onDeckBuilder,onBooster
   }
   function setDefault(id){setDecks(p=>p.map(d=>({...d,isDefault:d.id===id,updatedAt:Date.now()})))}
   function renameDeck(id,name){setDecks(p=>p.map(d=>d.id===id?{...d,name,updatedAt:Date.now()}:d))}
-  function addCard(id){setDecks(p=>p.map(d=>d.id===id&&d.cards.length<DECK_MAX_CARDS?{...d,cards:[...d.cards,newCustomCard()],updatedAt:Date.now()}:d))}
   function removeCard(id,cardId){
     const deck=decks.find(d=>d.id===id);const card=deck?.cards.find(c=>c.id===cardId)
     setDecks(p=>p.map(d=>d.id===id?{...d,cards:d.cards.filter(c=>c.id!==cardId),updatedAt:Date.now()}:d))
@@ -2005,18 +2013,23 @@ function DeckBuilderScreen({onBack,user,ownedSkins,coins,onDeckBuilder,onBooster
 
   if(editing)return(
     <DeckEditor deck={editing} onBack={()=>setEditingId(null)} onRename={n=>renameDeck(editing.id,n)}
-      onAddCard={()=>addCard(editing.id)} onRemoveCard={cid=>removeCard(editing.id,cid)}
+      onRemoveCard={cid=>removeCard(editing.id,cid)}
       onUpdateCard={(cid,patch)=>updateCard(editing.id,cid,patch)} onSetDefault={()=>setDefault(editing.id)}
       otherDecks={decks.filter(d=>d.id!==editing.id).map(d=>({id:d.id,name:d.name,cardCount:d.cards.length}))}
-      onMoveCard={(cardId,toId)=>moveCardToDeck(editing.id,cardId,toId)} ownedSkins={ownedSkins}/>
+      onMoveCard={(cardId,toId)=>moveCardToDeck(editing.id,cardId,toId)} ownedSkins={ownedSkins} onGoToBooster={onBooster}/>
   )
 
   return(
     <div className="bg-charta min-h-screen pt-8 pb-28 px-4 flex flex-col items-center overflow-y-auto">
+      {showDeckTutorial&&<TutorialOverlay onClose={handleDeckTutorialClose} steps={DECK_TUTORIAL_STEPS} finalLabel="Compris !"/>}
       <CoinBadge coins={coins} onClick={onShop}/>
       <div className="max-w-lg w-full">
         <BackButton onClick={onBack} className="mb-6">Menu</BackButton>
-        <h2 className="text-3xl font-black mb-1" style={{...CINZEL_DEC,background:'linear-gradient(to bottom,#ffe566,#c9a020)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',filter:'drop-shadow(0 1px 10px rgba(0,0,0,1))'}}>Deck Builder</h2>
+        <div className="flex items-center gap-2 mb-1">
+          <h2 className="text-3xl font-black" style={{...CINZEL_DEC,background:'linear-gradient(to bottom,#ffe566,#c9a020)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',filter:'drop-shadow(0 1px 10px rgba(0,0,0,1))'}}>Deck Builder</h2>
+          <button onClick={()=>setShowDeckTutorial(true)} title="Comment ça marche ?"
+            className="wood-btn w-7 h-7 shrink-0 rounded-full flex items-center justify-center text-amber-300 font-black text-sm">?</button>
+        </div>
         <p className="text-xs mb-5 text-slate-300 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">
           {user?`☁ Connecté (${user.displayName||user.email}) — decks synchronisés dans le cloud.`:'Connectez-vous depuis le menu (Mon Compte) pour synchroniser vos decks dans le cloud.'}
         </p>
