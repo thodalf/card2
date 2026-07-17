@@ -71,8 +71,16 @@ const SKIN_CATALOG = [
   {id:'elf_noir',   file:'elf_noir.png',   name:'Elfe noir', tier:'medium', price:100},
   {id:'orc',        file:'orc.png',        name:'Orc',       tier:'medium', price:100},
   {id:'nain_femme', file:'nain_femme.png', name:'Naine',     tier:'medium', price:100},
+  {id:'elf_foret',  file:'elf_foret.png',  name:'Elfe des forêts', tier:'medium', price:100}, // zoomed view: see PARALLAX_SKINS
   {id:'roi',        file:'roi.png',        name:'Roi',       tier:'strong', price:200},
 ]
+// Portraits split into a transparent foreground + a background layer get a real
+// 3D parallax pop when zoomed, instead of one flat image — keyed by the flat
+// filename a card would otherwise show, so nothing else needs to know a given
+// skin is special. Riding the zoom overlay's existing zoom-card-idle tilt
+// animation (see index.css) means the two layers visibly shift against each
+// other as the card floats, with no mouse/gyroscope tracking needed.
+const PARALLAX_SKINS={'elf_foret.png':{bg:'fondforet.png',fg:'elfsansfond.png'}}
 function pickCardImage(total,ownedSkins){
   const tier=total<=20?'weak':total<=28?'medium':'strong'
   const owned=SKIN_CATALOG.filter(s=>s.tier===tier&&(ownedSkins||[]).includes(s.id)).map(s=>s.file)
@@ -88,7 +96,11 @@ function cardImageGallery(ownedSkins){
 // Every portrait that could possibly appear in a match (free tiers + every purchasable
 // skin, owned or not — an opponent in online play may have skins we don't) plus the
 // board background, preloaded on the match-start loading screen.
-const ALL_MATCH_IMAGES=[...FREE_CARD_IMAGES,...SKIN_CATALOG.map(s=>`/images/card/${s.file}`),'/images/plateau.png']
+// PARALLAX_SKINS' fg/bg layers aren't referenced by any SKIN_CATALOG `file`
+// entry directly (only the flat composite is), so they'd otherwise never be
+// preloaded and would pop in the first time that card gets zoomed.
+const ALL_MATCH_IMAGES=[...FREE_CARD_IMAGES,...SKIN_CATALOG.map(s=>`/images/card/${s.file}`),'/images/plateau.png',
+  ...Object.values(PARALLAX_SKINS).flatMap(l=>[`/images/card/${l.bg}`,`/images/card/${l.fg}`])]
 // App-boot preload set: every match image (so the first match never pops in) plus the
 // two menu background variants (landscape/portrait) and the menu music track — the
 // one audio file guaranteed to play within seconds of the app opening.
@@ -1005,6 +1017,17 @@ function soundForAIAction(action,g){
 // ═══════════════════════════════════════════════════════════════════════════════
 //  CARD FACE
 // ═══════════════════════════════════════════════════════════════════════════════
+function CardImageLayer({imageUrl,zoom,className}){
+  const file=imageUrl?.split('/').pop()
+  const layers=zoom&&PARALLAX_SKINS[file]
+  if(!layers)return <img src={imageUrl} alt="" className={className}/>
+  return(
+    <div className={className} style={{transformStyle:'preserve-3d'}}>
+      <img src={`/images/card/${layers.bg}`} alt="" className="absolute inset-0 w-full h-full object-cover" style={{transform:'translateZ(-45px) scale(1.3)'}}/>
+      <img src={`/images/card/${layers.fg}`} alt="" className="absolute inset-0 w-full h-full object-cover" style={{transform:'translateZ(35px)'}}/>
+    </div>
+  )
+}
 const TIER_THEME={
   1:{weak:{border:'border-blue-700/70',bg:'from-blue-950 to-slate-900',glow:'',center:'text-blue-800 text-[8px]',sym:'·'},medium:{border:'border-blue-500',bg:'from-blue-900 to-blue-800',glow:'',center:'text-blue-500/50 text-[9px]',sym:'◆'},strong:{border:'border-cyan-300',bg:'from-blue-700 to-cyan-900',glow:'shadow-[0_0_14px_rgba(34,211,238,0.45)]',center:'text-cyan-300/70 text-sm',sym:'✦'}},
   2:{weak:{border:'border-red-800/70',bg:'from-red-950 to-slate-900',glow:'',center:'text-red-900 text-[8px]',sym:'·'},medium:{border:'border-red-500',bg:'from-red-900 to-red-800',glow:'',center:'text-red-500/50 text-[9px]',sym:'◆'},strong:{border:'border-orange-300',bg:'from-red-700 to-orange-900',glow:'shadow-[0_0_14px_rgba(251,146,60,0.45)]',center:'text-orange-300/70 text-sm',sym:'✦'}},
@@ -1022,6 +1045,7 @@ function CardFace({card,small=false,compact=false,zoom=false,draggable=false,onD
       ?(compact?'text-[9px]':'text-[12px]')
       :(compact?'text-[9px]':'text-[15px]')
   const hasImg=!!card.imageUrl
+  const isParallax=zoom&&!!PARALLAX_SKINS[card.imageUrl?.split('/').pop()]
   // Colored outer glow distinguishes players even with full-opacity images
   const playerGlow=card.owner===1
     ?'shadow-[0_0_18px_rgba(59,130,246,0.65),0_0_6px_rgba(59,130,246,0.3)]'
@@ -1031,12 +1055,13 @@ function CardFace({card,small=false,compact=false,zoom=false,draggable=false,onD
     :tier==='strong'?'hover:shadow-[0_0_32px_rgba(251,146,60,0.8)]':tier==='medium'?'hover:shadow-[0_0_28px_rgba(239,68,68,0.75)]':'hover:shadow-[0_0_24px_rgba(127,29,29,0.65)]'
   return(
     <div draggable={draggable} onDragStart={draggable?onDragStart:undefined} onTouchStart={onTouchStart} onClick={onClick}
+      style={isParallax?{transformStyle:'preserve-3d'}:undefined}
       className={`${sz} border-2 ${theme.border} ${hasImg?playerGlow:theme.glow} rounded-xl bg-gradient-to-br ${hasImg?'':theme.bg} relative select-none overflow-hidden transition-all duration-200
         ${draggable?`cursor-grab active:cursor-grabbing active:scale-95 hover:scale-125 hover:brightness-110 hover:-translate-y-1 ${hoverGlow}`:''}
         ${onClick&&!draggable?'cursor-zoom-in':''}
         ${isTarget?'target-pulse ring-2 ring-yellow-400 ring-offset-1 ring-offset-slate-900 cursor-pointer brightness-110':''}
         ${animClass}`}>
-      {hasImg&&<img src={card.imageUrl} alt="" className="absolute inset-0 w-full h-full object-cover"/>}
+      {hasImg&&<CardImageLayer imageUrl={card.imageUrl} zoom={zoom} className="absolute inset-0 w-full h-full object-cover"/>}
       {hasImg&&<div className={`absolute inset-0 bg-gradient-to-t ${card.owner===1?'from-blue-900/50':'from-red-900/50'} to-transparent`}/>}
       {!hasImg&&tier==='strong'&&<div className={`absolute inset-0 opacity-10 ${card.owner===1?'bg-cyan-300':'bg-orange-300'}`}/>}
       {!hasImg&&<div className={`absolute inset-0 bg-gradient-to-br ${theme.bg}`}/>}
@@ -2037,10 +2062,12 @@ function BoosterCardFace({card,animate=false,revealed=true,size='normal',onClick
   const dim=size==='small'?'w-[68px] h-[68px]':size==='large'?'w-[88vw] h-[88vw] max-w-[420px] max-h-[420px]':'w-[104px] h-[104px]'
   const textSz=size==='small'?'text-[9px]':size==='large'?'text-[30px]':'text-[11px]'
   const labelSz=size==='small'?'text-[7px]':size==='large'?'text-lg':'text-[9px]'
+  const zoom=size==='large'
+  const isParallax=zoom&&!!PARALLAX_SKINS[(card.imageUrl||DEFAULT_CARD_IMAGE).split('/').pop()]
   return(
     <div onClick={onClick} className={`${dim} rounded-xl border-2 relative overflow-hidden shrink-0 ${animClass} ${onClick?'cursor-zoom-in':''}`}
-      style={{borderColor:theme.color,background:'#1e293b'}}>
-      <img src={card.imageUrl||DEFAULT_CARD_IMAGE} alt="" className="absolute inset-0 w-full h-full object-cover"/>
+      style={{borderColor:theme.color,background:'#1e293b',...(isParallax?{transformStyle:'preserve-3d'}:null)}}>
+      <CardImageLayer imageUrl={card.imageUrl||DEFAULT_CARD_IMAGE} zoom={zoom} className="absolute inset-0 w-full h-full object-cover"/>
       <div className="absolute inset-0 bg-black/25"/>
       <div className={`absolute inset-0 grid grid-cols-3 grid-rows-3 ${textSz} p-0.5`}>
         {GRID_KEYS.map((row,ri)=>row.map((key,ci)=>(
@@ -2341,8 +2368,8 @@ function ShopScreen({onBack,coins,ownedSkins,onBuySkin,onDeckBuilder,onBooster,o
         <CoinBadge coins={coins}/>
         <CardZoomOverlay card={zoomedSkin} onClose={()=>setZoomedSkin(null)} renderCard={s=>(
           <div className="w-[88vw] h-[88vw] max-w-[420px] max-h-[420px] rounded-2xl overflow-hidden border-4 relative"
-            style={{borderColor:ownedSkins.includes(s.id)?'#34d399':'#8b6239'}}>
-            <img src={`/images/card/${s.file}`} alt="" className="absolute inset-0 w-full h-full object-cover"/>
+            style={{borderColor:ownedSkins.includes(s.id)?'#34d399':'#8b6239',...(PARALLAX_SKINS[s.file]?{transformStyle:'preserve-3d'}:null)}}>
+            <CardImageLayer imageUrl={`/images/card/${s.file}`} zoom className="absolute inset-0 w-full h-full object-cover"/>
             <div className="absolute bottom-0 inset-x-0 text-center py-3" style={{background:'rgba(0,0,0,0.65)'}}>
               <span className="text-amber-200 font-black text-xl" style={CINZEL_DEC}>{s.name}</span>
             </div>
