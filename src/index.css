@@ -269,25 +269,26 @@ button.wood-btn.menu-fade-up:active:not(:disabled) {
 }
 
 /* ── Split-layer card portraits (see PARALLAX_SKINS in App.jsx) — the two
-   layers drift by a different amount each on the SAME cycle/easing as
-   zoom-card-idle above, so the motion reads as tied to the card's float
-   instead of two unrelated animations. Riding zoom-card-idle's own 3D tilt
-   alone doesn't work: children rotating together with their parent as a
-   rigid body show no relative motion, which is what actually sells depth. */
+   layers drift by a different amount each, on a cycle that's a clean 2x
+   multiple of zoom-card-idle's 4.6s (so the two stay in phase every other
+   loop) but slower on its own for a calmer drift. Riding zoom-card-idle's
+   own 3D tilt alone doesn't work: children rotating together with their
+   parent as a rigid body show no relative motion, which is what actually
+   sells depth. */
 @keyframes parallax-bg-idle {
   0%,100% { transform: translate(0,0) scale(1.1); }
   25%      { transform: translate(-5px,3px) scale(1.1); }
   50%      { transform: translate(5px,-4px) scale(1.1); }
   75%      { transform: translate(-3px,2px) scale(1.1); }
 }
-.parallax-bg-idle { animation: parallax-bg-idle 4.6s ease-in-out infinite; }
+.parallax-bg-idle { animation: parallax-bg-idle 9.2s ease-in-out infinite; }
 @keyframes parallax-fg-idle {
   0%,100% { transform: translate(0,0); }
   25%      { transform: translate(-28px,16px); }
   50%      { transform: translate(30px,-14px); }
   75%      { transform: translate(-16px,10px); }
 }
-.parallax-fg-idle { animation: parallax-fg-idle 4.6s ease-in-out infinite; }
+.parallax-fg-idle { animation: parallax-fg-idle 9.2s ease-in-out infinite; }
 
 /* ── Menu screen — mobile-safe sizing, floating embers, staggered entrance ── */
 .menu-screen {
