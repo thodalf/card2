@@ -1685,7 +1685,7 @@ const CGU_SECTIONS=[
   ['1. Objet',
     `Les présentes Conditions Générales d'Utilisation (« CGU ») régissent l'accès et l'utilisation de l'application ${LEGAL_APP} (le « Service »), un jeu de cartes tactique à deux joueurs, éditée par ${LEGAL_PUBLISHER}. En créant un compte ou en utilisant le Service, vous acceptez sans réserve les présentes CGU. Si vous ne les acceptez pas, veuillez ne pas utiliser le Service.`],
   ['2. Éditeur',
-    `Le Service est édité par ${LEGAL_PUBLISHER} [forme juridique, adresse et SIRET à compléter]. Pour toute question relative aux présentes CGU, vous pouvez nous contacter à l'adresse ${LEGAL_CONTACT}.`],
+    `Le Service est édité par ${LEGAL_PUBLISHER} EURL, C/O DIGIDOM 10 RUE DE PENTHIEVRE 75008 PARIS, SIRET 92049503300010. Pour toute question relative aux présentes CGU, vous pouvez nous contacter à l'adresse ${LEGAL_CONTACT}.`],
   ['3. Accès au service et compte utilisateur',
     `Certaines fonctionnalités (parties en ligne, boosters de cartes, boutique, decks personnalisés, amis) nécessitent la création d'un compte, par email/mot de passe ou via Google Sign-In. D'autres (partie locale, solo contre l'IA avec un deck aléatoire, règles) restent accessibles sans compte, avec une sauvegarde limitée à votre appareil. Vous êtes responsable de la confidentialité de vos identifiants et de toute activité effectuée depuis votre compte.`],
   ['4. Âge minimum',
@@ -1714,7 +1714,7 @@ const CGU_SECTIONS=[
 
 const PRIVACY_SECTIONS=[
   ['1. Responsable du traitement',
-    `Le responsable du traitement de vos données personnelles est ${LEGAL_PUBLISHER} [forme juridique et adresse à compléter], éditeur de ${LEGAL_APP}, joignable à ${LEGAL_CONTACT}.`],
+    `Le responsable du traitement de vos données personnelles est ${LEGAL_PUBLISHER} EURL, C/O DIGIDOM 10 RUE DE PENTHIEVRE 75008 PARIS, SIRET 92049503300010, éditeur de ${LEGAL_APP}, joignable à ${LEGAL_CONTACT}.`],
   ['2. Données que nous collectons',
     `Si vous créez un compte : votre adresse email et votre mot de passe (géré directement par Firebase Authentication — nous n'y avons jamais accès en clair), ou votre profil Google si vous utilisez « Se connecter avec Google » ; votre pseudo ; un identifiant technique unique (UID).\n\nDonnées de jeu liées à votre compte : vos decks, votre collection de cartes, votre solde de pièces virtuelles et vos portraits possédés, vos statistiques (parties jouées, victoires, défaites), votre liste d'amis et demandes d'ami, vos notifications (résultats de parties, demandes/acceptations d'ami, défis).\n\nSi vous jouez sans compte : vos decks, votre collection et vos préférences (son, musique) restent stockés localement sur votre appareil uniquement (« localStorage »), et ne nous sont jamais transmis.`],
   ['3. Pourquoi nous collectons ces données',
