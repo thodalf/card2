@@ -67,20 +67,25 @@ const CARD_IMAGE_TIERS = {
   strong: ['dragon.png'],
 }
 const SKIN_CATALOG = [
-  {id:'hobbit',     file:'hobbit.png',     name:'Hobbit',    tier:'weak',   price:50},
-  {id:'elf_noir',   file:'elf_noir.png',   name:'Elfe noir', tier:'medium', price:100},
-  {id:'orc',        file:'orc.png',        name:'Orc',       tier:'medium', price:100},
-  {id:'nain_femme', file:'nain_femme.png', name:'Naine',     tier:'medium', price:100},
-  {id:'elf_foret',  file:'elf_foret.png',  name:'Elfe des forêts', tier:'medium', price:100}, // zoomed view: see PARALLAX_SKINS
-  {id:'roi',        file:'roi.png',        name:'Roi',       tier:'strong', price:200},
+  {id:'hobbit',       file:'hobbit.png',       name:'Hobbit',          tier:'weak',   price:50},
+  {id:'elf_noir',     file:'elf_noir.png',     name:'Elfe noir',       tier:'medium', price:100},
+  {id:'orc',          file:'orc.png',          name:'Orc',             tier:'medium', price:100},
+  {id:'nain_femme',   file:'nain_femme.png',   name:'Naine',           tier:'medium', price:100},
+  {id:'nain',         file:'nain.png',         name:'Nain',            tier:'medium', price:100},
+  {id:'bard',         file:'bard.png',         name:'Barde',           tier:'medium', price:100},
+  {id:'elf_foret',    file:'elf_foret.png',    name:'Elfe des forêts', tier:'medium', price:100},
+  // No standalone image file — composited live from elfsansfond.png + fondforet.png
+  // (see PARALLAX_SKINS below), and animated with a parallax shift when zoomed.
+  // Priced above the usual cosmetic skin to reflect the extra effect.
+  {id:'elf_sylvestre',file:'elf_sylvestre.png',name:'Elfe sylvestre',  tier:'strong', price:250},
+  {id:'roi',          file:'roi.png',          name:'Roi',             tier:'strong', price:200},
 ]
-// Portraits split into a transparent foreground + a background layer get a real
-// 3D parallax pop when zoomed, instead of one flat image — keyed by the flat
-// filename a card would otherwise show, so nothing else needs to know a given
-// skin is special. Riding the zoom overlay's existing zoom-card-idle tilt
-// animation (see index.css) means the two layers visibly shift against each
-// other as the card floats, with no mouse/gyroscope tracking needed.
-const PARALLAX_SKINS={'elf_foret.png':{bg:'fondforet.png',fg:'elfsansfond.png'}}
+// Keyed by the (possibly virtual, see elf_sylvestre above) filename a card would
+// otherwise show. When zoomed, the two layers animate with a differing amount of
+// drift each — the foreground swings noticeably more than the background — which
+// is what actually reads as parallax; riding the shared idle-tilt rotation alone
+// moves both layers as one rigid body and cancels the depth cue out.
+const PARALLAX_SKINS={'elf_sylvestre.png':{bg:'fondforet.png',fg:'elfsansfond.png'}}
 function pickCardImage(total,ownedSkins){
   const tier=total<=20?'weak':total<=28?'medium':'strong'
   const owned=SKIN_CATALOG.filter(s=>s.tier===tier&&(ownedSkins||[]).includes(s.id)).map(s=>s.file)
@@ -1019,12 +1024,14 @@ function soundForAIAction(action,g){
 // ═══════════════════════════════════════════════════════════════════════════════
 function CardImageLayer({imageUrl,zoom,className}){
   const file=imageUrl?.split('/').pop()
-  const layers=zoom&&PARALLAX_SKINS[file]
+  const layers=PARALLAX_SKINS[file]
   if(!layers)return <img src={imageUrl} alt="" className={className}/>
+  // Not zoomed: the two layers just stack statically, which composites into
+  // the same picture a flat file would — no separate flat image needed.
   return(
-    <div className={className} style={{transformStyle:'preserve-3d'}}>
-      <img src={`/images/card/${layers.bg}`} alt="" className="absolute inset-0 w-full h-full object-cover" style={{transform:'translateZ(-45px) scale(1.3)'}}/>
-      <img src={`/images/card/${layers.fg}`} alt="" className="absolute inset-0 w-full h-full object-cover" style={{transform:'translateZ(35px)'}}/>
+    <div className={className}>
+      <img src={`/images/card/${layers.bg}`} alt="" className={`absolute inset-0 w-full h-full object-cover ${zoom?'parallax-bg-idle':''}`}/>
+      <img src={`/images/card/${layers.fg}`} alt="" className={`absolute inset-0 w-full h-full object-cover ${zoom?'parallax-fg-idle':''}`}/>
     </div>
   )
 }
@@ -1045,7 +1052,6 @@ function CardFace({card,small=false,compact=false,zoom=false,draggable=false,onD
       ?(compact?'text-[9px]':'text-[12px]')
       :(compact?'text-[9px]':'text-[15px]')
   const hasImg=!!card.imageUrl
-  const isParallax=zoom&&!!PARALLAX_SKINS[card.imageUrl?.split('/').pop()]
   // Colored outer glow distinguishes players even with full-opacity images
   const playerGlow=card.owner===1
     ?'shadow-[0_0_18px_rgba(59,130,246,0.65),0_0_6px_rgba(59,130,246,0.3)]'
@@ -1055,7 +1061,6 @@ function CardFace({card,small=false,compact=false,zoom=false,draggable=false,onD
     :tier==='strong'?'hover:shadow-[0_0_32px_rgba(251,146,60,0.8)]':tier==='medium'?'hover:shadow-[0_0_28px_rgba(239,68,68,0.75)]':'hover:shadow-[0_0_24px_rgba(127,29,29,0.65)]'
   return(
     <div draggable={draggable} onDragStart={draggable?onDragStart:undefined} onTouchStart={onTouchStart} onClick={onClick}
-      style={isParallax?{transformStyle:'preserve-3d'}:undefined}
       className={`${sz} border-2 ${theme.border} ${hasImg?playerGlow:theme.glow} rounded-xl bg-gradient-to-br ${hasImg?'':theme.bg} relative select-none overflow-hidden transition-all duration-200
         ${draggable?`cursor-grab active:cursor-grabbing active:scale-95 hover:scale-125 hover:brightness-110 hover:-translate-y-1 ${hoverGlow}`:''}
         ${onClick&&!draggable?'cursor-zoom-in':''}
@@ -1809,7 +1814,7 @@ function CardEditor({card,onUpdate,onRemove,otherDecks,onMoveCard,onZoom,ownedSk
       <div className="flex gap-4">
         <div onClick={()=>onZoom?.(card)}
           className="w-[150px] h-[150px] shrink-0 rounded-lg border-2 border-amber-800/50 overflow-hidden relative bg-slate-800 cursor-zoom-in">
-          <img src={card.imageUrl||DEFAULT_CARD_IMAGE} alt="" className="absolute inset-0 w-full h-full object-cover"/>
+          <CardImageLayer imageUrl={card.imageUrl||DEFAULT_CARD_IMAGE} className="absolute inset-0 w-full h-full object-cover"/>
           <div className="absolute inset-0 bg-black/25"/>
           <div className="absolute inset-0 grid grid-cols-3 grid-rows-3 gap-0.5 p-1">
             {GRID_KEYS.map((row,ri)=>row.map((key,ci)=>(
@@ -1841,7 +1846,7 @@ function CardEditor({card,onUpdate,onRemove,otherDecks,onMoveCard,onZoom,ownedSk
                   return(
                     <button key={src} onClick={()=>onUpdate({imageUrl:src})} title={src.split('/').pop()}
                       className={`w-9 h-9 rounded-md overflow-hidden border-2 transition-all duration-200 hover:scale-110 active:scale-95 shrink-0 ${selected?'border-amber-400':'border-slate-700 hover:border-amber-600'}`}>
-                      <img src={src} alt="" className="w-full h-full object-cover"/>
+                      <CardImageLayer imageUrl={src} className="w-full h-full object-cover"/>
                     </button>
                   )
                 })}
@@ -2063,10 +2068,9 @@ function BoosterCardFace({card,animate=false,revealed=true,size='normal',onClick
   const textSz=size==='small'?'text-[9px]':size==='large'?'text-[30px]':'text-[11px]'
   const labelSz=size==='small'?'text-[7px]':size==='large'?'text-lg':'text-[9px]'
   const zoom=size==='large'
-  const isParallax=zoom&&!!PARALLAX_SKINS[(card.imageUrl||DEFAULT_CARD_IMAGE).split('/').pop()]
   return(
     <div onClick={onClick} className={`${dim} rounded-xl border-2 relative overflow-hidden shrink-0 ${animClass} ${onClick?'cursor-zoom-in':''}`}
-      style={{borderColor:theme.color,background:'#1e293b',...(isParallax?{transformStyle:'preserve-3d'}:null)}}>
+      style={{borderColor:theme.color,background:'#1e293b'}}>
       <CardImageLayer imageUrl={card.imageUrl||DEFAULT_CARD_IMAGE} zoom={zoom} className="absolute inset-0 w-full h-full object-cover"/>
       <div className="absolute inset-0 bg-black/25"/>
       <div className={`absolute inset-0 grid grid-cols-3 grid-rows-3 ${textSz} p-0.5`}>
@@ -2368,7 +2372,7 @@ function ShopScreen({onBack,coins,ownedSkins,onBuySkin,onDeckBuilder,onBooster,o
         <CoinBadge coins={coins}/>
         <CardZoomOverlay card={zoomedSkin} onClose={()=>setZoomedSkin(null)} renderCard={s=>(
           <div className="w-[88vw] h-[88vw] max-w-[420px] max-h-[420px] rounded-2xl overflow-hidden border-4 relative"
-            style={{borderColor:ownedSkins.includes(s.id)?'#34d399':'#8b6239',...(PARALLAX_SKINS[s.file]?{transformStyle:'preserve-3d'}:null)}}>
+            style={{borderColor:ownedSkins.includes(s.id)?'#34d399':'#8b6239'}}>
             <CardImageLayer imageUrl={`/images/card/${s.file}`} zoom className="absolute inset-0 w-full h-full object-cover"/>
             <div className="absolute bottom-0 inset-x-0 text-center py-3" style={{background:'rgba(0,0,0,0.65)'}}>
               <span className="text-amber-200 font-black text-xl" style={CINZEL_DEC}>{s.name}</span>
@@ -2390,7 +2394,7 @@ function ShopScreen({onBack,coins,ownedSkins,onBuySkin,onDeckBuilder,onBooster,o
                 <div key={skin.id} className="rounded-xl p-3 border border-amber-900/40 flex flex-col items-center gap-2" style={{background:'rgba(8,5,2,0.78)'}}>
                   <div onClick={()=>setZoomedSkin(skin)}
                     className="w-20 h-20 rounded-lg overflow-hidden border-2 border-amber-800/50 relative cursor-zoom-in transition-transform hover:scale-105">
-                    <img src={`/images/card/${skin.file}`} alt="" className={`w-full h-full object-cover ${owned?'':'opacity-60'}`}/>
+                    <CardImageLayer imageUrl={`/images/card/${skin.file}`} className={`w-full h-full object-cover ${owned?'':'opacity-60'}`}/>
                     {!owned&&<div className="absolute inset-0 flex items-center justify-center bg-black/30"><Lock size={20} className="text-slate-300"/></div>}
                   </div>
                   <span className="text-amber-200 font-bold text-sm text-center" style={CINZEL}>{skin.name}</span>
