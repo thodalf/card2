@@ -7,9 +7,10 @@
 import { initializeApp } from 'firebase/app'
 import { getDatabase, ref, set, get, push, onValue, update, remove, runTransaction, onDisconnect, query, orderByChild, limitToLast } from 'firebase/database'
 import {
-  getAuth, onAuthStateChanged, updateProfile,
+  getAuth, onAuthStateChanged, updateProfile, deleteUser,
   createUserWithEmailAndPassword, signInWithEmailAndPassword,
   GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signOut,
+  EmailAuthProvider, reauthenticateWithCredential, reauthenticateWithPopup, reauthenticateWithRedirect,
 } from 'firebase/auth'
 
 const firebaseConfig = {
@@ -44,9 +45,15 @@ const AUTH_ERROR_MESSAGES = {
   'auth/invalid-credential': 'Email ou mot de passe incorrect.',
   'auth/popup-closed-by-user': 'Connexion annulée.',
   'auth/network-request-failed': 'Erreur réseau, réessayez.',
+  'auth/requires-recent-login': 'Merci de vous reconnecter pour confirmer cette action.',
 }
+// Keeps the original Firebase error code on the thrown Error (as `.code`) so
+// callers can branch on specific cases (e.g. auth/requires-recent-login)
+// while still getting a friendly, translated `.message` for display.
 function authError(e) {
-  return new Error(AUTH_ERROR_MESSAGES[e?.code] || 'Firebase non configuré — renseignez src/firebase.js')
+  const err = new Error(AUTH_ERROR_MESSAGES[e?.code] || 'Firebase non configuré — renseignez src/firebase.js')
+  if (e?.code) err.code = e.code
+  return err
 }
 
 export async function registerWithEmail(email, password) {
@@ -73,11 +80,16 @@ export async function updateDisplayName(name) {
   try { await updateProfile(auth.currentUser, { displayName: name }) }
   catch (e) { throw authError(e) }
 }
+// Trims a Firebase User down to the plain fields the UI actually needs —
+// providerId (e.g. 'password' vs 'google.com') matters for account deletion,
+// which needs to know whether to re-prompt for a password or for Google.
+function toUserSnapshot(u) {
+  return u ? { uid: u.uid, email: u.email, displayName: u.displayName, providerId: u.providerData[0]?.providerId || null } : null
+}
 // updateProfile() mutates auth.currentUser locally but does NOT re-fire
 // onAuthStateChanged, so callers must pull a fresh snapshot to update UI state.
 export function currentUserSnapshot() {
-  const u = auth?.currentUser
-  return u ? { uid: u.uid, email: u.email, displayName: u.displayName } : null
+  return toUserSnapshot(auth?.currentUser)
 }
 export async function loginWithEmail(email, password) {
   if (!auth) throw authError()
@@ -119,7 +131,52 @@ export async function logout() {
 }
 export function onAuthChange(callback) {
   if (!auth) { callback(null); return () => {} }
-  return onAuthStateChanged(auth, callback)
+  return onAuthStateChanged(auth, u => callback(toUserSnapshot(u)))
+}
+
+// ─── Account deletion (Play Store / GDPR requirement) ───────────
+// Firebase requires a "recent" login before a sensitive op like deleteUser —
+// if the session is older than a few minutes this throws auth/requires-recent-login,
+// which callers should catch and resolve with reauthenticate() below before retrying.
+export async function reauthenticate(password) {
+  if (!auth?.currentUser) throw new Error('Non connecté')
+  const providerId = auth.currentUser.providerData[0]?.providerId
+  if (providerId !== 'google.com' && !password) throw new Error('Mot de passe requis pour confirmer la suppression.')
+  try {
+    if (providerId === 'google.com') {
+      const provider = new GoogleAuthProvider()
+      if (isStandalonePwa()) { await reauthenticateWithRedirect(auth.currentUser, provider); return }
+      await reauthenticateWithPopup(auth.currentUser, provider)
+    } else {
+      await reauthenticateWithCredential(auth.currentUser, EmailAuthProvider.credential(auth.currentUser.email, password))
+    }
+  } catch (e) { throw authError(e) }
+}
+// Best-effort purge of every Realtime Database path keyed by this uid, plus the
+// reverse half of each friendship (friends/{uid}/x is only addressable from the
+// uid side otherwise) and the username index slot. Each path is removed
+// independently so one missing/blocked path can't stop the rest of the cleanup.
+export async function deleteAccountData(uid) {
+  if (!db) return
+  const [friendsSnap, pseudoSnap] = await Promise.all([
+    get(ref(db, `friends/${uid}`)).catch(() => null),
+    get(ref(db, `users/${uid}/pseudoNormalized`)).catch(() => null),
+  ])
+  const friendUids = friendsSnap?.exists() ? Object.keys(friendsSnap.val()) : []
+  await Promise.all(friendUids.map(fid => remove(ref(db, `friends/${fid}/${uid}`)).catch(() => {})))
+  const normalized = pseudoSnap?.exists() ? pseudoSnap.val() : null
+  if (normalized) await runTransaction(ref(db, `usernames/${normalized}`), current => (current === uid ? null : current)).catch(() => {})
+  await Promise.all([
+    remove(ref(db, `users/${uid}`)),
+    remove(ref(db, `friends/${uid}`)),
+    remove(ref(db, `friendRequests/${uid}`)),
+    remove(ref(db, `notifications/${uid}`)),
+  ].map(p => p.catch(() => {})))
+}
+export async function deleteCurrentAccount() {
+  if (!auth?.currentUser) throw new Error('Non connecté')
+  try { await deleteUser(auth.currentUser) }
+  catch (e) { throw authError(e) }
 }
 
 // ─── Player data (decks & stats), keyed by uid ─────────────────

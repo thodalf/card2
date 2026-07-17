@@ -3,6 +3,7 @@ import { Copy, Volume2, VolumeX, Home, BookOpen, Wifi, Play, Users, Check, X, Za
 import {
   genRoomCode, createRoom, joinRoom, pushState, subscribeRoom, removeRoom,
   onAuthChange, registerWithEmail, loginWithEmail, loginWithGoogle, logout, completeRedirectLogin,
+  reauthenticate, deleteAccountData, deleteCurrentAccount,
   updateDisplayName, currentUserSnapshot,
   loadCloudDecks, saveCloudDecks, subscribeStats, recordGameResult,
   joinMatchmaking, leaveMatchmaking, publishMatchResult, subscribeMatchResult, clearMatchResult,
@@ -246,6 +247,14 @@ function saveLastBoosterAt(ts){
 }
 function msUntilNextBooster(lastAt){
   return Math.max(0,BOOSTER_COOLDOWN_MS-(Date.now()-(lastAt||0)))
+}
+// Clears the locally-cached copy of account-bound game data after a deletion —
+// otherwise a future login/merge (mergeById in App) would read this device's
+// stale local copy and silently resurrect decks/coins the user just deleted.
+// Device-only preferences (sound, music volume, tutorial-seen) are left alone.
+function clearLocalAccountData(){
+  [DECKS_KEY,COINS_KEY,COINS_UPDATED_KEY,OWNED_SKINS_KEY,COLLECTION_KEY,LAST_BOOSTER_KEY,DELETED_COLLECTION_KEY,DELETED_DECKS_KEY]
+    .forEach(k=>{try{localStorage.removeItem(k)}catch{}})
 }
 function boosterCardRarity(total){
   if(total>60)return 'legendary'
@@ -1659,6 +1668,107 @@ function RulesScreen({onBack,user,onDeckBuilder,onBooster,onRules,onAccount,onSh
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+//  LEGAL — Terms of Service (CGU) and Privacy Policy
+//  Drafted from an actual audit of what the app stores (Firebase Auth, the
+//  Realtime Database paths in firebase.js, and the localStorage keys in this
+//  file) — not boilerplate. Still: this is a starting draft, not legal advice.
+//  Have it reviewed by a qualified professional before a real Play Store
+//  submission, and fill in the bracketed placeholders (legal form, address,
+//  SIRET) once the publishing entity is registered.
+// ═══════════════════════════════════════════════════════════════════════════════
+const LEGAL_LAST_UPDATED='17 juillet 2026'
+const LEGAL_PUBLISHER='Linereve'
+const LEGAL_CONTACT='thodalf@gmail.com'
+const LEGAL_APP='Charta Logica'
+
+const CGU_SECTIONS=[
+  ['1. Objet',
+    `Les présentes Conditions Générales d'Utilisation (« CGU ») régissent l'accès et l'utilisation de l'application ${LEGAL_APP} (le « Service »), un jeu de cartes tactique à deux joueurs, éditée par ${LEGAL_PUBLISHER}. En créant un compte ou en utilisant le Service, vous acceptez sans réserve les présentes CGU. Si vous ne les acceptez pas, veuillez ne pas utiliser le Service.`],
+  ['2. Éditeur',
+    `Le Service est édité par ${LEGAL_PUBLISHER} [forme juridique, adresse et SIRET à compléter]. Pour toute question relative aux présentes CGU, vous pouvez nous contacter à l'adresse ${LEGAL_CONTACT}.`],
+  ['3. Accès au service et compte utilisateur',
+    `Certaines fonctionnalités (parties en ligne, boosters de cartes, boutique, decks personnalisés, amis) nécessitent la création d'un compte, par email/mot de passe ou via Google Sign-In. D'autres (partie locale, solo contre l'IA avec un deck aléatoire, règles) restent accessibles sans compte, avec une sauvegarde limitée à votre appareil. Vous êtes responsable de la confidentialité de vos identifiants et de toute activité effectuée depuis votre compte.`],
+  ['4. Âge minimum',
+    `L'utilisation du Service avec un compte est réservée aux personnes âgées d'au moins 15 ans, conformément à l'âge du consentement numérique applicable en France. Si vous avez moins de 15 ans, la création d'un compte nécessite l'accord d'un titulaire de l'autorité parentale.`],
+  ['5. Pseudo et comportement',
+    `Votre pseudo est visible par les autres joueurs (adversaires en ligne, amis) et peut être recherché par eux pour vous ajouter en ami. Vous vous engagez à choisir un pseudo non injurieux, non usurpateur d'identité et respectueux d'autrui, et à ne pas utiliser le Service à des fins de harcèlement, de triche ou de contournement des mécaniques de jeu. Nous nous réservons le droit de suspendre un compte en cas de manquement manifeste.`],
+  ['6. Monnaie virtuelle et boutique',
+    `Les « pièces » gagnées en jouant (ouverture de boosters, victoires) sont une monnaie purement virtuelle, sans valeur monétaire réelle, non convertible en argent, non transférable entre comptes et non remboursable. L'achat de pièces avec de l'argent réel n'est pas proposé à ce jour. Les portraits de cartes achetés en boutique et les cartes obtenues par booster sont des contenus cosmétiques/de jeu liés à votre compte, sans valeur en dehors du Service.`],
+  ['7. Fonctionnalités en ligne et sociales',
+    `Le mode « Partie en Ligne », le système d'amis et les notifications reposent sur une infrastructure tierce (Firebase, voir la Politique de confidentialité) et nécessitent une connexion internet. Nous ne garantissons pas la disponibilité permanente de ces fonctionnalités ni l'absence d'interruption du service de mise en relation entre joueurs.`],
+  ['8. Propriété intellectuelle',
+    `L'application, son design, ses illustrations, sa charte graphique et son code sont la propriété de ${LEGAL_PUBLISHER} ou de ses concédants, et sont protégés par le droit de la propriété intellectuelle. Toute reproduction ou exploitation non autorisée est interdite. Les decks et pseudos que vous créez restent votre contenu ; en les utilisant dans le Service, vous nous accordez le droit technique nécessaire de les stocker et de les afficher aux autres joueurs dans le cadre du jeu.`],
+  ['9. Disponibilité et évolution du service',
+    `Nous nous efforçons d'assurer un accès continu au Service mais ne garantissons pas une disponibilité ininterrompue. Le Service peut évoluer (nouvelles fonctionnalités, rééquilibrages, changements d'interface) ou être interrompu, temporairement ou définitivement, à tout moment.`],
+  ['10. Suspension et suppression de compte',
+    `Vous pouvez supprimer votre compte et vos données à tout moment depuis l'écran « Mon Compte » de l'application. Nous pouvons suspendre ou supprimer un compte en cas de violation des présentes CGU, notamment en cas de triche, harcèlement ou usurpation d'identité.`],
+  ['11. Responsabilité',
+    `Le Service est fourni « en l'état ». Dans la limite permise par la loi, ${LEGAL_PUBLISHER} ne saurait être tenu responsable des dommages indirects résultant de l'utilisation du Service, ni de la perte de données due à une défaillance d'un service tiers (Firebase, hébergement) hors de notre contrôle.`],
+  ['12. Droit applicable',
+    `Les présentes CGU sont soumises au droit français. Tout litige relatif à leur interprétation ou leur exécution relève, à défaut de résolution amiable, des juridictions compétentes.`],
+  ['13. Modification des CGU',
+    `Nous pouvons modifier ces CGU pour refléter une évolution du Service ou de la réglementation. La date de dernière mise à jour figure en haut de ce document. En cas de modification substantielle, nous vous en informerons dans l'application.`],
+  ['14. Contact',
+    `Pour toute question relative aux présentes CGU : ${LEGAL_CONTACT}.`],
+]
+
+const PRIVACY_SECTIONS=[
+  ['1. Responsable du traitement',
+    `Le responsable du traitement de vos données personnelles est ${LEGAL_PUBLISHER} [forme juridique et adresse à compléter], éditeur de ${LEGAL_APP}, joignable à ${LEGAL_CONTACT}.`],
+  ['2. Données que nous collectons',
+    `Si vous créez un compte : votre adresse email et votre mot de passe (géré directement par Firebase Authentication — nous n'y avons jamais accès en clair), ou votre profil Google si vous utilisez « Se connecter avec Google » ; votre pseudo ; un identifiant technique unique (UID).\n\nDonnées de jeu liées à votre compte : vos decks, votre collection de cartes, votre solde de pièces virtuelles et vos portraits possédés, vos statistiques (parties jouées, victoires, défaites), votre liste d'amis et demandes d'ami, vos notifications (résultats de parties, demandes/acceptations d'ami, défis).\n\nSi vous jouez sans compte : vos decks, votre collection et vos préférences (son, musique) restent stockés localement sur votre appareil uniquement (« localStorage »), et ne nous sont jamais transmis.`],
+  ['3. Pourquoi nous collectons ces données',
+    `Nous traitons ces données pour : exécuter le contrat qui nous lie à vous en tant qu'utilisateur du Service (créer et faire fonctionner votre compte, sauvegarder votre progression, permettre les parties en ligne et les fonctionnalités sociales) ; et, pour les préférences techniques (son, tutoriel vu), sur la base de notre intérêt légitime à assurer le bon fonctionnement de l'application. Nous ne faisons pas de profilage, ne vendons aucune donnée et n'affichons aucune publicité ciblée.`],
+  ['4. Qui peut voir vos données',
+    `Votre pseudo est visible par les autres joueurs (adversaire d'une partie en ligne, autres utilisateurs qui vous recherchent pour vous ajouter en ami) et apparaît dans les notifications liées aux parties et aux demandes d'ami. Votre email, votre mot de passe, votre solde de pièces, vos decks et vos statistiques ne sont jamais visibles par les autres utilisateurs. Nous ne partageons vos données avec aucun tiers à des fins commerciales.`],
+  ['5. Sous-traitants et hébergement',
+    `Nous faisons appel aux prestataires suivants, qui agissent en tant que sous-traitants ou traitent des données en tant que responsables conjoints selon leurs propres conditions :\n— Google Firebase (Google Ireland Limited / Google LLC) : authentification et base de données en temps réel hébergeant vos données de jeu ;\n— Netlify, Inc. : hébergement du site et de l'application ;\n— Google Fonts : chargement des polices d'écriture de l'interface.\nCes prestataires peuvent traiter des données en dehors de l'Union européenne (notamment aux États-Unis) ; le cas échéant, ce transfert repose sur les clauses contractuelles types de la Commission européenne ou un mécanisme équivalent mis en place par le prestataire.`],
+  ['6. Durée de conservation',
+    `Vos données de compte et de jeu sont conservées tant que votre compte existe. Les données techniques transitoires (mise en relation pour une partie en ligne, salle de jeu) sont supprimées à la fin de la partie ou après un court délai d'inactivité. Vos notifications sont conservées dans la limite des 50 plus récentes. Si vous supprimez votre compte, vos données sont effacées selon les modalités décrites à la section 9.`],
+  ['7. Sécurité',
+    `L'accès à vos données est protégé par les règles de sécurité de la base de données Firebase, qui restreignent la lecture et l'écriture de vos données personnelles à votre propre compte authentifié (à l'exception des informations sociales décrites à la section 4, nécessaires au fonctionnement du jeu). Aucune méthode de transmission ou de stockage n'est toutefois sécurisée à 100 %.`],
+  ['8. Vos droits',
+    `Conformément au RGPD, vous disposez d'un droit d'accès, de rectification, d'effacement, de limitation, d'opposition et de portabilité de vos données. Vous pouvez :\n— rectifier votre pseudo directement depuis l'écran « Mon Compte » ;\n— supprimer votre compte et l'ensemble de vos données associées depuis ce même écran (voir section 9) ;\n— nous contacter à ${LEGAL_CONTACT} pour toute autre demande (accès, portabilité, opposition).\nVous disposez également du droit d'introduire une réclamation auprès de la CNIL (www.cnil.fr) si vous estimez que le traitement de vos données n'est pas conforme à la réglementation.`],
+  ['9. Suppression de votre compte',
+    `Vous pouvez supprimer votre compte à tout moment depuis l'écran « Mon Compte » → « Supprimer mon compte ». Cette action est irréversible et entraîne la suppression de votre compte d'authentification ainsi que de vos decks, collection, statistiques, pièces, portraits, amis, demandes d'ami et notifications stockés sur nos serveurs. Les données déjà partagées avec d'autres joueurs avant la suppression (par exemple votre pseudo dans une notification déjà reçue par un ami) peuvent subsister chez ces derniers. Si la suppression échoue parce que votre session est trop ancienne, l'application vous demandera de vous reconnecter avant de réessayer.`],
+  ['10. Stockage local et cookies',
+    `L'application utilise le stockage local de votre navigateur (« localStorage »), et non des cookies publicitaires ou de suivi, pour mémoriser vos préférences (son, volume de musique, tutoriel vu) et, si vous n'êtes pas connecté, votre progression de jeu. Ce stockage reste sur votre appareil et n'est pas transmis à nos serveurs.`],
+  ['11. Mineurs',
+    `Le Service n'est pas destiné aux enfants de moins de 15 ans sans l'accord d'un titulaire de l'autorité parentale (voir CGU, section 4). Nous ne collectons pas sciemment de données auprès d'enfants ne respectant pas cette condition.`],
+  ['12. Modification de cette politique',
+    `Nous pouvons mettre à jour cette politique pour refléter une évolution du Service, de nos prestataires ou de la réglementation. La date de dernière mise à jour figure en haut de ce document.`],
+  ['13. Contact',
+    `Pour toute question relative à vos données personnelles ou pour exercer vos droits : ${LEGAL_CONTACT}.`],
+]
+
+function LegalScreen({type,onBack,user,onDeckBuilder,onBooster,onRules,onAccount,onShop,onSocial,unreadCount}){
+  const isCgu=type==='cgu'
+  const sections=isCgu?CGU_SECTIONS:PRIVACY_SECTIONS
+  const title=isCgu?'Conditions Générales d\'Utilisation':'Politique de confidentialité'
+  return(
+    <div className="relative min-h-screen">
+      <div className="bg-charta fixed inset-0" aria-hidden="true"/>
+      <div className="relative scrollbar-hide min-h-screen overflow-y-auto py-8 pb-28 px-4 flex flex-col items-center">
+        <div className="max-w-lg w-full">
+          <BackButton onClick={onBack} className="mb-6">Menu</BackButton>
+          <h2 className="text-3xl font-black mb-1" style={{...CINZEL_DEC,background:'linear-gradient(to bottom,#ffe566,#c9a020)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',filter:'drop-shadow(0 1px 10px rgba(0,0,0,1))'}}>{title}</h2>
+          <p className="text-slate-400 text-xs mb-5">{LEGAL_APP} · Dernière mise à jour : {LEGAL_LAST_UPDATED}</p>
+          {sections.map(([t,d])=>(
+            <div key={t} className="rounded-xl p-4 mb-3 border border-amber-900/40" style={{background:'rgba(8,5,2,0.78)'}}>
+              <h3 className="text-amber-300 font-bold mb-1.5" style={CINZEL}>{t}</h3>
+              {d.split('\n\n').map((para,i)=>(
+                <p key={i} className="text-slate-300 text-sm leading-relaxed whitespace-pre-line mb-2 last:mb-0">{para}</p>
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
+      <BottomNav onDeckBuilder={onDeckBuilder} onBooster={onBooster} onRules={onRules} onAccount={onAccount} onShop={onShop} onSocial={onSocial} unreadCount={unreadCount} user={user}/>
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 //  DECK BUILDER SCREEN
 // ═══════════════════════════════════════════════════════════════════════════════
 function CardEditor({card,onUpdate,onRemove,otherDecks,onMoveCard,onZoom,ownedSkins}){
@@ -2312,14 +2422,21 @@ function DeckSelectScreen({mode,onBack,onSelect}){
 // ═══════════════════════════════════════════════════════════════════════════════
 //  ACCOUNT SCREEN — email/password + Google auth, stats, cache reset
 // ═══════════════════════════════════════════════════════════════════════════════
-function AccountScreen({onBack,user,stats,onProfileUpdated,onDeckBuilder,onBooster,onRules,onAccount,onShop,onSocial,unreadCount}){
+function AccountScreen({onBack,user,stats,onProfileUpdated,onLegal,onDeleteAccount,onReauthenticate,onDeckBuilder,onBooster,onRules,onAccount,onShop,onSocial,unreadCount}){
   const[authMode,setAuthMode]=useState('login') // 'login'|'register'
   const[email,setEmail]=useState('');const[password,setPassword]=useState('')
   const[error,setError]=useState('');const[loading,setLoading]=useState(false)
+  const[consent,setConsent]=useState(false)
   const[pseudo,setPseudo]=useState('')
   const[pseudoSaving,setPseudoSaving]=useState(false)
   const[pseudoSaved,setPseudoSaved]=useState(false)
   const[pseudoError,setPseudoError]=useState('')
+  const[confirmDelete,setConfirmDelete]=useState(false)
+  const[deleting,setDeleting]=useState(false)
+  const[deleteError,setDeleteError]=useState('')
+  const[needsReauth,setNeedsReauth]=useState(false)
+  const[reauthPassword,setReauthPassword]=useState('')
+  const isGoogleAccount=user?.providerId==='google.com'
 
   // Pre-fill with the current pseudo, defaulting to the email prefix if none is set yet
   useEffect(()=>{
@@ -2327,15 +2444,35 @@ function AccountScreen({onBack,user,stats,onProfileUpdated,onDeckBuilder,onBoost
   },[user?.uid,user?.displayName])
 
   async function handleEmailSubmit(e){
-    e.preventDefault();setError('');setLoading(true)
+    e.preventDefault()
+    if(authMode==='register'&&!consent){setError('Merci d\'accepter les CGU et la politique de confidentialité pour créer un compte.');return}
+    setError('');setLoading(true)
     try{authMode==='register'?await registerWithEmail(email,password):await loginWithEmail(email,password)}
     catch(err){setError(err.message)}
     setLoading(false)
   }
   async function handleGoogle(){
+    if(authMode==='register'&&!consent){setError('Merci d\'accepter les CGU et la politique de confidentialité pour créer un compte.');return}
     setError('');setLoading(true)
     try{await loginWithGoogle()}catch(err){setError(err.message)}
     setLoading(false)
+  }
+  async function handleDeleteAccount(){
+    setDeleting(true);setDeleteError('')
+    try{await onDeleteAccount();setDeleting(false)}
+    catch(e){
+      if(e?.code==='auth/requires-recent-login'){setNeedsReauth(true);setDeleting(false)}
+      else{setDeleteError(e.message);setDeleting(false);setConfirmDelete(false)}
+    }
+  }
+  async function handleReauthAndDelete(){
+    setDeleting(true);setDeleteError('')
+    try{
+      await onReauthenticate(reauthPassword)
+      setNeedsReauth(false);setReauthPassword('')
+      await onDeleteAccount()
+    }catch(e){setDeleteError(e.message)}
+    setDeleting(false)
   }
   async function handleSavePseudo(){
     const trimmed=pseudo.trim();if(!trimmed)return
@@ -2378,7 +2515,45 @@ function AccountScreen({onBack,user,stats,onProfileUpdated,onDeckBuilder,onBoost
             </div>
             <MedBtn onClick={()=>logout()} color="#ef4444" icon={<LogOut size={14}/>} className="w-full">Se déconnecter</MedBtn>
           </div>
-        ):(
+        ):null}
+        {user&&(
+          <div className="rounded-xl p-4 mb-4 border border-red-900/40" style={{background:'rgba(20,4,4,0.6)'}}>
+            <h3 className="text-red-400 font-bold mb-1 text-sm" style={CINZEL}>Zone dangereuse</h3>
+            <p className="text-slate-400 text-xs mb-3">Supprime définitivement votre compte, vos decks, votre collection, vos pièces, vos amis et vos statistiques. Cette action est irréversible.</p>
+            {deleteError&&<p className="text-red-400 text-xs mb-3">{deleteError}</p>}
+            {needsReauth?(
+              <div className="flex flex-col gap-2">
+                <p className="text-amber-300 text-xs">Reconnexion requise pour confirmer une action aussi sensible.</p>
+                {isGoogleAccount?(
+                  <MedBtn onClick={handleReauthAndDelete} disabled={deleting} color="#ef4444" icon={<Trash2 size={14}/>} className="w-full justify-center">
+                    {deleting?'Suppression…':'Se reconnecter avec Google et supprimer'}
+                  </MedBtn>
+                ):(
+                  <>
+                    <label className="flex items-center gap-2 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 focus-within:border-red-500">
+                      <Lock size={14} className="text-slate-500 shrink-0"/>
+                      <input type="password" autoComplete="current-password" value={reauthPassword} onChange={e=>setReauthPassword(e.target.value)} placeholder="Mot de passe" className="bg-transparent text-slate-200 text-sm outline-none flex-1 min-w-0"/>
+                    </label>
+                    <MedBtn onClick={handleReauthAndDelete} disabled={deleting||!reauthPassword} color="#ef4444" icon={<Trash2 size={14}/>} className="w-full justify-center">
+                      {deleting?'Suppression…':'Confirmer et supprimer'}
+                    </MedBtn>
+                  </>
+                )}
+                <MedBtn onClick={()=>{setNeedsReauth(false);setConfirmDelete(false);setReauthPassword('')}} disabled={deleting} color="#a89484" className="w-full justify-center">Annuler</MedBtn>
+              </div>
+            ):confirmDelete?(
+              <div className="flex gap-2">
+                <MedBtn onClick={handleDeleteAccount} disabled={deleting} color="#ef4444" icon={<Trash2 size={14}/>} className="flex-1 justify-center">
+                  {deleting?'Suppression…':'Confirmer la suppression'}
+                </MedBtn>
+                <MedBtn onClick={()=>setConfirmDelete(false)} disabled={deleting} color="#a89484" className="flex-1 justify-center">Annuler</MedBtn>
+              </div>
+            ):(
+              <MedBtn onClick={()=>setConfirmDelete(true)} color="#ef4444" icon={<Trash2 size={14}/>} className="w-full">Supprimer mon compte</MedBtn>
+            )}
+          </div>
+        )}
+        {!user&&(
           <div className="rounded-xl p-4 mb-4 border border-amber-900/40" style={{background:'rgba(8,5,2,0.78)'}}>
             <div className="flex gap-2 mb-3">
               <button type="button" onClick={()=>setAuthMode('login')}
@@ -2395,15 +2570,31 @@ function AccountScreen({onBack,user,stats,onProfileUpdated,onDeckBuilder,onBoost
                 <Lock size={14} className="text-slate-500 shrink-0"/>
                 <input type="password" required minLength={6} autoComplete={authMode==='register'?'new-password':'current-password'} value={password} onChange={e=>setPassword(e.target.value)} placeholder="Mot de passe" className="bg-transparent text-slate-200 text-sm outline-none flex-1 min-w-0"/>
               </label>
+              {authMode==='register'&&(
+                <label className="flex items-start gap-2 text-slate-400 text-[11px] leading-snug cursor-pointer select-none">
+                  <input type="checkbox" checked={consent} onChange={e=>setConsent(e.target.checked)} className="mt-0.5 shrink-0"/>
+                  <span>
+                    J'accepte les <button type="button" onClick={()=>onLegal('cgu')} className="text-amber-400 underline underline-offset-2">CGU</button> et la <button type="button" onClick={()=>onLegal('privacy')} className="text-amber-400 underline underline-offset-2">politique de confidentialité</button>.
+                  </span>
+                </label>
+              )}
               {error&&<p className="text-red-400 text-xs">{error}</p>}
-              <MedBtn color="#60a5fa" icon={<LogIn size={14}/>} className="w-full" disabled={loading}>
+              <MedBtn color="#60a5fa" icon={<LogIn size={14}/>} className="w-full" disabled={loading||(authMode==='register'&&!consent)}>
                 {authMode==='register'?'Créer mon compte':'Se connecter'}
               </MedBtn>
             </form>
             <div className="flex items-center gap-2 my-3"><div className="flex-1 h-px bg-slate-700"/><span className="text-slate-500 text-[10px] uppercase">ou</span><div className="flex-1 h-px bg-slate-700"/></div>
-            <MedBtn onClick={handleGoogle} disabled={loading} color="#e5e7eb" icon={<span className="text-sm font-black">G</span>} className="w-full">Continuer avec Google</MedBtn>
+            <MedBtn onClick={handleGoogle} disabled={loading||(authMode==='register'&&!consent)} color="#e5e7eb" icon={<span className="text-sm font-black">G</span>} className="w-full">Continuer avec Google</MedBtn>
           </div>
         )}
+
+        <div className="rounded-xl p-4 mb-4 border border-amber-900/40" style={{background:'rgba(8,5,2,0.78)'}}>
+          <h3 className="text-amber-300 font-bold mb-1 text-sm" style={CINZEL}>Légal</h3>
+          <div className="flex gap-2">
+            <MedBtn onClick={()=>onLegal('cgu')} color="#a89484" className="flex-1 justify-center">CGU</MedBtn>
+            <MedBtn onClick={()=>onLegal('privacy')} color="#a89484" className="flex-1 justify-center">Confidentialité</MedBtn>
+          </div>
+        </div>
 
         <div className="rounded-xl p-4 border border-amber-900/40" style={{background:'rgba(8,5,2,0.78)'}}>
           <h3 className="text-amber-300 font-bold mb-1 text-sm" style={CINZEL}>Application</h3>
@@ -2762,7 +2953,12 @@ function SoundToggle({enabled,onToggle,volume,onVolumeChange}){
 // ═══════════════════════════════════════════════════════════════════════════════
 export default function App(){
   const[booted,setBooted]=useState(false)
-  const[screen,setScreen]=useState('menu')
+  // Supports a direct link to the legal pages (e.g. https://…/#cgu) so they can
+  // be set as the Play Console "Privacy policy" URL without needing a router.
+  const[screen,setScreen]=useState(()=>{
+    const h=typeof window!=='undefined'?window.location.hash.replace('#',''):''
+    return h==='cgu'||h==='privacy'?h:'menu'
+  })
   const[game,setGame]=useState(null)
   const[soundOn,setSoundOn]=useState(loadSoundPref)
   const[musicVolume,setMusicVolumeState]=useState(loadMusicVolumePref)
@@ -3118,6 +3314,22 @@ export default function App(){
     const u=currentUserSnapshot()
     if(u)setUser(u)
   }
+  // RTDB data must be wiped BEFORE the Auth account is deleted — once deleteUser()
+  // succeeds, auth.currentUser is gone and the database rules (uid-scoped) would
+  // reject any further writes for this user. If deleteCurrentAccount() throws
+  // auth/requires-recent-login, deleteAccountData has already run (harmless to
+  // repeat) — AccountScreen catches that error, prompts reauthentication, and
+  // calls this again.
+  async function handleDeleteAccount(){
+    if(!user)throw new Error('Non connecté')
+    const uid=user.uid
+    await deleteAccountData(uid)
+    await deleteCurrentAccount()
+    clearLocalAccountData()
+    setCoins(0);setOwnedSkins([])
+    setUser(null)
+    setScreen('menu')
+  }
 
   // App-boot preload — menu backgrounds, every match image and the menu track,
   // so the very first screen never pops in silently/blank.
@@ -3132,7 +3344,8 @@ export default function App(){
       {screen==='booster'  && <BoosterScreen onBack={()=>setScreen('menu')} user={user} ownedSkins={ownedSkins} coins={coins} onEarnCoins={earnCoins} onSellCard={sellCard} onSpendCoins={spendCoins} soundEnabled={soundOn} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')} onSocial={()=>setScreen('social')} unreadCount={unreadCount}/>}
       {screen==='shop'     && <ShopScreen onBack={()=>setScreen('menu')} user={user} coins={coins} ownedSkins={ownedSkins} onBuySkin={buySkin} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')} onSocial={()=>setScreen('social')} unreadCount={unreadCount}/>}
       {screen==='deckselect' && <DeckSelectScreen mode={pendingMode} onBack={()=>setScreen('menu')} onSelect={handleDeckChosen}/>}
-      {screen==='account'  && <AccountScreen onBack={()=>setScreen('menu')} user={user} stats={stats} onProfileUpdated={refreshUser} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')} onSocial={()=>setScreen('social')} unreadCount={unreadCount}/>}
+      {screen==='account'  && <AccountScreen onBack={()=>setScreen('menu')} user={user} stats={stats} onProfileUpdated={refreshUser} onLegal={type=>setScreen(type)} onDeleteAccount={handleDeleteAccount} onReauthenticate={reauthenticate} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')} onSocial={()=>setScreen('social')} unreadCount={unreadCount}/>}
+      {(screen==='cgu'||screen==='privacy') && <LegalScreen type={screen} onBack={()=>setScreen(user?'account':'menu')} user={user} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')} onSocial={()=>setScreen('social')} unreadCount={unreadCount}/>}
       {screen==='social'   && <SocialScreen onBack={()=>setScreen('menu')} user={user} friends={friends} friendRequests={friendRequests} notifications={notifications} onSendRequest={handleSendFriendRequest} onRespondRequest={handleRespondFriendRequest} onChallengeFriend={handleChallengeFriend} onAcceptChallenge={handleAcceptChallenge} onMarkAllRead={handleMarkAllNotifsRead} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')}/>}
       {screen==='online'   && <OnlineLobbyScreen onBack={()=>{setPendingChallenge(null);setPendingJoinCode(null);setScreen('menu')}} onGameStart={handleOnlineStart} deck={chosenDeck} ownedSkins={ownedSkins} user={user} challengeTarget={pendingChallenge} autoJoinCode={pendingJoinCode}/>}
       {screen==='loading'  && game && <LoadingScreen onDone={()=>setScreen('game')}/>}
