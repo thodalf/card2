@@ -610,6 +610,19 @@ function getSituation(game,cp){
 }
 
 // Returns {dangerScore, killScore} of a potential attack without committing
+// Real one-ply look-ahead: after this hypothetical board, does the opponent have
+// an actual guaranteed kill available against cp (checked against every one of
+// their real pieces, not the flat per-face estimate scoreAttack/scoreMove use
+// everywhere else)? Used to catch the specific case those heuristics can't see —
+// a face that looks merely "risky" in isolation but is in fact lethal against
+// whatever the opponent has standing right next to it.
+function opponentGuaranteedKillAfter(game,cp,simulatedBoard){
+  const opp=cp===1?2:1
+  const simGame={...game,board:simulatedBoard}
+  const oppSit=getSituation(simGame,opp)
+  return !!findGuaranteedKill(simGame,opp,oppSit)
+}
+
 function analyzeAttack(game,ar,ac,dr,dc){
   const[ak,dk]=getContactKeys(ar,ac,dr,dc)
   const atk=game.board[ar][ac],def=game.board[dr][dc]
@@ -658,6 +671,11 @@ function scoreAttack(game,ar,ac,dr,dc,sit){
     else if(v===2)s-=18/aggr
     else if(v===3)s-=6/aggr
   })
+  // One-ply look-ahead on top of the flat estimate above — the attacker survives
+  // this exchange (aDies is false by this point), but does it hand the opponent
+  // an actual guaranteed kill on their very next turn?
+  const{newBoard}=doAttack(game.board,ar,ac,dr,dc)
+  if(opponentGuaranteedKillAfter(game,atk.owner,newBoard))s-=260/aggr
   return s
 }
 
@@ -807,6 +825,11 @@ function scoreMove(game,fr,fc,tr,tc,card,cp,sit){
     if(d<allyDist)allyDist=d
   }
   if(Number.isFinite(allyDist)&&allyDist>=3)s-=18*(allyDist-2)/aggr
+  // Same one-ply look-ahead as scoreAttack — does landing here hand the
+  // opponent a guaranteed kill next turn, beyond what the flat dangerAfter
+  // estimate above could tell from this face's value alone?
+  const nb=game.board.map(row=>[...row]);nb[tr][tc]={...card,prevPos:{r:fr,c:fc}};nb[fr][fc]=null
+  if(opponentGuaranteedKillAfter(game,cp,nb))s-=260/aggr
   return s
 }
 
@@ -2631,8 +2654,12 @@ function computeLevel(stats){
 // ═══════════════════════════════════════════════════════════════════════════════
 //  ACCOUNT SCREEN — email/password + Google auth, stats, cache reset
 // ═══════════════════════════════════════════════════════════════════════════════
+// Dev-only cheat buttons on the Account screen — gated on this exact account so
+// they can never show up for a normal player, logged in or not.
+const DEV_USER_EMAIL='thodalf@gmail.com'
 function AccountScreen({onBack,user,stats,onProfileUpdated,onLegal,onDeleteAccount,onReauthenticate,onDeckBuilder,onBooster,onRules,onAccount,onShop,onSocial,unreadCount,
-  soundOn,musicVolume,onMusicVolumeChange,sfxVolume,onSfxVolumeChange}){
+  soundOn,musicVolume,onMusicVolumeChange,sfxVolume,onSfxVolumeChange,onDevGrantCoins,onDevLevelUp}){
+  const isDevUser=user&&(user.email===DEV_USER_EMAIL||user.displayName==='thodalf')
   const[authMode,setAuthMode]=useState('login') // 'login'|'register'
   const[email,setEmail]=useState('');const[password,setPassword]=useState('')
   const[error,setError]=useState('');const[loading,setLoading]=useState(false)
@@ -2720,6 +2747,12 @@ function AccountScreen({onBack,user,stats,onProfileUpdated,onLegal,onDeleteAccou
                 </div>
               </div>
             </div>
+            {isDevUser&&(
+              <div className="flex gap-2 mb-4">
+                <MedBtn onClick={onDevGrantCoins} color="#f59e0b" icon={<Coins size={13}/>} className="flex-1 justify-center">Argent gratuit</MedBtn>
+                <MedBtn onClick={onDevLevelUp} color="#34d399" icon={<Star size={13}/>} className="flex-1 justify-center">Monter de niveau</MedBtn>
+              </div>
+            )}
             <label className="text-slate-400 text-[11px] mb-1 block">Pseudo (affiché en partie)</label>
             <div className="flex gap-2 mb-1">
               <input value={pseudo} onChange={e=>setPseudo(e.target.value)} maxLength={24} placeholder="Pseudo"
@@ -3612,7 +3645,8 @@ export default function App(){
       {screen==='deckselect' && <DeckSelectScreen mode={pendingMode} onBack={()=>setScreen('menu')} onSelect={handleDeckChosen}/>}
       {screen==='account'  && <AccountScreen onBack={()=>setScreen('menu')} user={user} stats={stats} onProfileUpdated={refreshUser} onLegal={type=>setScreen(type)} onDeleteAccount={handleDeleteAccount} onReauthenticate={reauthenticate} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')} onSocial={()=>setScreen('social')} unreadCount={unreadCount}
         soundOn={soundOn} musicVolume={musicVolume} onMusicVolumeChange={v=>{setMusicVolumeState(v);setMusicVolume(v)}}
-        sfxVolume={sfxVolume} onSfxVolumeChange={v=>{setSfxVolumeState(v);setSfxVolume(v)}}/>}
+        sfxVolume={sfxVolume} onSfxVolumeChange={v=>{setSfxVolumeState(v);setSfxVolume(v)}}
+        onDevGrantCoins={()=>earnCoins(1000)} onDevLevelUp={()=>{if(user)recordGameResult(user.uid,true).catch(()=>{})}}/>}
       {(screen==='cgu'||screen==='privacy') && <LegalScreen type={screen} onBack={()=>setScreen(user?'account':'menu')} user={user} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')} onSocial={()=>setScreen('social')} unreadCount={unreadCount}/>}
       {screen==='social'   && <SocialScreen onBack={()=>setScreen('menu')} user={user} friends={friends} friendRequests={friendRequests} notifications={notifications} onSendRequest={handleSendFriendRequest} onRespondRequest={handleRespondFriendRequest} onChallengeFriend={handleChallengeFriend} onAcceptChallenge={handleAcceptChallenge} onMarkAllRead={handleMarkAllNotifsRead} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')}/>}
       {screen==='online'   && <OnlineLobbyScreen onBack={()=>{setPendingChallenge(null);setPendingJoinCode(null);setScreen('menu')}} onGameStart={handleOnlineStart} deck={chosenDeck} ownedSkins={ownedSkins} user={user} challengeTarget={pendingChallenge} autoJoinCode={pendingJoinCode}/>}
