@@ -50,6 +50,7 @@
 }
 .wood-btn.rounded-full {
   background-image: url('/images/planche_rond.png');
+  background-size: cover;
 }
 
 /* Idle: a light card-like float (gentle bob + tilt, same feel as .anim-idle on
