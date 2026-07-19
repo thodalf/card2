@@ -774,6 +774,20 @@ function scoreMove(game,fr,fc,tr,tc,card,cp,sit){
   s+=atkAfter*0.5*aggr                 // bonus for reaching attack position, bigger when behind
   if(tr<fr)s+=14*aggr                  // bias toward advancing grows when behind — raised so the AI presses forward more readily
   s-=5                                 // baseline cost so AI only moves for a reason
+  // Isolation penalty — without it, findBestMove always re-picks whichever single
+  // card currently scores highest, which (with no per-card distribution) was the
+  // same lead card turn after turn: it would sprint alone deep into enemy territory
+  // while every other card sat still, arriving unsupported and getting picked off.
+  // Skipped when this card has no allies left at all (allyDist stays Infinity) —
+  // a lone last card has no "formation" to break from.
+  let allyDist=Infinity
+  for(let rr=0;rr<5;rr++)for(let cc=0;cc<5;cc++){
+    if(rr===fr&&cc===fc)continue
+    const ally=game.board[rr][cc];if(!ally||ally.owner!==cp)continue
+    const d=Math.max(Math.abs(rr-tr),Math.abs(cc-tc))
+    if(d<allyDist)allyDist=d
+  }
+  if(Number.isFinite(allyDist)&&allyDist>=3)s-=18*(allyDist-2)/aggr
   return s
 }
 
@@ -781,8 +795,11 @@ function findBestMove(game,cp,sit){
   let best=null,bestS=-8*(sit?.aggression??1)  // move if marginally beneficial or to escape danger
   for(let fr=0;fr<5;fr++)for(let fc=0;fc<5;fc++){
     const card=game.board[fr][fc];if(!card||card.owner!==cp)continue
-    for(let dr=-1;dr<=1;dr++)for(let dc=-1;dc<=1;dc++){
-      if(dr===0&&dc===0)continue
+    // Cardinal directions checked before diagonals — with no nearby enemy, most
+    // candidate moves tie on score, and a plain dr/dc double loop would always
+    // resolve that tie to (-1,-1) first, silently pulling every advance toward
+    // the up-left corner instead of straight ahead.
+    for(const[dr,dc]of[[-1,0],[1,0],[0,-1],[0,1],[-1,-1],[-1,1],[1,-1],[1,1]]){
       const tr=fr+dr,tc=fc+dc
       if(tr<0||tr>=5||tc<0||tc>=5)continue
       if(isCellBlocked(game,tr,tc)||game.board[tr][tc])continue
@@ -943,8 +960,7 @@ function computeAIAction(game){
       const card=game.board[fr][fc];if(!card||card.owner!==cp)continue
       const d=cardDangerScore(game,fr,fc,cp)
       if(d<80)continue
-      for(let dr=-1;dr<=1;dr++)for(let dc=-1;dc<=1;dc++){
-        if(dr===0&&dc===0)continue
+      for(const[dr,dc]of[[-1,0],[1,0],[0,-1],[0,1],[-1,-1],[-1,1],[1,-1],[1,1]]){
         const tr=fr+dr,tc=fc+dc
         if(tr<0||tr>=5||tc<0||tc>=5)continue
         if(isCellBlocked(game,tr,tc)||game.board[tr][tc])continue
