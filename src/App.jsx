@@ -1519,7 +1519,7 @@ const CINZEL     = {fontFamily:"'Cinzel', serif"}
 function MenuBtn({onClick, icon, color, children, delay}){
   return(
     <button onClick={onClick}
-      className="wood-btn menu-fade-up w-full flex items-center gap-3 px-5 py-3.5 sm:py-3 rounded-lg select-none cursor-pointer"
+      className="wood-btn menu-fade-up w-full flex items-center justify-center gap-3 px-5 py-3.5 sm:py-3 rounded-lg select-none cursor-pointer"
       style={{...CINZEL, fontSize:'0.88rem', letterSpacing:'0.08em', animationDelay:delay, color,
         textShadow:'0 1px 2px rgba(0,0,0,0.85)'}}>
       {icon}<span>{children}</span>
