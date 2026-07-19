@@ -583,8 +583,10 @@ function getSituation(game,cp){
   const advantage=cardDelta*30+ptDelta*0.8-cardsInDanger*12
   const posture=advantage<=-25?'losing':advantage>=25?'winning':'even'
   // Smooth multiplier (not just 3 buckets) so borderline situations don't cause an
-  // abrupt behavior flip: ~1.6 when badly behind, ~1.0 when even, ~0.6 when well ahead.
-  const aggression=Math.min(1.6,Math.max(0.6,1-advantage/80))
+  // abrupt behavior flip: ~1.7 when badly behind, ~1.0 when even, ~0.8 when well ahead.
+  // Floor raised from 0.6 — even comfortably ahead, the AI should keep pressing
+  // rather than turtle, which read as overly passive/hiding in practice.
+  const aggression=Math.min(1.7,Math.max(0.8,1-advantage/80))
   return{myPts,oppPts,ptDelta,myCards,oppCards,cardDelta,cardsInDanger,advantage,posture,aggression}
 }
 
@@ -700,8 +702,9 @@ function scorePlacement(game,card,r,c,sit){
   const aggr=sit?.aggression??1
   let s=0
   // Row 3 = attack row, row 4 = safe back row — the pull toward the front line
-  // scales with aggression, same idea as the attack-row bonus below.
-  s+=(r===3?20:0)*aggr
+  // scales with aggression, same idea as the attack-row bonus below. Raised from
+  // 20: the AI was defaulting to the back row too often, reading as passive.
+  s+=(r===3?30:0)*aggr
   // Center columns are more flexible
   s+=(2-Math.abs(c-2))*4
   // Hard penalty: don't place where opponent can instantly destroy a face — this
@@ -769,7 +772,7 @@ function scoreMove(game,fr,fc,tr,tc,card,cp,sit){
   // comfortably ahead (aggr<1) — same reward/risk split as scoreAttack.
   let s=dangerBefore-dangerAfter/aggr
   s+=atkAfter*0.5*aggr                 // bonus for reaching attack position, bigger when behind
-  if(tr<fr)s+=8*aggr                   // bias toward advancing grows when behind
+  if(tr<fr)s+=14*aggr                  // bias toward advancing grows when behind — raised so the AI presses forward more readily
   s-=5                                 // baseline cost so AI only moves for a reason
   return s
 }
@@ -880,8 +883,11 @@ function computePowerTarget(game,cp,type,sit){
     return best&&bestS>25/aggr?{type:'power',powerType:'switch',...best}:null
   }
   if(type==='block'){
-    // Only block once enemy has deployed — no point blocking an empty board
-    const enemyDeployed=game.board.some(row=>row.some(c=>c&&c.owner!==cp))
+    // Only block once the opponent has committed real board presence — one lone
+    // card isn't enough information to justify permanently locking a cell, and
+    // doing it that early just reads as the AI turtling before the match even
+    // started. Wait for at least 2 enemy cards on the board.
+    const enemyDeployed=game.board.flat().filter(c=>c&&c.owner!==cp).length>=2
     if(!enemyDeployed)return null
     const opp=cp===1?2:1,oppRows=opp===1?P1_ROWS:P2_ROWS
     let best=null,bestS=-Infinity
@@ -903,7 +909,34 @@ function computeAIAction(game){
   const cp=2,al=game.actionsLeft,powerCards=game.powerCardHand[cp]||[]
   const sit=getSituation(game,cp)
 
-  // Priority 0: retreat a card with a 0-face exposed toward an enemy (imminent kill)
+  // Priority 0: guaranteed kill of a strong enemy card (attacker survives) — checked
+  // before fleeing, since a card that can kill the very thing threatening it should
+  // fight, not run (retreating here would also give up the attack entirely, since
+  // it's the same action pool's card moving out of range).
+  if(al.attack>0){
+    for(let ar=0;ar<5;ar++)for(let ac=0;ac<5;ac++){
+      if(!game.board[ar][ac]||game.board[ar][ac].owner!==cp)continue
+      for(const[ddr,ddc]of[[-1,0],[1,0],[0,-1],[0,1]]){
+        const dr=ar+ddr,dc=ac+ddc
+        if(dr<0||dr>=5||dc<0||dc>=5)continue
+        const def=game.board[dr][dc]
+        if(!def||def.owner===cp)continue
+        if(cardTier(def)!=='strong')continue
+        const{aDies,dDies}=analyzeAttack(game,ar,ac,dr,dc)
+        if(dDies&&!aDies)return{type:'attack',ar,ac,dr,dc}
+      }
+    }
+  }
+
+  // Priority 1: any guaranteed kill (any tier) — direct scan, see findGuaranteedKill.
+  // Still ahead of fleeing for the same reason as above.
+  if(al.attack>0){
+    const kill=findGuaranteedKill(game,cp,sit)
+    if(kill)return{type:'attack',...kill}
+  }
+
+  // Priority 2: retreat a card with a 0-face exposed toward an enemy (imminent kill),
+  // now that we know none of our cards can just kill the threat outright instead.
   if(al.moves>0){
     let bestFlee=null,bestFleeS=-Infinity
     for(let fr=0;fr<5;fr++)for(let fc=0;fc<5;fc++){
@@ -923,22 +956,6 @@ function computeAIAction(game){
     if(bestFlee)return{type:'move',...bestFlee}
   }
 
-  // Priority 1: guaranteed kill of a strong enemy card (attacker survives)
-  if(al.attack>0){
-    for(let ar=0;ar<5;ar++)for(let ac=0;ac<5;ac++){
-      if(!game.board[ar][ac]||game.board[ar][ac].owner!==cp)continue
-      for(const[ddr,ddc]of[[-1,0],[1,0],[0,-1],[0,1]]){
-        const dr=ar+ddr,dc=ac+ddc
-        if(dr<0||dr>=5||dc<0||dc>=5)continue
-        const def=game.board[dr][dc]
-        if(!def||def.owner===cp)continue
-        if(cardTier(def)!=='strong')continue
-        const{aDies,dDies}=analyzeAttack(game,ar,ac,dr,dc)
-        if(dDies&&!aDies)return{type:'attack',ar,ac,dr,dc}
-      }
-    }
-  }
-
   // Power cards — which one to even consider first shifts with the match state:
   // behind, preserving cards (recall) and setting up a swing (switch) come
   // first; ahead, consolidating the lead (block, buff) takes priority instead.
@@ -953,24 +970,20 @@ function computeAIAction(game){
     }
   }
 
-  // Any guaranteed kill (any tier) — direct scan, see findGuaranteedKill
-  if(al.attack>0){
-    const kill=findGuaranteedKill(game,cp,sit)
-    if(kill)return{type:'attack',...kill}
-  }
-
   // Place a card
   if(al.placement>0&&game.players[cp].hand.length>0){
     const p=findBestPlacement(game,cp,sit)
     if(p)return{type:'place',...p}
   }
 
-  // High-value non-lethal attack before moving
+  // Decent non-lethal attack before moving — bar lowered from 55 so the AI takes
+  // a genuinely good chip attack immediately instead of shelving it behind a
+  // reposition that may never pay off as well.
   if(al.attack>0){
     const atk=findBestAttack(game,cp,sit)
     if(atk){
       const s=scoreAttack(game,atk.ar,atk.ac,atk.dr,atk.dc,sit)
-      if(al.moves===0||s>=55)return{type:'attack',...atk}
+      if(al.moves===0||s>=35)return{type:'attack',...atk}
     }
   }
 
@@ -1638,8 +1651,7 @@ function BottomNav({onDeckBuilder,onBooster,onRules,onAccount,onShop,onSocial,un
 }
 
 // Small fixed coin balance badge, reused on any screen where coins are earned/spent.
-// Sits below the sound toggle (also fixed top-right, now two volume rows tall) so
-// the two never overlap.
+// Sits below the sound toggle (also fixed top-right) so the two never overlap.
 function CoinBadge({coins,onClick}){
   const[displayCoins,setDisplayCoins]=useState(coins)
   const[pulse,setPulse]=useState(false)
@@ -1663,7 +1675,7 @@ function CoinBadge({coins,onClick}){
   },[coins])
   return(
     <button onClick={onClick} title="Boutique"
-      className={`wood-btn fixed top-24 right-3 z-20 flex items-center gap-1.5 px-3 py-1.5 rounded-lg cursor-pointer ${pulse?'coin-badge-pulse':''}`} style={{color:'#fbbf24'}}>
+      className={`wood-btn fixed top-14 right-3 z-20 flex items-center gap-1.5 px-3 py-1.5 rounded-lg cursor-pointer ${pulse?'coin-badge-pulse':''}`} style={{color:'#fbbf24'}}>
       <Coins size={15} className={pulse?'coin-flip':''}/><span className="font-bold text-sm tabular-nums" style={CINZEL}>{displayCoins}</span>
     </button>
   )
@@ -2507,10 +2519,25 @@ function DeckSelectScreen({mode,onBack,onSelect}){
   )
 }
 
+// Lightweight level curve derived from existing win/loss stats — no new backend
+// field needed. Wins count 4x more than losses so ranked skill still dominates,
+// but every game played nudges progress forward too. xpForLevel(L)=25*(L-1)²
+// is the inverse of level=1+floor(sqrt(xp)/5), so the two stay in sync.
+function computeLevel(stats){
+  const wins=stats?.wins||0,games=stats?.gamesPlayed||0
+  const xp=wins*20+Math.max(0,games-wins)*5
+  const level=1+Math.floor(Math.sqrt(xp)/5)
+  const xpForLevel=lvl=>25*Math.pow(lvl-1,2)
+  const xpFloor=xpForLevel(level),xpCeil=xpForLevel(level+1)
+  const progress=xpCeil>xpFloor?(xp-xpFloor)/(xpCeil-xpFloor):1
+  return{level,xp,progress:Math.min(1,Math.max(0,progress))}
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 //  ACCOUNT SCREEN — email/password + Google auth, stats, cache reset
 // ═══════════════════════════════════════════════════════════════════════════════
-function AccountScreen({onBack,user,stats,onProfileUpdated,onLegal,onDeleteAccount,onReauthenticate,onDeckBuilder,onBooster,onRules,onAccount,onShop,onSocial,unreadCount}){
+function AccountScreen({onBack,user,stats,onProfileUpdated,onLegal,onDeleteAccount,onReauthenticate,onDeckBuilder,onBooster,onRules,onAccount,onShop,onSocial,unreadCount,
+  soundOn,musicVolume,onMusicVolumeChange,sfxVolume,onSfxVolumeChange}){
   const[authMode,setAuthMode]=useState('login') // 'login'|'register'
   const[email,setEmail]=useState('');const[password,setPassword]=useState('')
   const[error,setError]=useState('');const[loading,setLoading]=useState(false)
@@ -2574,6 +2601,7 @@ function AccountScreen({onBack,user,stats,onProfileUpdated,onLegal,onDeleteAccou
     setPseudoSaving(false)
   }
   const total=stats?.gamesPlayed||0
+  const{level,progress}=computeLevel(stats)
   return(
     <div className="bg-charta min-h-screen py-8 pb-28 px-4 flex flex-col items-center overflow-y-auto">
       <div className="max-w-sm w-full">
@@ -2582,9 +2610,20 @@ function AccountScreen({onBack,user,stats,onProfileUpdated,onLegal,onDeleteAccou
 
         {user?(
           <div className="rounded-xl p-4 mb-4 border border-amber-900/40" style={{background:'rgba(8,5,2,0.78)'}}>
-            <div className="flex items-center gap-2 mb-4">
+            <div className="flex items-center gap-2 mb-3">
               <UserCircle size={22} className="text-amber-400 shrink-0"/>
               <span className="text-amber-200 font-bold truncate" style={CINZEL}>{user.displayName||user.email}</span>
+            </div>
+            <div className="wood-btn rounded-lg px-3 py-2 mb-4 flex items-center gap-3">
+              <Star size={18} className="text-amber-300 shrink-0" fill="currentColor"/>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-baseline justify-between mb-1">
+                  <span className="font-bold text-sm" style={{...CINZEL,color:'#e8c766',textShadow:'0 1px 2px rgba(0,0,0,0.85)'}}>Niveau {level}</span>
+                </div>
+                <div className="h-1.5 rounded-full bg-black/50 border border-amber-900/40 overflow-hidden">
+                  <div className="h-full rounded-full bg-gradient-to-r from-amber-700 via-amber-400 to-amber-200" style={{width:`${Math.round(progress*100)}%`}}/>
+                </div>
+              </div>
             </div>
             <label className="text-slate-400 text-[11px] mb-1 block">Pseudo (affiché en partie)</label>
             <div className="flex gap-2 mb-1">
@@ -2678,6 +2717,23 @@ function AccountScreen({onBack,user,stats,onProfileUpdated,onLegal,onDeleteAccou
             <MedBtn onClick={handleGoogle} disabled={loading||(authMode==='register'&&!consent)} color="#e5e7eb" icon={<span className="text-sm font-black">G</span>} className="w-full">Continuer avec Google</MedBtn>
           </div>
         )}
+
+        <div className="rounded-xl p-4 mb-4 border border-amber-900/40" style={{background:'rgba(8,5,2,0.78)'}}>
+          <h3 className="text-amber-300 font-bold mb-3 text-sm" style={CINZEL}>Son</h3>
+          <label className="flex items-center gap-3 mb-3">
+            <span className="text-slate-400 text-[11px] w-16 shrink-0">Musique</span>
+            <input type="range" min={0} max={1} step={0.05} value={musicVolume} disabled={!soundOn}
+              onChange={e=>onMusicVolumeChange(parseFloat(e.target.value))}
+              className="flex-1 accent-amber-500 disabled:opacity-30 cursor-pointer"/>
+          </label>
+          <label className="flex items-center gap-3">
+            <span className="text-slate-400 text-[11px] w-16 shrink-0">Bruitage</span>
+            <input type="range" min={0} max={1} step={0.05} value={sfxVolume} disabled={!soundOn}
+              onChange={e=>onSfxVolumeChange(parseFloat(e.target.value))}
+              className="flex-1 accent-amber-500 disabled:opacity-30 cursor-pointer"/>
+          </label>
+          {!soundOn&&<p className="text-slate-500 text-[10px] mt-2">Le son est coupé — réactivez-le avec l'icône en haut à droite.</p>}
+        </div>
 
         <div className="rounded-xl p-4 mb-4 border border-amber-900/40" style={{background:'rgba(8,5,2,0.78)'}}>
           <h3 className="text-amber-300 font-bold mb-1 text-sm" style={CINZEL}>Légal</h3>
@@ -3025,31 +3081,15 @@ function GameOverScreen({winner,isAI,surrendered,onReplay,onMenu,coinsAwarded}){
     </div>
   )
 }
-function SoundToggle({enabled,onToggle,musicVolume,onMusicVolumeChange,sfxVolume,onSfxVolumeChange}){
-  const rowLabel={...CINZEL,color:'#e8c766',textShadow:'0 1px 2px rgba(0,0,0,0.85)'}
+// Mute toggle only — the music/SFX volume sliders live on the Account screen now,
+// so this persistent top-right HUD element stays a single compact icon button.
+function SoundToggle({enabled,onToggle}){
   return(
-    <div className="wood-btn fixed top-3 right-3 z-50 flex items-center gap-2 px-3 py-2 rounded-lg">
-      <button onClick={onToggle} title={enabled?'Couper le son':'Activer le son'}
-        className="shrink-0 transition-all duration-200 hover:scale-110 active:scale-90" style={{color:enabled?'#e8c766':'#7a6a52'}}>
-        {enabled?<Volume2 size={18}/>:<VolumeX size={18}/>}
-      </button>
-      <div className="flex flex-col gap-1">
-        <label className="flex items-center gap-1.5">
-          <span className="text-[9px] font-bold tracking-wide w-12 shrink-0" style={rowLabel}>Musique</span>
-          <input type="range" min={0} max={1} step={0.05} value={musicVolume} disabled={!enabled}
-            onChange={e=>onMusicVolumeChange(parseFloat(e.target.value))}
-            title="Volume de la musique"
-            className="w-16 accent-amber-500 disabled:opacity-30 cursor-pointer"/>
-        </label>
-        <label className="flex items-center gap-1.5">
-          <span className="text-[9px] font-bold tracking-wide w-12 shrink-0" style={rowLabel}>Bruitage</span>
-          <input type="range" min={0} max={1} step={0.05} value={sfxVolume} disabled={!enabled}
-            onChange={e=>onSfxVolumeChange(parseFloat(e.target.value))}
-            title="Volume des bruitages"
-            className="w-16 accent-amber-500 disabled:opacity-30 cursor-pointer"/>
-        </label>
-      </div>
-    </div>
+    <button onClick={onToggle} title={enabled?'Couper le son':'Activer le son'}
+      className="wood-btn fixed top-3 right-3 z-50 w-10 h-10 rounded-full flex items-center justify-center transition-all duration-200 hover:scale-110 active:scale-90"
+      style={{color:enabled?'#e8c766':'#7a6a52'}}>
+      {enabled?<Volume2 size={18}/>:<VolumeX size={18}/>}
+    </button>
   )
 }
 
@@ -3443,16 +3483,16 @@ export default function App(){
 
   return(
     <>
-      <SoundToggle enabled={soundOn} onToggle={()=>setSoundOn(v=>!v)}
-        musicVolume={musicVolume} onMusicVolumeChange={v=>{setMusicVolumeState(v);setMusicVolume(v)}}
-        sfxVolume={sfxVolume} onSfxVolumeChange={v=>{setSfxVolumeState(v);setSfxVolume(v)}}/>
+      <SoundToggle enabled={soundOn} onToggle={()=>setSoundOn(v=>!v)}/>
       {screen==='menu'     && <MenuScreen onAI={()=>goToDeckSelect('ai')} onLocal={()=>goToDeckSelect('local')} onOnline={()=>{setPendingChallenge(null);setPendingJoinCode(null);goToDeckSelect('online')}} onRules={()=>setScreen('rules')} onDeckBuilder={()=>setScreen('deckbuilder')} onAccount={()=>setScreen('account')} onBooster={()=>setScreen('booster')} onShop={()=>setScreen('shop')} onSocial={()=>setScreen('social')} unreadCount={unreadCount} user={user} coins={coins}/>}
       {screen==='rules'    && <RulesScreen onBack={()=>setScreen('menu')} user={user} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')} onSocial={()=>setScreen('social')} unreadCount={unreadCount}/>}
       {screen==='deckbuilder' && <DeckBuilderScreen onBack={()=>setScreen('menu')} user={user} ownedSkins={ownedSkins} coins={coins} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')} onSocial={()=>setScreen('social')} unreadCount={unreadCount}/>}
       {screen==='booster'  && <BoosterScreen onBack={()=>setScreen('menu')} user={user} ownedSkins={ownedSkins} coins={coins} onEarnCoins={earnCoins} onSellCard={sellCard} onSpendCoins={spendCoins} soundEnabled={soundOn} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')} onSocial={()=>setScreen('social')} unreadCount={unreadCount}/>}
       {screen==='shop'     && <ShopScreen onBack={()=>setScreen('menu')} user={user} coins={coins} ownedSkins={ownedSkins} onBuySkin={buySkin} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')} onSocial={()=>setScreen('social')} unreadCount={unreadCount}/>}
       {screen==='deckselect' && <DeckSelectScreen mode={pendingMode} onBack={()=>setScreen('menu')} onSelect={handleDeckChosen}/>}
-      {screen==='account'  && <AccountScreen onBack={()=>setScreen('menu')} user={user} stats={stats} onProfileUpdated={refreshUser} onLegal={type=>setScreen(type)} onDeleteAccount={handleDeleteAccount} onReauthenticate={reauthenticate} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')} onSocial={()=>setScreen('social')} unreadCount={unreadCount}/>}
+      {screen==='account'  && <AccountScreen onBack={()=>setScreen('menu')} user={user} stats={stats} onProfileUpdated={refreshUser} onLegal={type=>setScreen(type)} onDeleteAccount={handleDeleteAccount} onReauthenticate={reauthenticate} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')} onSocial={()=>setScreen('social')} unreadCount={unreadCount}
+        soundOn={soundOn} musicVolume={musicVolume} onMusicVolumeChange={v=>{setMusicVolumeState(v);setMusicVolume(v)}}
+        sfxVolume={sfxVolume} onSfxVolumeChange={v=>{setSfxVolumeState(v);setSfxVolume(v)}}/>}
       {(screen==='cgu'||screen==='privacy') && <LegalScreen type={screen} onBack={()=>setScreen(user?'account':'menu')} user={user} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')} onSocial={()=>setScreen('social')} unreadCount={unreadCount}/>}
       {screen==='social'   && <SocialScreen onBack={()=>setScreen('menu')} user={user} friends={friends} friendRequests={friendRequests} notifications={notifications} onSendRequest={handleSendFriendRequest} onRespondRequest={handleRespondFriendRequest} onChallengeFriend={handleChallengeFriend} onAcceptChallenge={handleAcceptChallenge} onMarkAllRead={handleMarkAllNotifsRead} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')}/>}
       {screen==='online'   && <OnlineLobbyScreen onBack={()=>{setPendingChallenge(null);setPendingJoinCode(null);setScreen('menu')}} onGameStart={handleOnlineStart} deck={chosenDeck} ownedSkins={ownedSkins} user={user} challengeTarget={pendingChallenge} autoJoinCode={pendingJoinCode}/>}
