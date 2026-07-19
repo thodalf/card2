@@ -676,7 +676,14 @@ function scoreAttack(game,ar,ac,dr,dc,sit){
   // an actual guaranteed kill on their very next turn?
   const{newBoard}=doAttack(game.board,ar,ac,dr,dc)
   if(opponentGuaranteedKillAfter(game,atk.owner,newBoard))s-=260/aggr
-  return s
+  // Small random jitter — self-play testing surfaced matches where neither side
+  // ever had a cardinally-adjacent target (only diagonal), so every scoring
+  // function kept returning the exact same numbers turn after turn and both
+  // sides cycled through the same handful of "safest" repositioning moves
+  // forever (some self-play matches ran 600+ turns without resolving). A tiny
+  // nudge breaks that determinism without being large enough to flip any
+  // genuinely one-sided decision (kills/safety margins are worth hundreds).
+  return s+(Math.random()-0.5)*8
 }
 
 function findBestAttack(game,cp,sit){
@@ -768,7 +775,9 @@ function scorePlacement(game,card,r,c,sit){
     })
   }
   s+=card.total*0.4
-  return s
+  // Small random jitter — see scoreAttack for why: breaks exact-repeat cycles
+  // between otherwise-tied candidates instead of always resolving them the same way.
+  return s+(Math.random()-0.5)*8
 }
 
 function findBestPlacement(game,cp,sit){
@@ -830,7 +839,9 @@ function scoreMove(game,fr,fc,tr,tc,card,cp,sit){
   // estimate above could tell from this face's value alone?
   const nb=game.board.map(row=>[...row]);nb[tr][tc]={...card,prevPos:{r:fr,c:fc}};nb[fr][fc]=null
   if(opponentGuaranteedKillAfter(game,cp,nb))s-=260/aggr
-  return s
+  // Small random jitter — see scoreAttack for why: breaks exact-repeat cycles
+  // between otherwise-tied candidates instead of always resolving them the same way.
+  return s+(Math.random()-0.5)*8
 }
 
 function findBestMove(game,cp,sit){
@@ -1192,7 +1203,7 @@ function CardFace({card,small=false,compact=false,zoom=false,draggable=false,onD
       {hasImg&&<div className={`absolute inset-0 bg-gradient-to-t ${card.owner===1?'from-blue-900/50':'from-red-900/50'} to-transparent`}/>}
       {!hasImg&&tier==='strong'&&<div className={`absolute inset-0 opacity-10 ${card.owner===1?'bg-cyan-300':'bg-orange-300'}`}/>}
       {!hasImg&&<div className={`absolute inset-0 bg-gradient-to-br ${theme.bg}`}/>}
-      <div className={`absolute inset-0 grid grid-cols-3 grid-rows-3 ${fs} p-0.5`}>
+      <div className={`absolute inset-0 grid grid-cols-3 grid-rows-3 ${fs} p-0.5 ${isParallax?'parallax-num-idle':''}`}>
         {GRID_KEYS.map((row,ri)=>row.map((key,ci)=>(
           <div key={`${ri}-${ci}`} className="flex items-center justify-center leading-none">
             {key?<span
@@ -2216,7 +2227,7 @@ function BoosterCardFace({card,animate=false,revealed=true,size='normal',onClick
       style={{borderColor:theme.color,background:'#1e293b'}}>
       <CardImageLayer imageUrl={imageUrl} zoom={zoom} layer={isParallax?'bg':'both'} className="absolute inset-0 w-full h-full object-cover"/>
       <div className="absolute inset-0 bg-black/25"/>
-      <div className={`absolute inset-0 grid grid-cols-3 grid-rows-3 ${textSz} p-0.5`}>
+      <div className={`absolute inset-0 grid grid-cols-3 grid-rows-3 ${textSz} p-0.5 ${isParallax?'parallax-num-idle':''}`}>
         {GRID_KEYS.map((row,ri)=>row.map((key,ci)=>(
           <div key={`${ri}-${ci}`} className="flex items-center justify-center">
             {key&&<span className="font-black text-white" style={{textShadow:'0 1px 4px #000,0 0 3px #000'}}>{card.values[key]}</span>}
@@ -2381,10 +2392,12 @@ function BoosterScreen({onBack,user,ownedSkins,coins,onEarnCoins,onSellCard,onSp
       const reward=rnd(BOOSTER_COIN_MIN,BOOSTER_COIN_MAX)
       onEarnCoins(reward)
       setCoinToast(reward)
-      timersRef.current.push(setTimeout(()=>setCoinToast(null),2500))
+      // Cleared by handleCloseReveal instead of its own timer — a fixed timeout
+      // raced the reveal stagger (4 cards × 650ms can outlast a 2.5s timer) and
+      // made the reward vanish right as the "Continuer" button appeared.
     },900))
   }
-  function handleCloseReveal(){setPendingCards(null);setRevealCount(0)}
+  function handleCloseReveal(){setPendingCards(null);setRevealCount(0);setCoinToast(null)}
   function handleAssignToDeck(cardId,deckId){
     const card=collection.find(c=>c.id===cardId);if(!card)return
     const deck=decks.find(d=>d.id===deckId);if(!deck||deck.cards.length>=DECK_MAX_CARDS)return

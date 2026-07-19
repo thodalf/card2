@@ -339,6 +339,18 @@ button.wood-btn.menu-fade-up:active:not(:disabled) {
 }
 .parallax-fg-idle { animation: parallax-fg-idle 9.2s ease-in-out infinite; }
 
+/* Value grid, zoomed — same translate as parallax-bg-idle (no scale: it's text,
+   not an image with cover-crop headroom to burn) so the numbers drift together
+   with the background layer instead of sitting perfectly still while the art
+   moves around them, which read as the numbers being detached from the card. */
+@keyframes parallax-num-idle {
+  0%,100% { transform: translate(0,0); }
+  25%      { transform: translate(-5px,3px); }
+  50%      { transform: translate(5px,-4px); }
+  75%      { transform: translate(-3px,2px); }
+}
+.parallax-num-idle { animation: parallax-num-idle 9.2s ease-in-out infinite; }
+
 /* ── Menu screen — mobile-safe sizing, floating embers, staggered entrance ── */
 .menu-screen {
   min-height: 100svh;
