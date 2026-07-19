@@ -377,12 +377,17 @@ const cardPts  = c => Object.values(c.values).reduce((a,b)=>a+b,0)
 const cardTier = c => c.total<=20?'weak':c.total<=28?'medium':'strong'
 function playerPts(game,p){let pts=game.players[p].hand?.reduce((a,c)=>a+cardPts(c),0);for(const row of game.board)for(const cell of row)if(cell?.owner===p)pts+=cardPts(cell);return pts}
 function cardCount(game,p){let n=game.players[p].hand?.length;for(const row of game.board)for(const cell of row)if(cell?.owner===p)n++;return n}
-// Down to a single card, moving it back to where it just came from is a no-op
-// that both players (and the AI) could otherwise repeat forever — block it so
-// a last-card standoff can't stall the match. With 2+ cards, backtracking is
-// still a legitimate tactic (regroup, retreat, feint), so it's left alone.
-function isBannedLastCardBacktrack(game,cp,card,tr,tc){
-  return cardCount(game,cp)===1&&card.prevPos&&card.prevPos.r===tr&&card.prevPos.c===tc
+// A card can't immediately move straight back to the cell it just came from —
+// otherwise a move is a free no-op that either player (or the AI) could repeat
+// forever to stall. `prevPos` only remembers the single most recent origin
+// (overwritten on every move) and is cleared for a player's whole board at the
+// end of their turn (see clearPrevPos), so this only blocks undoing the very
+// last step, not a genuine return to an old position turns later.
+function isBannedBacktrack(card,tr,tc){
+  return !!card.prevPos&&card.prevPos.r===tr&&card.prevPos.c===tc
+}
+function clearPrevPos(board,player){
+  return board.map(row=>row.map(cell=>(cell&&cell.owner===player&&cell.prevPos)?{...cell,prevPos:null}:cell))
 }
 function checkWin(game){
   const p1Empty=cardCount(game,1)===0, p2Empty=cardCount(game,2)===0
@@ -525,12 +530,19 @@ function createDragGhost(card) {
   const ghost=document.createElement('div')
   ghost.style.cssText=`position:fixed;top:-9999px;left:0;width:170px;height:170px;border:3px solid ${bdr};border-radius:18px;background:linear-gradient(135deg,${bg1},${bg2});display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr);padding:5px;box-sizing:border-box;font-family:system-ui,sans-serif;box-shadow:0 12px 40px rgba(0,0,0,0.85),0 0 24px ${bdr}55;pointer-events:none;overflow:hidden;`
 
-  // Background image layer
+  // Background image layer — a parallax skin (see PARALLAX_SKINS) has no real
+  // file at card.imageUrl itself, just its two composited layers, so a plain
+  // <img src=card.imageUrl> here 404s and the ghost shows no artwork at all.
   if(card.imageUrl){
-    const img=document.createElement('img')
-    img.src=card.imageUrl
-    img.style.cssText='position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:0;border-radius:15px;'
-    ghost.appendChild(img)
+    const file=card.imageUrl.split('/').pop()
+    const layers=PARALLAX_SKINS[file]
+    const srcs=layers?[`/images/card/${layers.bg}`,`/images/card/${layers.fg}`]:[card.imageUrl]
+    srcs.forEach(src=>{
+      const img=document.createElement('img')
+      img.src=src
+      img.style.cssText='position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:0;border-radius:15px;'
+      ghost.appendChild(img)
+    })
     const ov=document.createElement('div')
     ov.style.cssText=`position:absolute;inset:0;background:linear-gradient(to top,${playerOverlay},transparent 60%);z-index:1;border-radius:15px;`
     ghost.appendChild(ov)
@@ -810,7 +822,7 @@ function findBestMove(game,cp,sit){
       const tr=fr+dr,tc=fc+dc
       if(tr<0||tr>=5||tc<0||tc>=5)continue
       if(isCellBlocked(game,tr,tc)||game.board[tr][tc])continue
-      if(isBannedLastCardBacktrack(game,cp,card,tr,tc))continue  // would just undo the last move with nothing else to do
+      if(isBannedBacktrack(card,tr,tc))continue  // would just undo the last move
       const s=scoreMove(game,fr,fc,tr,tc,card,cp,sit)
       if(s>bestS){bestS=s;best={fr,fc,tr,tc}}
     }
@@ -971,7 +983,7 @@ function computeAIAction(game){
         const tr=fr+dr,tc=fc+dc
         if(tr<0||tr>=5||tc<0||tc>=5)continue
         if(isCellBlocked(game,tr,tc)||game.board[tr][tc])continue
-        if(isBannedLastCardBacktrack(game,cp,card,tr,tc))continue
+        if(isBannedBacktrack(card,tr,tc))continue
         const s=d+scoreMove(game,fr,fc,tr,tc,card,cp,sit)
         if(s>bestFleeS){bestFleeS=s;bestFlee={fr,fc,tr,tc}}
       }
@@ -1029,7 +1041,7 @@ function computeAIAction(game){
       for(const[ddr,ddc]of[[-1,0],[0,-1],[0,1],[1,0]]){
         const tr=fr+ddr,tc=fc+ddc
         if(tr<0||tr>=5||tc<0||tc>=5)continue
-        if(isBannedLastCardBacktrack(game,cp,card,tr,tc))continue
+        if(isBannedBacktrack(card,tr,tc))continue
         if(!isCellBlocked(game,tr,tc)&&!game.board[tr][tc])return{type:'move',fr,fc,tr,tc}
       }
     }
@@ -1051,7 +1063,7 @@ function applyAIActionDirect(g,action){
   if(!g||!action)return null
   const cp=g.currentPlayer,al=g.actionsLeft
   switch(action.type){
-    case 'endTurn':return{...g,currentPlayer:1,actionsLeft:{...FRESH_ACTIONS},turn:g.turn+1}
+    case 'endTurn':return{...g,board:clearPrevPos(g.board,cp),currentPlayer:1,actionsLeft:{...FRESH_ACTIONS},turn:g.turn+1}
     case 'power':return applyPowerAction(g,action.powerType,action.r,action.c)
     case 'attack':{
       const{ar,ac,dr,dc}=action
@@ -1072,7 +1084,7 @@ function applyAIActionDirect(g,action){
       const{fr,fc,tr,tc}=action
       if(al.moves<=0||isCellBlocked(g,tr,tc)||!isAdjacent(fr,fc,tr,tc)||g.board[tr][tc])return null
       const card=g.board[fr][fc];if(!card||card.owner!==cp)return null
-      if(isBannedLastCardBacktrack(g,cp,card,tr,tc))return null
+      if(isBannedBacktrack(card,tr,tc))return null
       const nb=g.board.map(row=>[...row]);nb[tr][tc]={...card,prevPos:{r:fr,c:fc}};nb[fr][fc]=null
       return{...g,board:nb,actionsLeft:{...al,moves:al.moves-1}}
     }
@@ -3445,7 +3457,7 @@ export default function App(){
         ]
       }else{
         if(al.moves<=0||isCellBlocked(g,targetR,targetC)||!isAdjacent(fr,fc,targetR,targetC))return
-        if(isBannedLastCardBacktrack(g,cp,moving,targetR,targetC))return
+        if(isBannedBacktrack(moving,targetR,targetC))return
         const nb=g.board.map(r=>[...r]);nb[targetR][targetC]={...moving,prevPos:{r:fr,c:fc}};nb[fr][fc]=null
         g={...g,board:nb,actionsLeft:{...al,moves:al.moves-1}};sfx='move';snd(sfx,soundOn);cells=[{r:targetR,c:targetC,ghost:null,anim:'anim-move',dur:220}]
       }
@@ -3487,7 +3499,7 @@ export default function App(){
     if(!game||!hasActedThisTurn(game.actionsLeft))return
     if(myPlayer!=null&&myPlayer!==game.currentPlayer)return
     const next=game.currentPlayer===1?2:1
-    const g={...game,currentPlayer:next,actionsLeft:{...FRESH_ACTIONS},turn:game.turn+1}
+    const g={...game,board:clearPrevPos(game.board,game.currentPlayer),currentPlayer:next,actionsLeft:{...FRESH_ACTIONS},turn:game.turn+1}
     setGame(g);if(roomCode)syncOnline(g)
   }
 
