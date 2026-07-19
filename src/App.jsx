@@ -194,6 +194,14 @@ function saveMusicVolumePref(v){
   try{localStorage.setItem(MUSIC_VOLUME_PREF_KEY,String(v))}catch{}
 }
 
+const SFX_VOLUME_PREF_KEY='tacticalcards_sfx_volume'
+function loadSfxVolumePref(){
+  try{const v=parseFloat(localStorage.getItem(SFX_VOLUME_PREF_KEY));return Number.isFinite(v)?Math.min(1,Math.max(0,v)):0.5}catch{return 0.5}
+}
+function saveSfxVolumePref(v){
+  try{localStorage.setItem(SFX_VOLUME_PREF_KEY,String(v))}catch{}
+}
+
 const TUTORIAL_SEEN_KEY='tacticalcards_tutorial_seen'
 function loadTutorialSeen(){try{return localStorage.getItem(TUTORIAL_SEEN_KEY)==='1'}catch{return false}}
 function saveTutorialSeen(){try{localStorage.setItem(TUTORIAL_SEEN_KEY,'1')}catch{}}
@@ -403,18 +411,21 @@ function doAttack(board,ar,ac,dr,dc){
 // ═══════════════════════════════════════════════════════════════════════════════
 let _ctx=null
 const getCtx=()=>_ctx||(_ctx=new(window.AudioContext||window.webkitAudioContext)())
+let _sfxVolume=loadSfxVolumePref()
+function setSfxVolume(v){_sfxVolume=Math.min(1,Math.max(0,v));saveSfxVolumePref(_sfxVolume)}
 function snd(type,enabled){
-  if(!enabled||!type)return
+  if(!enabled||!type||_sfxVolume<=0)return
   try{
     const c=getCtx(),t=c.currentTime
-    const tone=(freq,wt,dur,vol=0.25)=>{const o=c.createOscillator(),g=c.createGain();o.type=wt;o.connect(g);g.connect(c.destination);o.frequency.setValueAtTime(freq,t);g.gain.setValueAtTime(vol,t);g.gain.exponentialRampToValueAtTime(0.001,t+dur);o.start(t);o.stop(t+dur);return o}
+    const tone=(freq,wt,dur,vol=0.25)=>{const o=c.createOscillator(),g=c.createGain();o.type=wt;o.connect(g);g.connect(c.destination);o.frequency.setValueAtTime(freq,t);g.gain.setValueAtTime(vol*_sfxVolume,t);g.gain.exponentialRampToValueAtTime(0.001,t+dur);o.start(t);o.stop(t+dur);return o}
+    const noise=(dur,vol,shape)=>{const buf=c.createBuffer(1,c.sampleRate*dur,c.sampleRate);const d=buf.getChannelData(0);for(let i=0;i<d.length;i++)d[i]=(Math.random()*2-1)*shape(i/d.length);const n=c.createBufferSource(),ng=c.createGain();n.buffer=buf;n.connect(ng);ng.connect(c.destination);ng.gain.setValueAtTime(vol*_sfxVolume,t);ng.gain.exponentialRampToValueAtTime(0.001,t+dur);n.start(t)}
     if(type==='place-weak'){const o=tone(280,'sine',0.25,0.18);o.frequency.exponentialRampToValueAtTime(200,t+0.22)}
     if(type==='place-medium'){const o=tone(380,'triangle',0.28,0.22);o.frequency.exponentialRampToValueAtTime(280,t+0.24);tone(760,'sine',0.1,0.12)}
-    if(type==='place-strong'){const o=tone(520,'sawtooth',0.32,0.28);o.frequency.exponentialRampToValueAtTime(260,t+0.28);tone(1040,'triangle',0.14,0.18).frequency.exponentialRampToValueAtTime(780,t+0.16);const buf=c.createBuffer(1,c.sampleRate*0.06,c.sampleRate);const d=buf.getChannelData(0);for(let i=0;i<d.length;i++)d[i]=(Math.random()*2-1)*(1-i/d.length);const n=c.createBufferSource(),ng=c.createGain();n.buffer=buf;n.connect(ng);ng.connect(c.destination);ng.gain.setValueAtTime(0.25,t);ng.gain.exponentialRampToValueAtTime(0.001,t+0.06);n.start(t)}
+    if(type==='place-strong'){const o=tone(520,'sawtooth',0.32,0.28);o.frequency.exponentialRampToValueAtTime(260,t+0.28);tone(1040,'triangle',0.14,0.18).frequency.exponentialRampToValueAtTime(780,t+0.16);noise(0.06,0.25,x=>1-x)}
     if(type==='move'){const o=tone(300,'sine',0.15);o.frequency.exponentialRampToValueAtTime(150,t+0.12)}
     if(type==='power'){tone(660,'triangle',0.35,0.2).frequency.exponentialRampToValueAtTime(990,t+0.2);tone(880,'sine',0.2,0.12).frequency.exponentialRampToValueAtTime(1320,t+0.18)}
-    if(type==='attack'){const o=tone(200,'sawtooth',0.2,0.35);o.frequency.exponentialRampToValueAtTime(60,t+0.15);const buf=c.createBuffer(1,c.sampleRate*0.08,c.sampleRate);const d=buf.getChannelData(0);for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1;const n=c.createBufferSource(),ng=c.createGain();n.buffer=buf;n.connect(ng);ng.connect(c.destination);ng.gain.setValueAtTime(0.2,t);ng.gain.exponentialRampToValueAtTime(0.001,t+0.08);n.start(t)}
-    if(type==='destroy'){const buf=c.createBuffer(1,c.sampleRate*0.5,c.sampleRate);const d=buf.getChannelData(0);for(let i=0;i<d.length;i++)d[i]=(Math.random()*2-1)*Math.pow(1-i/d.length,1.5);const n=c.createBufferSource(),ng=c.createGain();n.buffer=buf;n.connect(ng);ng.connect(c.destination);ng.gain.setValueAtTime(0.5,t);ng.gain.exponentialRampToValueAtTime(0.001,t+0.5);n.start(t);const o=tone(80,'sine',0.5,0.5);o.frequency.exponentialRampToValueAtTime(15,t+0.5)}
+    if(type==='attack'){const o=tone(200,'sawtooth',0.2,0.35);o.frequency.exponentialRampToValueAtTime(60,t+0.15);noise(0.08,0.2,()=>1)}
+    if(type==='destroy'){noise(0.5,0.5,x=>Math.pow(1-x,1.5));const o=tone(80,'sine',0.5,0.5);o.frequency.exponentialRampToValueAtTime(15,t+0.5)}
     if(type==='coin'){tone(1318.5,'sine',0.18,0.22);tone(1975.5,'triangle',0.22,0.15)}
   }catch(e){}
 }
@@ -639,6 +650,35 @@ function findBestAttack(game,cp,sit){
       if(!game.board[dr][dc]||game.board[dr][dc].owner===cp)continue
       const s=scoreAttack(game,ar,ac,dr,dc,sit)
       if(s>bestS){bestS=s;best={ar,ac,dr,dc}}
+    }
+  }
+  return best
+}
+
+// Scans every possible attack directly for one that kills the defender, instead
+// of relying on scoreAttack's single top-ranked pick — scoreAttack discounts a
+// kill by the attacker's own post-hit exposure (and by the aggression multiplier),
+// which can push a guaranteed kill below a merely-annoying chip attack in raw
+// score. That let a free kill go untaken; this never misses one that exists.
+// Mirrors scoreAttack's own hard rules for trades (mutual death) so it stays
+// just as unwilling to hand away a clearly-better card for a much worse one.
+function findGuaranteedKill(game,cp,sit){
+  const aggr=sit?.aggression??1
+  let best=null,bestVal=-Infinity
+  for(let ar=0;ar<5;ar++)for(let ac=0;ac<5;ac++){
+    if(!game.board[ar][ac]||game.board[ar][ac].owner!==cp)continue
+    for(const[ddr,ddc]of[[-1,0],[1,0],[0,-1],[0,1]]){
+      const dr=ar+ddr,dc=ac+ddc
+      if(dr<0||dr>=5||dc<0||dc>=5)continue
+      if(!game.board[dr][dc]||game.board[dr][dc].owner===cp)continue
+      const{aDies,dDies,atk,def}=analyzeAttack(game,ar,ac,dr,dc)
+      if(!dDies)continue
+      if(aDies){
+        if((sit?.myCards??9)<=2)continue                        // can't afford the card loss right now
+        if(cardPts(atk)>20&&def.total-atk.total<10/aggr)continue // not worth trading our better card away
+      }
+      const val=(aDies?0:1000)+def.total*2+(cardTier(def)==='strong'?200:0)
+      if(val>bestVal){bestVal=val;best={ar,ac,dr,dc}}
     }
   }
   return best
@@ -913,13 +953,10 @@ function computeAIAction(game){
     }
   }
 
-  // Any guaranteed kill (any tier)
+  // Any guaranteed kill (any tier) — direct scan, see findGuaranteedKill
   if(al.attack>0){
-    const atk=findBestAttack(game,cp,sit)
-    if(atk){
-      const{dDies}=analyzeAttack(game,atk.ar,atk.ac,atk.dr,atk.dc)
-      if(dDies)return{type:'attack',...atk}
-    }
+    const kill=findGuaranteedKill(game,cp,sit)
+    if(kill)return{type:'attack',...kill}
   }
 
   // Place a card
@@ -1601,7 +1638,8 @@ function BottomNav({onDeckBuilder,onBooster,onRules,onAccount,onShop,onSocial,un
 }
 
 // Small fixed coin balance badge, reused on any screen where coins are earned/spent.
-// Sits below the sound toggle (also fixed top-right) so the two never overlap.
+// Sits below the sound toggle (also fixed top-right, now two volume rows tall) so
+// the two never overlap.
 function CoinBadge({coins,onClick}){
   const[displayCoins,setDisplayCoins]=useState(coins)
   const[pulse,setPulse]=useState(false)
@@ -1625,7 +1663,7 @@ function CoinBadge({coins,onClick}){
   },[coins])
   return(
     <button onClick={onClick} title="Boutique"
-      className={`wood-btn fixed top-14 right-3 z-20 flex items-center gap-1.5 px-3 py-1.5 rounded-lg cursor-pointer ${pulse?'coin-badge-pulse':''}`} style={{color:'#fbbf24'}}>
+      className={`wood-btn fixed top-24 right-3 z-20 flex items-center gap-1.5 px-3 py-1.5 rounded-lg cursor-pointer ${pulse?'coin-badge-pulse':''}`} style={{color:'#fbbf24'}}>
       <Coins size={15} className={pulse?'coin-flip':''}/><span className="font-bold text-sm tabular-nums" style={CINZEL}>{displayCoins}</span>
     </button>
   )
@@ -2987,16 +3025,30 @@ function GameOverScreen({winner,isAI,surrendered,onReplay,onMenu,coinsAwarded}){
     </div>
   )
 }
-function SoundToggle({enabled,onToggle,volume,onVolumeChange}){
+function SoundToggle({enabled,onToggle,musicVolume,onMusicVolumeChange,sfxVolume,onSfxVolumeChange}){
+  const rowLabel={...CINZEL,color:'#e8c766',textShadow:'0 1px 2px rgba(0,0,0,0.85)'}
   return(
-    <div className="fixed top-3 right-3 z-50 flex items-center gap-1.5 bg-slate-800/80 backdrop-blur-sm p-2 rounded-lg">
-      <button onClick={onToggle} className="text-slate-400 hover:text-white transition-all duration-200 hover:scale-110 active:scale-90 shrink-0">
+    <div className="wood-btn fixed top-3 right-3 z-50 flex items-center gap-2 px-3 py-2 rounded-lg">
+      <button onClick={onToggle} title={enabled?'Couper le son':'Activer le son'}
+        className="shrink-0 transition-all duration-200 hover:scale-110 active:scale-90" style={{color:enabled?'#e8c766':'#7a6a52'}}>
         {enabled?<Volume2 size={18}/>:<VolumeX size={18}/>}
       </button>
-      <input type="range" min={0} max={1} step={0.05} value={volume} disabled={!enabled}
-        onChange={e=>onVolumeChange(parseFloat(e.target.value))}
-        title="Volume de la musique"
-        className="w-16 accent-amber-500 disabled:opacity-30 cursor-pointer"/>
+      <div className="flex flex-col gap-1">
+        <label className="flex items-center gap-1.5">
+          <span className="text-[9px] font-bold tracking-wide w-12 shrink-0" style={rowLabel}>Musique</span>
+          <input type="range" min={0} max={1} step={0.05} value={musicVolume} disabled={!enabled}
+            onChange={e=>onMusicVolumeChange(parseFloat(e.target.value))}
+            title="Volume de la musique"
+            className="w-16 accent-amber-500 disabled:opacity-30 cursor-pointer"/>
+        </label>
+        <label className="flex items-center gap-1.5">
+          <span className="text-[9px] font-bold tracking-wide w-12 shrink-0" style={rowLabel}>Bruitage</span>
+          <input type="range" min={0} max={1} step={0.05} value={sfxVolume} disabled={!enabled}
+            onChange={e=>onSfxVolumeChange(parseFloat(e.target.value))}
+            title="Volume des bruitages"
+            className="w-16 accent-amber-500 disabled:opacity-30 cursor-pointer"/>
+        </label>
+      </div>
     </div>
   )
 }
@@ -3015,6 +3067,7 @@ export default function App(){
   const[game,setGame]=useState(null)
   const[soundOn,setSoundOn]=useState(loadSoundPref)
   const[musicVolume,setMusicVolumeState]=useState(loadMusicVolumePref)
+  const[sfxVolume,setSfxVolumeState]=useState(loadSfxVolumePref)
   const[gameMode,setGameMode]=useState('local') // 'local'|'ai'|'online'
   const[roomCode,setRoomCode]=useState(null)
   const[myPlayer,setMyPlayer]=useState(null)
@@ -3390,7 +3443,9 @@ export default function App(){
 
   return(
     <>
-      <SoundToggle enabled={soundOn} onToggle={()=>setSoundOn(v=>!v)} volume={musicVolume} onVolumeChange={v=>{setMusicVolumeState(v);setMusicVolume(v)}}/>
+      <SoundToggle enabled={soundOn} onToggle={()=>setSoundOn(v=>!v)}
+        musicVolume={musicVolume} onMusicVolumeChange={v=>{setMusicVolumeState(v);setMusicVolume(v)}}
+        sfxVolume={sfxVolume} onSfxVolumeChange={v=>{setSfxVolumeState(v);setSfxVolume(v)}}/>
       {screen==='menu'     && <MenuScreen onAI={()=>goToDeckSelect('ai')} onLocal={()=>goToDeckSelect('local')} onOnline={()=>{setPendingChallenge(null);setPendingJoinCode(null);goToDeckSelect('online')}} onRules={()=>setScreen('rules')} onDeckBuilder={()=>setScreen('deckbuilder')} onAccount={()=>setScreen('account')} onBooster={()=>setScreen('booster')} onShop={()=>setScreen('shop')} onSocial={()=>setScreen('social')} unreadCount={unreadCount} user={user} coins={coins}/>}
       {screen==='rules'    && <RulesScreen onBack={()=>setScreen('menu')} user={user} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')} onSocial={()=>setScreen('social')} unreadCount={unreadCount}/>}
       {screen==='deckbuilder' && <DeckBuilderScreen onBack={()=>setScreen('menu')} user={user} ownedSkins={ownedSkins} coins={coins} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')} onSocial={()=>setScreen('social')} unreadCount={unreadCount}/>}
