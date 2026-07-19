@@ -178,6 +178,13 @@ const OWNED_SKINS_KEY='tacticalcards_owned_skins'
 function loadOwnedSkins(){try{return JSON.parse(localStorage.getItem(OWNED_SKINS_KEY)||'[]')}catch{return[]}}
 function saveOwnedSkins(arr){try{localStorage.setItem(OWNED_SKINS_KEY,JSON.stringify(arr))}catch(e){console.error('saveOwnedSkins failed:',e)}}
 
+// Free boosters earned by leveling up (see computeLevel) — spent immediately in
+// the Booster screen regardless of the daily cooldown, one credit per opening.
+const FREE_BOOSTERS_KEY='tacticalcards_free_boosters'
+function loadFreeBoosters(){try{return Math.max(0,Number(localStorage.getItem(FREE_BOOSTERS_KEY)||0))}catch{return 0}}
+function saveFreeBoosters(n){try{localStorage.setItem(FREE_BOOSTERS_KEY,String(n))}catch{}}
+const LEVEL_UP_COIN_REWARD=50
+
 const SOUND_PREF_KEY='tacticalcards_sound_on'
 function loadSoundPref(){
   try{const v=localStorage.getItem(SOUND_PREF_KEY);return v===null?true:v==='1'}catch{return true}
@@ -1085,16 +1092,29 @@ function soundForAIAction(action,g){
 // ═══════════════════════════════════════════════════════════════════════════════
 //  CARD FACE
 // ═══════════════════════════════════════════════════════════════════════════════
-function CardImageLayer({imageUrl,zoom,className}){
+// `layer` lets a parallax skin's two images be split across other content (see
+// the zoomed CardFace/BoosterCardFace, which sandwich the value grid between
+// them) instead of always stacking both at once.
+function CardImageLayer({imageUrl,zoom,className,layer='both'}){
   const file=imageUrl?.split('/').pop()
   const layers=PARALLAX_SKINS[file]
   if(!layers)return <img src={imageUrl} alt="" className={className}/>
-  // Not zoomed: the two layers just stack statically, which composites into
-  // the same picture a flat file would — no separate flat image needed.
+  // This wrapper must establish its own positioning context for the two
+  // absolutely-positioned layers below. Most callers already pass "absolute" (to
+  // overlay this wrapper itself on an already-positioned parent, e.g. so a
+  // separate bg-only and fg-only instance can sandwich other content between
+  // them) — that's already enough context, and forcing `relative` on top of it
+  // would knock it out of that absolute overlay and back into normal flow,
+  // stacking it below its sibling instead of on top of it. Only fall back to
+  // `relative` when the caller passed no position at all (e.g. a small gallery
+  // swatch that just sizes this via w-full/h-full) — otherwise the two <img>
+  // layers would have no positioned ancestor whatsoever and size themselves
+  // against the viewport instead, covering the whole page.
+  const positioned=/\b(absolute|relative|fixed|sticky)\b/.test(className||'')
   return(
-    <div className={className}>
-      <img src={`/images/card/${layers.bg}`} alt="" className={`absolute inset-0 w-full h-full object-cover ${zoom?'parallax-bg-idle':''}`}/>
-      <img src={`/images/card/${layers.fg}`} alt="" className={`absolute inset-0 w-full h-full object-cover ${zoom?'parallax-fg-idle':''}`}/>
+    <div className={`overflow-hidden ${positioned?'':'relative'} ${className}`}>
+      {layer!=='fg'&&<img src={`/images/card/${layers.bg}`} alt="" className={`absolute inset-0 w-full h-full object-cover ${zoom?'parallax-bg-idle':''}`}/>}
+      {layer!=='bg'&&<img src={`/images/card/${layers.fg}`} alt="" className={`absolute inset-0 w-full h-full object-cover ${zoom?'parallax-fg-idle':''}`}/>}
     </div>
   )
 }
@@ -1122,6 +1142,10 @@ function CardFace({card,small=false,compact=false,zoom=false,draggable=false,onD
   const hoverGlow=card.owner===1
     ?tier==='strong'?'hover:shadow-[0_0_32px_rgba(34,211,238,0.8)]':tier==='medium'?'hover:shadow-[0_0_28px_rgba(59,130,246,0.75)]':'hover:shadow-[0_0_24px_rgba(30,64,175,0.65)]'
     :tier==='strong'?'hover:shadow-[0_0_32px_rgba(251,146,60,0.8)]':tier==='medium'?'hover:shadow-[0_0_28px_rgba(239,68,68,0.75)]':'hover:shadow-[0_0_24px_rgba(127,29,29,0.65)]'
+  // Zoomed parallax skins split their background and foreground layers around
+  // the value grid instead of stacking both beneath it, so the foreground
+  // character visually stands in front of the numbers instead of hiding behind them.
+  const isParallax=zoom&&!!PARALLAX_SKINS[card.imageUrl?.split('/').pop()]
   return(
     <div draggable={draggable} onDragStart={draggable?onDragStart:undefined} onTouchStart={onTouchStart} onClick={onClick}
       className={`${sz} border-2 ${theme.border} ${hasImg?playerGlow:theme.glow} rounded-xl bg-gradient-to-br ${hasImg?'':theme.bg} relative select-none overflow-hidden transition-all duration-200
@@ -1129,7 +1153,7 @@ function CardFace({card,small=false,compact=false,zoom=false,draggable=false,onD
         ${onClick&&!draggable?'cursor-zoom-in':''}
         ${isTarget?'target-pulse ring-2 ring-yellow-400 ring-offset-1 ring-offset-slate-900 cursor-pointer brightness-110':''}
         ${animClass}`}>
-      {hasImg&&<CardImageLayer imageUrl={card.imageUrl} zoom={zoom} className="absolute inset-0 w-full h-full object-cover"/>}
+      {hasImg&&<CardImageLayer imageUrl={card.imageUrl} zoom={zoom} layer={isParallax?'bg':'both'} className="absolute inset-0 w-full h-full object-cover"/>}
       {hasImg&&<div className={`absolute inset-0 bg-gradient-to-t ${card.owner===1?'from-blue-900/50':'from-red-900/50'} to-transparent`}/>}
       {!hasImg&&tier==='strong'&&<div className={`absolute inset-0 opacity-10 ${card.owner===1?'bg-cyan-300':'bg-orange-300'}`}/>}
       {!hasImg&&<div className={`absolute inset-0 bg-gradient-to-br ${theme.bg}`}/>}
@@ -1145,6 +1169,7 @@ function CardFace({card,small=false,compact=false,zoom=false,draggable=false,onD
           </div>
         )))}
       </div>
+      {isParallax&&<CardImageLayer imageUrl={card.imageUrl} zoom={zoom} layer="fg" className="absolute inset-0 w-full h-full object-cover pointer-events-none"/>}
       <div className={`absolute bottom-0.5 right-1 ${zoom?'text-sm bottom-2 right-3':'text-[9px]'} font-bold opacity-50 ${card.owner===1?'text-blue-200':'text-red-200'}`}>{card.total}</div>
     </div>
   )
@@ -2147,10 +2172,14 @@ function BoosterCardFace({card,animate=false,revealed=true,size='normal',onClick
   const textSz=size==='small'?'text-[9px]':size==='large'?'text-[30px]':'text-[11px]'
   const labelSz=size==='small'?'text-[7px]':size==='large'?'text-lg':'text-[9px]'
   const zoom=size==='large'
+  const imageUrl=card.imageUrl||DEFAULT_CARD_IMAGE
+  // See CardFace — zoomed parallax skins split bg/fg around the value grid so
+  // the foreground character stands in front of the numbers instead of behind them.
+  const isParallax=zoom&&!!PARALLAX_SKINS[imageUrl.split('/').pop()]
   return(
     <div onClick={onClick} className={`${dim} rounded-xl border-2 relative overflow-hidden shrink-0 ${animClass} ${onClick?'cursor-zoom-in':''}`}
       style={{borderColor:theme.color,background:'#1e293b'}}>
-      <CardImageLayer imageUrl={card.imageUrl||DEFAULT_CARD_IMAGE} zoom={zoom} className="absolute inset-0 w-full h-full object-cover"/>
+      <CardImageLayer imageUrl={imageUrl} zoom={zoom} layer={isParallax?'bg':'both'} className="absolute inset-0 w-full h-full object-cover"/>
       <div className="absolute inset-0 bg-black/25"/>
       <div className={`absolute inset-0 grid grid-cols-3 grid-rows-3 ${textSz} p-0.5`}>
         {GRID_KEYS.map((row,ri)=>row.map((key,ci)=>(
@@ -2159,6 +2188,7 @@ function BoosterCardFace({card,animate=false,revealed=true,size='normal',onClick
           </div>
         )))}
       </div>
+      {isParallax&&<CardImageLayer imageUrl={imageUrl} zoom={zoom} layer="fg" className="absolute inset-0 w-full h-full object-cover pointer-events-none"/>}
       <div className={`absolute bottom-0 left-0 right-0 text-center ${labelSz} font-black py-0.5`}
         style={{color:theme.color,background:'rgba(0,0,0,0.55)',textShadow:'0 1px 2px #000'}}>
         {theme.label} · {pts}pts
@@ -2210,7 +2240,7 @@ function mergeById(localList,cloudList,deletedIds){
   })
   return Array.from(map.values())
 }
-function BoosterScreen({onBack,user,ownedSkins,coins,onEarnCoins,onSellCard,onSpendCoins,soundEnabled,onDeckBuilder,onBooster,onRules,onAccount,onShop,onSocial,unreadCount}){
+function BoosterScreen({onBack,user,ownedSkins,coins,onEarnCoins,onSellCard,onSpendCoins,freeBoosters=0,onUseFreeBooster,soundEnabled,onDeckBuilder,onBooster,onRules,onAccount,onShop,onSocial,unreadCount}){
   const[collection,setCollection]=useState(()=>loadCollection())
   const[decks,setDecks]=useState(()=>loadDecks())
   const[deletedCollectionIds,setDeletedCollectionIds]=useState(()=>loadDeletedIds(DELETED_COLLECTION_KEY))
@@ -2287,12 +2317,16 @@ function BoosterScreen({onBack,user,ownedSkins,coins,onEarnCoins,onSellCard,onSp
   const allRevealed=pendingCards&&revealCount>=pendingCards.length
   const displayCollection=pendingCards?collection.filter(c=>!pendingCards.some(p=>p.id===c.id)):collection
 
-  function handleOpenBooster(paid=false){
-    if(paid){
+  function handleOpenBooster(mode='daily'){
+    if(mode==='paid'){
       // A bought booster is extra — it doesn't touch the free daily slot, so it
       // can't be used to either skip or double up on today's free one.
       if(opening||pendingCards)return
       if(!onSpendCoins(BOOSTER_PURCHASE_PRICE))return
+    }else if(mode==='credit'){
+      // Same idea for a level-up credit — also extra, also doesn't touch the daily slot.
+      if(opening||pendingCards||freeBoosters<=0)return
+      onUseFreeBooster?.()
     }else if(!canOpen)return
     setOpening(true)
     timersRef.current.push(setTimeout(()=>{
@@ -2304,7 +2338,7 @@ function BoosterScreen({onBack,user,ownedSkins,coins,onEarnCoins,onSellCard,onSp
       cards.forEach((_,i)=>{
         timersRef.current.push(setTimeout(()=>setRevealCount(n=>Math.max(n,i+1)),i*650))
       })
-      if(!paid){
+      if(mode==='daily'){
         const ts=Date.now()
         setLastBoosterAt(ts);saveLastBoosterAt(ts)
         if(user)saveCloudLastBooster(user.uid,ts).catch(()=>{})
@@ -2362,7 +2396,7 @@ function BoosterScreen({onBack,user,ownedSkins,coins,onEarnCoins,onSellCard,onSp
         <div className="rounded-xl p-6 mb-6 border border-amber-900/40 flex flex-col items-center gap-4 min-h-[220px] justify-center" style={{background:'rgba(8,5,2,0.78)'}}>
           {!pendingCards&&(
             <>
-              <button onClick={()=>handleOpenBooster(false)} disabled={!canOpen}
+              <button onClick={()=>handleOpenBooster('daily')} disabled={!canOpen}
                 className={`relative w-28 h-36 rounded-2xl border-4 flex items-center justify-center transition-transform ${
                   opening?'border-amber-400 booster-pack-opening'
                     :canOpen?'border-amber-400 booster-pack-idle cursor-pointer hover:scale-105'
@@ -2375,7 +2409,13 @@ function BoosterScreen({onBack,user,ownedSkins,coins,onEarnCoins,onSellCard,onSp
                 :canOpen
                   ?<p className="text-amber-300 font-bold" style={CINZEL}>Ouvrir le booster du jour</p>
                   :<p className="text-slate-400 text-sm">Prochain booster dans {formatDuration(remainingMs)}</p>}
-              <MedBtn onClick={()=>handleOpenBooster(true)} disabled={opening||coins<BOOSTER_PURCHASE_PRICE}
+              {freeBoosters>0&&(
+                <MedBtn onClick={()=>handleOpenBooster('credit')} disabled={opening}
+                  color="#34d399" icon={<Star size={14} fill="currentColor"/>}>
+                  Booster gratuit de niveau ({freeBoosters})
+                </MedBtn>
+              )}
+              <MedBtn onClick={()=>handleOpenBooster('paid')} disabled={opening||coins<BOOSTER_PURCHASE_PRICE}
                 color="#f59e0b" icon={<Coins size={14}/>}>
                 Acheter un booster ({BOOSTER_PURCHASE_PRICE})
               </MedBtn>
@@ -2444,11 +2484,27 @@ function BoosterScreen({onBack,user,ownedSkins,coins,onEarnCoins,onSellCard,onSp
   )
 }
 
+// Sparkle burst around a just-purchased skin thumbnail — fixed spread (not
+// random per render) so retriggering the animation looks the same every time.
+const SKIN_PURCHASE_SPARKLES = Array.from({length:10},(_,i)=>{
+  const angle=(i/10)*Math.PI*2
+  return {x:Math.cos(angle)*42, y:Math.sin(angle)*42, delay:(i%3)*0.05, size:4+(i%3)*2}
+})
+
 // ═══════════════════════════════════════════════════════════════════════════════
 //  SHOP SCREEN — spend coins on cosmetic card skins
 // ═══════════════════════════════════════════════════════════════════════════════
 function ShopScreen({onBack,coins,ownedSkins,onBuySkin,onDeckBuilder,onBooster,onRules,onAccount,onSocial,unreadCount,user}){
   const[zoomedSkin,setZoomedSkin]=useState(null)
+  const[justBought,setJustBought]=useState(null)
+  const purchaseTimerRef=useRef(null)
+  useEffect(()=>()=>{if(purchaseTimerRef.current)clearTimeout(purchaseTimerRef.current)},[])
+  function handleBuy(skin){
+    if(!onBuySkin(skin.id,skin.price))return
+    setJustBought(skin.id)
+    if(purchaseTimerRef.current)clearTimeout(purchaseTimerRef.current)
+    purchaseTimerRef.current=setTimeout(()=>setJustBought(null),1100)
+  }
   return(
     <div className="min-h-screen relative">
       <div className="bg-charta fixed inset-0 -z-10"/>
@@ -2475,17 +2531,28 @@ function ShopScreen({onBack,coins,ownedSkins,onBuySkin,onDeckBuilder,onBooster,o
             {SKIN_CATALOG.map(skin=>{
               const owned=ownedSkins.includes(skin.id)
               const afford=coins>=skin.price
+              const bought=justBought===skin.id
               return(
                 <div key={skin.id} className="rounded-xl p-3 border border-amber-900/40 flex flex-col items-center gap-2" style={{background:'rgba(8,5,2,0.78)'}}>
-                  <div onClick={()=>setZoomedSkin(skin)}
-                    className="w-20 h-20 rounded-lg overflow-hidden border-2 border-amber-800/50 relative cursor-zoom-in transition-transform hover:scale-105">
-                    <CardImageLayer imageUrl={`/images/card/${skin.file}`} className={`w-full h-full object-cover ${owned?'':'opacity-60'}`}/>
-                    {!owned&&<div className="absolute inset-0 flex items-center justify-center bg-black/30"><Lock size={20} className="text-slate-300"/></div>}
+                  <div className="relative">
+                    <div onClick={()=>setZoomedSkin(skin)}
+                      className={`w-20 h-20 rounded-lg overflow-hidden border-2 border-amber-800/50 relative cursor-zoom-in transition-transform hover:scale-105 ${bought?'skin-purchase-pop':''}`}>
+                      <CardImageLayer imageUrl={`/images/card/${skin.file}`} className={`w-full h-full object-cover ${owned?'':'opacity-60'}`}/>
+                      {!owned&&<div className="absolute inset-0 flex items-center justify-center bg-black/30"><Lock size={20} className="text-slate-300"/></div>}
+                    </div>
+                    {bought&&(
+                      <>
+                        <div className="absolute skin-purchase-burst pointer-events-none" style={{inset:'-55%'}}/>
+                        {SKIN_PURCHASE_SPARKLES.map((s,i)=>(
+                          <span key={i} className="skin-purchase-sparkle" style={{left:'50%',top:'50%',width:s.size,height:s.size,animationDelay:`${s.delay}s`,'--sx':`${s.x}px`,'--sy':`${s.y}px`}}/>
+                        ))}
+                      </>
+                    )}
                   </div>
                   <span className="text-amber-200 font-bold text-sm text-center" style={CINZEL}>{skin.name}</span>
                   {owned
-                    ?<span className="text-emerald-400 text-xs font-bold flex items-center gap-1"><Check size={12}/> Possédé</span>
-                    :<MedBtn onClick={()=>onBuySkin(skin.id,skin.price)} disabled={!afford} color="#f59e0b" icon={<Coins size={13}/>}>{skin.price}</MedBtn>
+                    ?<span className={`text-emerald-400 text-xs font-bold flex items-center gap-1 ${bought?'skin-purchase-label':''}`}><Check size={12}/> {bought?'Acquis !':'Possédé'}</span>
+                    :<MedBtn onClick={()=>handleBuy(skin)} disabled={!afford} color="#f59e0b" icon={<Coins size={13}/>}>{skin.price}</MedBtn>
                   }
                 </div>
               )
@@ -2772,12 +2839,13 @@ function AccountScreen({onBack,user,stats,onProfileUpdated,onLegal,onDeleteAccou
 // ═══════════════════════════════════════════════════════════════════════════════
 //  SOCIAL SCREEN — friends, friend requests, notifications
 // ═══════════════════════════════════════════════════════════════════════════════
-const NOTIF_ICON={friend_request:UserPlus,friend_accept:Check,challenge:Swords,match_result:Bell}
+const NOTIF_ICON={friend_request:UserPlus,friend_accept:Check,challenge:Swords,match_result:Bell,level_up:Star}
 function notifText(n){
   if(n.type==='friend_request')return `${n.fromPseudo} vous a envoyé une demande d'ami.`
   if(n.type==='friend_accept')return `${n.byPseudo} a accepté votre demande d'ami.`
   if(n.type==='challenge')return `${n.fromPseudo} vous défie en duel !`
   if(n.type==='match_result')return n.result==='draw'?`Partie nulle contre ${n.opponentPseudo}.`:n.result==='win'?`Victoire contre ${n.opponentPseudo} !`:`Défaite contre ${n.opponentPseudo}.`
+  if(n.type==='level_up')return `Niveau ${n.level} atteint ! +${n.boosters} booster${n.boosters>1?'s':''} gratuit${n.boosters>1?'s':''} et ${n.coins} pièces.`
   return ''
 }
 function SocialScreen({onBack,user,friends,friendRequests,notifications,onSendRequest,onRespondRequest,onChallengeFriend,onAcceptChallenge,onMarkAllRead,onDeckBuilder,onBooster,onRules,onAccount,onShop}){
@@ -3136,6 +3204,7 @@ export default function App(){
   const[showTutorial,setShowTutorial]=useState(false)
   const[coins,setCoins]=useState(()=>loadCoins())
   const[ownedSkins,setOwnedSkins]=useState(()=>loadOwnedSkins())
+  const[freeBoosters,setFreeBoosters]=useState(()=>loadFreeBoosters())
   const[gameOverCoinsAwarded,setGameOverCoinsAwarded]=useState(null)
   const[friends,setFriends]=useState([])
   const[friendRequests,setFriendRequests]=useState([])
@@ -3149,6 +3218,7 @@ export default function App(){
   const soundOnRef=useRef(soundOn)
   const aiTimerRef=useRef(null)
   const statsRecordedRef=useRef(false)
+  const prevLevelRef=useRef(null)
   const animSeqRef=useRef(0)
   const remoteAnimSeqRef=useRef(null) // last opponent lastActionAnim.seq already played, online mode
   const opponentRef=useRef(null) // {uid,pseudo} of the current online opponent, when known
@@ -3197,6 +3267,28 @@ export default function App(){
   useEffect(()=>{
     if(user&&economyCloudReadyRef.current)saveCloudEconomy(user.uid,{coins,coinsUpdatedAt:coinsUpdatedAtRef.current,ownedSkins}).catch(()=>{})
   },[coins,ownedSkins])
+  useEffect(()=>{saveFreeBoosters(freeBoosters)},[freeBoosters])
+
+  // Level up (see computeLevel) → a free booster credit plus a coin reward,
+  // announced through the same notification feed as friend/match activity.
+  // `prevLevelRef` is only set once a real stats snapshot for the CURRENT user
+  // has been seen — otherwise a freshly logged-in account with existing wins
+  // would look like it just leveled up N times and get showered in rewards.
+  useEffect(()=>{
+    if(!stats){prevLevelRef.current=null;return}
+    const{level}=computeLevel(stats)
+    if(prevLevelRef.current==null){prevLevelRef.current=level;return}
+    if(level>prevLevelRef.current){
+      const gained=level-prevLevelRef.current
+      prevLevelRef.current=level
+      const coinReward=gained*LEVEL_UP_COIN_REWARD
+      earnCoins(coinReward)
+      setFreeBoosters(c=>c+gained)
+      if(user)pushNotification(user.uid,{type:'level_up',level,coins:coinReward,boosters:gained}).catch(()=>{})
+    }else{
+      prevLevelRef.current=level
+    }
+  },[stats])
 
   useEffect(()=>{gameRef.current=game},[game])
   useEffect(()=>{soundOnRef.current=soundOn;saveSoundPref(soundOn)},[soundOn])
@@ -3503,7 +3595,7 @@ export default function App(){
       {screen==='menu'     && <MenuScreen onAI={()=>goToDeckSelect('ai')} onLocal={()=>goToDeckSelect('local')} onOnline={()=>{setPendingChallenge(null);setPendingJoinCode(null);goToDeckSelect('online')}} onRules={()=>setScreen('rules')} onDeckBuilder={()=>setScreen('deckbuilder')} onAccount={()=>setScreen('account')} onBooster={()=>setScreen('booster')} onShop={()=>setScreen('shop')} onSocial={()=>setScreen('social')} unreadCount={unreadCount} user={user} coins={coins}/>}
       {screen==='rules'    && <RulesScreen onBack={()=>setScreen('menu')} user={user} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')} onSocial={()=>setScreen('social')} unreadCount={unreadCount}/>}
       {screen==='deckbuilder' && <DeckBuilderScreen onBack={()=>setScreen('menu')} user={user} ownedSkins={ownedSkins} coins={coins} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')} onSocial={()=>setScreen('social')} unreadCount={unreadCount}/>}
-      {screen==='booster'  && <BoosterScreen onBack={()=>setScreen('menu')} user={user} ownedSkins={ownedSkins} coins={coins} onEarnCoins={earnCoins} onSellCard={sellCard} onSpendCoins={spendCoins} soundEnabled={soundOn} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')} onSocial={()=>setScreen('social')} unreadCount={unreadCount}/>}
+      {screen==='booster'  && <BoosterScreen onBack={()=>setScreen('menu')} user={user} ownedSkins={ownedSkins} coins={coins} onEarnCoins={earnCoins} onSellCard={sellCard} onSpendCoins={spendCoins} freeBoosters={freeBoosters} onUseFreeBooster={()=>setFreeBoosters(c=>Math.max(0,c-1))} soundEnabled={soundOn} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')} onSocial={()=>setScreen('social')} unreadCount={unreadCount}/>}
       {screen==='shop'     && <ShopScreen onBack={()=>setScreen('menu')} user={user} coins={coins} ownedSkins={ownedSkins} onBuySkin={buySkin} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')} onSocial={()=>setScreen('social')} unreadCount={unreadCount}/>}
       {screen==='deckselect' && <DeckSelectScreen mode={pendingMode} onBack={()=>setScreen('menu')} onSelect={handleDeckChosen}/>}
       {screen==='account'  && <AccountScreen onBack={()=>setScreen('menu')} user={user} stats={stats} onProfileUpdated={refreshUser} onLegal={type=>setScreen(type)} onDeleteAccount={handleDeleteAccount} onReauthenticate={reauthenticate} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')} onSocial={()=>setScreen('social')} unreadCount={unreadCount}
