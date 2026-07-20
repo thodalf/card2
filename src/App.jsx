@@ -1168,8 +1168,14 @@ const TIER_THEME={
   1:{weak:{border:'border-blue-700/70',bg:'from-blue-950 to-slate-900',glow:'',center:'text-blue-800 text-[8px]',sym:'·'},medium:{border:'border-blue-500',bg:'from-blue-900 to-blue-800',glow:'',center:'text-blue-500/50 text-[9px]',sym:'◆'},strong:{border:'border-cyan-300',bg:'from-blue-700 to-cyan-900',glow:'shadow-[0_0_14px_rgba(34,211,238,0.45)]',center:'text-cyan-300/70 text-sm',sym:'✦'}},
   2:{weak:{border:'border-red-800/70',bg:'from-red-950 to-slate-900',glow:'',center:'text-red-900 text-[8px]',sym:'·'},medium:{border:'border-red-500',bg:'from-red-900 to-red-800',glow:'',center:'text-red-500/50 text-[9px]',sym:'◆'},strong:{border:'border-orange-300',bg:'from-red-700 to-orange-900',glow:'shadow-[0_0_14px_rgba(251,146,60,0.45)]',center:'text-orange-300/70 text-sm',sym:'✦'}},
 }
-function CardFace({card,small=false,compact=false,zoom=false,draggable=false,onDragStart,onTouchStart,onClick,animClass='',isTarget=false}){
+function CardFace({card,small=false,compact=false,zoom=false,draggable=false,onDragStart,onTouchStart,onClick,animClass='',isTarget=false,flip=false}){
   const tier=cardTier(card),theme=TIER_THEME[card.owner][tier]
+  // `flip` is purely a display transform for GameScreen's "you're always at the
+  // bottom" seat rotation — it never touches card.values itself (combat still
+  // works off the real board coordinates), it just relabels which value renders
+  // in which grid slot so a 180°-rotated card still reads correctly face-up.
+  const dispValues=flip?invertValues180(card.values):card.values
+  const dispBase=flip?invertValues180(card.baseValues||card.values):card.baseValues
   const sz=zoom
     ?'w-[88vw] h-[88vw] max-w-[420px] max-h-[420px]'
     :small
@@ -1208,8 +1214,8 @@ function CardFace({card,small=false,compact=false,zoom=false,draggable=false,onD
           <div key={`${ri}-${ci}`} className="flex items-center justify-center leading-none">
             {key?<span
               style={{textShadow:'0 0 6px #000,0 0 3px #000,0 1px 0 #000,0 -1px 0 #000'}}
-              className={`font-black ${card.values[key]<(card.baseValues?.[key]??card.values[key])?'text-red-300':'text-white'}`}>
-              {card.values[key]}
+              className={`font-black ${dispValues[key]<(dispBase?.[key]??dispValues[key])?'text-red-300':'text-white'}`}>
+              {dispValues[key]}
             </span>
             :<span className={`font-bold ${hasImg?'hidden':theme.center}`}>{theme.sym}</span>}
           </div>
@@ -1224,7 +1230,7 @@ function CardFace({card,small=false,compact=false,zoom=false,draggable=false,onD
 // ═══════════════════════════════════════════════════════════════════════════════
 //  BOARD CELL
 // ═══════════════════════════════════════════════════════════════════════════════
-function Cell({r,c,card,currentPlayer,actionsLeft,myPlayer,onDragStart,onDrop,onCellClick,onZoom,animKey,ghost,violent,targeting,game,onBoardTouchStart,compact=false}){
+function Cell({r,c,card,currentPlayer,actionsLeft,myPlayer,onDragStart,onDrop,onCellClick,onZoom,animKey,ghost,violent,targeting,game,onBoardTouchStart,compact=false,flip=false}){
   const[over,setOver]=useState(false)
   const corner=isCorner(r,c),dynBlocked=isDynBlock(game,r,c),blocked=corner||dynBlocked
   const validTarget=targeting?isValidPowerTarget(game,targeting,currentPlayer,r,c):false
@@ -1249,8 +1255,8 @@ function Cell({r,c,card,currentPlayer,actionsLeft,myPlayer,onDragStart,onDrop,on
       onClick={targeting&&validTarget?()=>onCellClick(r,c):undefined}>
       {corner&&<span className="text-slate-600/60 text-base select-none">✕</span>}
       {dynBlocked&&<span className="text-rose-700/70 text-3xl select-none" title="Bloqué">⊘</span>}
-      {!blocked&&ghost&&<CardFace card={ghost.card} small compact={compact} animClass={ghost.anim}/>}
-      {!blocked&&!ghost&&card&&<CardFace card={card} small compact={compact} draggable={canDrag} onDragStart={e=>onDragStart(e,'board',r,c)} onTouchStart={canDrag?e=>onBoardTouchStart(e,'board',r,c):undefined} onClick={!targeting?e=>{e.stopPropagation();onZoom(card)}:undefined} animClass={animKey} isTarget={targeting&&validTarget&&!!card}/>}
+      {!blocked&&ghost&&<CardFace card={ghost.card} small compact={compact} animClass={ghost.anim} flip={flip}/>}
+      {!blocked&&!ghost&&card&&<CardFace card={card} small compact={compact} draggable={canDrag} onDragStart={e=>onDragStart(e,'board',r,c)} onTouchStart={canDrag?e=>onBoardTouchStart(e,'board',r,c):undefined} onClick={!targeting?e=>{e.stopPropagation();onZoom(card)}:undefined} animClass={animKey} isTarget={targeting&&validTarget&&!!card} flip={flip}/>}
       {violent&&<div className="absolute inset-0 anim-kill-flash pointer-events-none"/>}
     </div>
   )
@@ -1432,6 +1438,16 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
     return()=>window.removeEventListener('resize',update)
   },[])
   const{board,players,currentPlayer,actionsLeft}=game
+  // Player 1's placement zone (rows 0-1) is always the visual top and Player 2's
+  // (rows 3-4) always the visual bottom, regardless of who's actually looking at
+  // the screen — so a Player 1 viewer (always true in Solo vs IA, and true for
+  // whichever online player joined as P1) was seeing their OWN side at the top
+  // and the opponent at the bottom, backwards from the usual "you're always at
+  // the bottom" convention. `flip` re-renders everything (board row/col order,
+  // hand position, card value display) as if the viewer had walked around to
+  // the other side of the table — real board coordinates never change, only
+  // which visual slot each one lands in.
+  const flip=myPlayer===1
   const isMyTurn=myPlayer===null||myPlayer===currentPlayer
   const canEndTurn=hasActedThisTurn(actionsLeft)
   const p1pts=playerPts(game,1),p2pts=playerPts(game,2)
@@ -1579,10 +1595,10 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
           </div>
           <PowerBar game={game} player={player} isMyTurn={isMyTurn} targeting={targeting} onActivatePower={type=>setTargeting(type)} onCancelTargeting={()=>setTargeting(null)} compact={compact}/>
         </div>
-        <div className={`game-hand-cards flex ${compact?'gap-1.5':'gap-3'} justify-center flex-wrap`}>
+        <div className={`game-hand-cards flex ${compact?'gap-1.5':'gap-3'} justify-start flex-nowrap overflow-x-auto scrollbar-hide max-w-full px-1`}>
           {(players[player]?.hand??[]).map((card,i)=>(
-            <div key={card.id} className="anim-idle" style={{animationDelay:`${i*0.18}s`}}>
-              <CardFace card={card} compact={compact} draggable={canDrag} onDragStart={e=>handleDragStart(e,'hand',i,player)} onTouchStart={canDrag?e=>handleTouchStart(e,'hand',i,player):undefined} onClick={e=>{e.stopPropagation();setZoomedCard(card)}}/>
+            <div key={card.id} className="anim-idle shrink-0" style={{animationDelay:`${i*0.18}s`}}>
+              <CardFace card={card} compact={compact} draggable={canDrag} onDragStart={e=>handleDragStart(e,'hand',i,player)} onTouchStart={canDrag?e=>handleTouchStart(e,'hand',i,player):undefined} onClick={e=>{e.stopPropagation();setZoomedCard(card)}} flip={flip}/>
             </div>
           ))}
           {!(players[player]?.hand?.length)&&<span className={`text-slate-600 text-xs flex items-center justify-center border-2 border-dashed border-slate-700/40 rounded-xl ${compact?'w-[64px] h-[64px]':'w-[118px] h-[118px]'}`}>vide</span>}
@@ -1594,7 +1610,7 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
   return(
     <div className="game-outer min-h-screen overflow-y-auto relative">
       <div className="bg-charta fixed inset-0 -z-10"/>
-      <CardZoomOverlay card={zoomedCard} onClose={()=>setZoomedCard(null)} renderCard={c=><CardFace card={c} zoom/>}/>
+      <CardZoomOverlay card={zoomedCard} onClose={()=>setZoomedCard(null)} renderCard={c=><CardFace card={c} zoom flip={flip}/>}/>
       {showTutorial&&<TutorialOverlay onClose={onTutorialClose}/>}
       <BackButton onClick={()=>{game.winner?onHome():setConfirmQuit(true)}} compact className="absolute top-3 left-3 z-10">Menu</BackButton>
       {confirmQuit&&(
@@ -1616,8 +1632,10 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
       )}
       <div className={`game-inner flex flex-col items-center ${compact?'gap-2 pt-14 pb-2':'gap-3 py-4'} px-2`} style={{zoom:gameScale,transformOrigin:'top center'}}>
 
-        {/* J1 hand — top */}
-        {renderHand(1,currentPlayer===1&&isMyTurn&&actionsLeft.placement>0&&!targeting)}
+        {/* Top hand — Player 2, unless a Player 1 viewer is flipped to the bottom */}
+        {flip
+          ?renderHand(2,currentPlayer===2&&isMyTurn&&actionsLeft.placement>0&&!targeting&&!isAI)
+          :renderHand(1,currentPlayer===1&&isMyTurn&&actionsLeft.placement>0&&!targeting)}
 
         {/* Board + controls */}
         <div className={`game-board-area flex flex-col items-center ${compact?'gap-1.5':'gap-2'}`}>
@@ -1628,11 +1646,11 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
           </div>
           <div className={`grid grid-cols-5 ${compact?'gap-1 p-1.5':'gap-1.5 p-2.5'} rounded-2xl border transition-all ${targeting?'border-purple-600/60 shadow-[0_0_20px_rgba(147,51,234,0.2)]':'border-amber-900/40'}`}
             style={{backgroundImage:'url(/images/plateau.png)',backgroundSize:'cover',backgroundPosition:'center'}}>
-            {board.map((row,r)=>row.map((cell,c)=>(
-              <Cell key={`${r}-${c}`} r={r} c={c} card={cell} currentPlayer={currentPlayer} actionsLeft={actionsLeft} myPlayer={myPlayer}
+            {(flip?[4,3,2,1,0]:[0,1,2,3,4]).map(r=>(flip?[4,3,2,1,0]:[0,1,2,3,4]).map(c=>(
+              <Cell key={`${r}-${c}`} r={r} c={c} card={board[r][c]} currentPlayer={currentPlayer} actionsLeft={actionsLeft} myPlayer={myPlayer}
                 onDragStart={handleDragStart} onDrop={handleDrop} onCellClick={handleCellClick} onZoom={setZoomedCard}
                 animKey={anims[`${r},${c}`]||''} ghost={ghosts[`${r},${c}`]} violent={!!violentKeys[`${r},${c}`]}
-                targeting={targeting} game={game} onBoardTouchStart={handleTouchStart} compact={compact}/>
+                targeting={targeting} game={game} onBoardTouchStart={handleTouchStart} compact={compact} flip={flip}/>
             )))}
           </div>
           <div className="flex items-center gap-3 flex-wrap justify-center">
@@ -1662,8 +1680,10 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
           </div>
         </div>
 
-        {/* J2 hand — bottom */}
-        {renderHand(2,currentPlayer===2&&isMyTurn&&actionsLeft.placement>0&&!targeting&&!isAI)}
+        {/* Bottom hand — Player 1, unless flipped (then Player 2 goes to the bottom) */}
+        {flip
+          ?renderHand(1,currentPlayer===1&&isMyTurn&&actionsLeft.placement>0&&!targeting)
+          :renderHand(2,currentPlayer===2&&isMyTurn&&actionsLeft.placement>0&&!targeting&&!isAI)}
 
       </div>
     </div>
@@ -1739,11 +1759,12 @@ function MenuIconBtn({onClick, icon, label, color, delay, title}){
 // so switching between these sections never requires a trip back through the menu.
 // Fixed to the bottom of the viewport on every screen that uses it, so it's
 // always reachable without scrolling — like a native app's tab bar.
-function BottomNav({onDeckBuilder,onBooster,onRules,onAccount,onShop,onSocial,unreadCount=0,user,className=''}){
+function BottomNav({onPlay,onDeckBuilder,onBooster,onAccount,onShop,onSocial,unreadCount=0,user,className=''}){
   return(
     <div className={`fixed inset-x-0 z-20 mx-auto w-[calc(100%-1.5rem)] max-w-md flex items-stretch justify-around gap-1 px-2 py-2 rounded-2xl border border-amber-900/50 ${className}`}
       style={{background:'linear-gradient(135deg,rgba(10,7,3,0.85),rgba(20,13,5,0.82))', boxShadow:'0 4px 20px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.05)',
         bottom:'max(0.75rem, env(safe-area-inset-bottom))'}}>
+      <MenuIconBtn onClick={onPlay}    icon={<Play size={18}/>}    label="Jouer" color="#7cb87c"/>
       <MenuIconBtn onClick={onDeckBuilder} icon={<Layers size={18}/>} label="Decks" color="#34d399"/>
       {user
         ?<MenuIconBtn onClick={onBooster} icon={<Gift size={18}/>} label="Booster" color="#f472b6"/>
@@ -1754,7 +1775,6 @@ function BottomNav({onDeckBuilder,onBooster,onRules,onAccount,onShop,onSocial,un
         ?<MenuIconBtn onClick={onSocial} icon={<span className="relative">{unreadCount>0&&<span className="absolute -top-1 -right-1.5 w-3.5 h-3.5 rounded-full bg-red-600 text-white text-[8px] font-bold flex items-center justify-center leading-none">{unreadCount>9?'9+':unreadCount}</span>}<Bell size={18}/></span>} label="Amis" color="#c084fc"/>
         :<MenuIconBtn onClick={onAccount} icon={<Lock size={16}/>} label="Amis" color="#64748b"/>
       }
-      <MenuIconBtn onClick={onRules}   icon={<BookOpen size={18}/>} label="Règles"   color="#fbbf24"/>
       <MenuIconBtn onClick={onAccount} icon={<UserCircle size={18}/>} label={user?'Compte':'Connexion'} color="#38bdf8" title={user?(user.displayName||user.email):undefined}/>
     </div>
   )
@@ -1791,7 +1811,7 @@ function CoinBadge({coins,onClick}){
   )
 }
 
-function MenuScreen({onLocal,onAI,onOnline,onRules,onDeckBuilder,onAccount,onBooster,onShop,onSocial,unreadCount,user,coins}){
+function MenuScreen({onLocal,onAI,onOnline,onPlay,onDeckBuilder,onAccount,onBooster,onShop,onSocial,unreadCount,user,coins}){
   return(
     <div className="bg-charta menu-screen relative flex flex-col items-center gap-4 px-4 overflow-hidden">
 
@@ -1828,11 +1848,11 @@ function MenuScreen({onLocal,onAI,onOnline,onRules,onDeckBuilder,onAccount,onBoo
         </div>
       </div>
 
-      <BottomNav onDeckBuilder={onDeckBuilder} onBooster={onBooster} onRules={onRules} onAccount={onAccount} onShop={onShop} onSocial={onSocial} unreadCount={unreadCount} user={user}/>
+      <BottomNav onPlay={onPlay} onDeckBuilder={onDeckBuilder} onBooster={onBooster} onAccount={onAccount} onShop={onShop} onSocial={onSocial} unreadCount={unreadCount} user={user}/>
     </div>
   )
 }
-function RulesScreen({onBack,user,onDeckBuilder,onBooster,onRules,onAccount,onShop,onSocial,unreadCount}){
+function RulesScreen({onBack,user,onPlay,onDeckBuilder,onBooster,onAccount,onShop,onSocial,unreadCount}){
   const S=[
     ['🎴 Les cartes','Chaque carte a un chiffre sur chacune de ses 8 faces (haut, bas, les côtés, et les diagonales). Votre deck compte 6 cartes : deux plutôt faibles, deux moyennes et deux très puissantes. Vous pouvez créer les vôtres dans le Deck Builder, avec vos propres chiffres et un portrait de votre choix (d\'autres s\'achètent dans la Boutique).'],
     ['🎲 Le plateau','On joue sur une grille de 5 cases sur 5. Les 4 coins sont bloqués : personne ne peut y poser de carte. Vous démarrez en haut du plateau, votre adversaire en bas.'],
@@ -1857,7 +1877,7 @@ function RulesScreen({onBack,user,onDeckBuilder,onBooster,onRules,onAccount,onSh
           ))}
         </div>
       </div>
-      <BottomNav onDeckBuilder={onDeckBuilder} onBooster={onBooster} onRules={onRules} onAccount={onAccount} onShop={onShop} onSocial={onSocial} unreadCount={unreadCount} user={user}/>
+      <BottomNav onPlay={onPlay} onDeckBuilder={onDeckBuilder} onBooster={onBooster} onAccount={onAccount} onShop={onShop} onSocial={onSocial} unreadCount={unreadCount} user={user}/>
     </div>
   )
 }
@@ -1936,7 +1956,7 @@ const PRIVACY_SECTIONS=[
     `Pour toute question relative à vos données personnelles ou pour exercer vos droits : ${LEGAL_CONTACT}.`],
 ]
 
-function LegalScreen({type,onBack,user,onDeckBuilder,onBooster,onRules,onAccount,onShop,onSocial,unreadCount}){
+function LegalScreen({type,onBack,user,onPlay,onDeckBuilder,onBooster,onAccount,onShop,onSocial,unreadCount}){
   const isCgu=type==='cgu'
   const sections=isCgu?CGU_SECTIONS:PRIVACY_SECTIONS
   const title=isCgu?'Conditions Générales d\'Utilisation':'Politique de confidentialité'
@@ -1958,7 +1978,7 @@ function LegalScreen({type,onBack,user,onDeckBuilder,onBooster,onRules,onAccount
           ))}
         </div>
       </div>
-      <BottomNav onDeckBuilder={onDeckBuilder} onBooster={onBooster} onRules={onRules} onAccount={onAccount} onShop={onShop} onSocial={onSocial} unreadCount={unreadCount} user={user}/>
+      <BottomNav onPlay={onPlay} onDeckBuilder={onDeckBuilder} onBooster={onBooster} onAccount={onAccount} onShop={onShop} onSocial={onSocial} unreadCount={unreadCount} user={user}/>
     </div>
   )
 }
@@ -2082,7 +2102,7 @@ function DeckEditor({deck,onBack,onRename,onRemoveCard,onUpdateCard,onSetDefault
     </div>
   )
 }
-function DeckBuilderScreen({onBack,user,ownedSkins,coins,onDeckBuilder,onBooster,onRules,onAccount,onShop,onSocial,unreadCount}){
+function DeckBuilderScreen({onBack,user,ownedSkins,coins,onPlay,onDeckBuilder,onBooster,onAccount,onShop,onSocial,unreadCount}){
   const[decks,setDecks]=useState(()=>loadDecks())
   const[collection,setCollection]=useState(()=>loadCollection())
   const[deletedCollectionIds,setDeletedCollectionIds]=useState(()=>loadDeletedIds(DELETED_COLLECTION_KEY))
@@ -2216,7 +2236,7 @@ function DeckBuilderScreen({onBack,user,ownedSkins,coins,onDeckBuilder,onBooster
         <MedBtn onClick={createDeck} color="#34d399" icon={<Plus size={16}/>} className="w-full">Nouveau deck</MedBtn>
         <p className="text-slate-300 text-xs mt-4 text-center drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">Max {CARD_MAX_POINTS} pts/carte · Max {DECK_MAX_POINTS} pts/deck · Le deck par défaut est utilisé en partie Locale et Solo vs IA.</p>
       </div>
-      <BottomNav onDeckBuilder={onDeckBuilder} onBooster={onBooster} onRules={onRules} onAccount={onAccount} onShop={onShop} onSocial={onSocial} unreadCount={unreadCount} user={user}/>
+      <BottomNav onPlay={onPlay} onDeckBuilder={onDeckBuilder} onBooster={onBooster} onAccount={onAccount} onShop={onShop} onSocial={onSocial} unreadCount={unreadCount} user={user}/>
     </div>
   )
 }
@@ -2309,7 +2329,7 @@ function mergeById(localList,cloudList,deletedIds){
   })
   return Array.from(map.values())
 }
-function BoosterScreen({onBack,user,ownedSkins,coins,onEarnCoins,onSellCard,onSpendCoins,freeBoosters=0,onUseFreeBooster,soundEnabled,onDeckBuilder,onBooster,onRules,onAccount,onShop,onSocial,unreadCount}){
+function BoosterScreen({onBack,user,ownedSkins,coins,onEarnCoins,onSellCard,onSpendCoins,freeBoosters=0,onUseFreeBooster,soundEnabled,onPlay,onDeckBuilder,onBooster,onAccount,onShop,onSocial,unreadCount}){
   const[collection,setCollection]=useState(()=>loadCollection())
   const[decks,setDecks]=useState(()=>loadDecks())
   const[deletedCollectionIds,setDeletedCollectionIds]=useState(()=>loadDeletedIds(DELETED_COLLECTION_KEY))
@@ -2549,7 +2569,7 @@ function BoosterScreen({onBack,user,ownedSkins,coins,onEarnCoins,onSellCard,onSp
             </div>
           )}
       </div>
-      <BottomNav onDeckBuilder={onDeckBuilder} onBooster={onBooster} onRules={onRules} onAccount={onAccount} onShop={onShop} onSocial={onSocial} unreadCount={unreadCount} user={user}/>
+      <BottomNav onPlay={onPlay} onDeckBuilder={onDeckBuilder} onBooster={onBooster} onAccount={onAccount} onShop={onShop} onSocial={onSocial} unreadCount={unreadCount} user={user}/>
       </div>
     </div>
   )
@@ -2565,7 +2585,7 @@ const SKIN_PURCHASE_SPARKLES = Array.from({length:10},(_,i)=>{
 // ═══════════════════════════════════════════════════════════════════════════════
 //  SHOP SCREEN — spend coins on cosmetic card skins
 // ═══════════════════════════════════════════════════════════════════════════════
-function ShopScreen({onBack,coins,ownedSkins,onBuySkin,onDeckBuilder,onBooster,onRules,onAccount,onSocial,unreadCount,user}){
+function ShopScreen({onBack,coins,ownedSkins,onBuySkin,onPlay,onDeckBuilder,onBooster,onAccount,onSocial,unreadCount,user}){
   const[zoomedSkin,setZoomedSkin]=useState(null)
   const[justBought,setJustBought]=useState(null)
   const purchaseTimerRef=useRef(null)
@@ -2630,7 +2650,7 @@ function ShopScreen({onBack,coins,ownedSkins,onBuySkin,onDeckBuilder,onBooster,o
             })}
           </div>
         </div>
-        <BottomNav onDeckBuilder={onDeckBuilder} onBooster={onBooster} onRules={onRules} onAccount={onAccount} onShop={()=>{}} onSocial={onSocial} unreadCount={unreadCount} user={user}/>
+        <BottomNav onPlay={onPlay} onDeckBuilder={onDeckBuilder} onBooster={onBooster} onAccount={onAccount} onShop={()=>{}} onSocial={onSocial} unreadCount={unreadCount} user={user}/>
       </div>
     </div>
   )
@@ -2693,7 +2713,7 @@ function computeLevel(stats){
 // Dev-only cheat buttons on the Account screen — gated on this exact account so
 // they can never show up for a normal player, logged in or not.
 const DEV_USER_EMAIL='thodalf@gmail.com'
-function AccountScreen({onBack,user,stats,onProfileUpdated,onLegal,onDeleteAccount,onReauthenticate,onDeckBuilder,onBooster,onRules,onAccount,onShop,onSocial,unreadCount,
+function AccountScreen({onBack,user,stats,onProfileUpdated,onLegal,onDeleteAccount,onReauthenticate,onPlay,onDeckBuilder,onBooster,onRules,onAccount,onShop,onSocial,unreadCount,
   soundOn,musicVolume,onMusicVolumeChange,sfxVolume,onSfxVolumeChange,onDevGrantCoins,onDevLevelUp}){
   const isDevUser=user&&(user.email===DEV_USER_EMAIL||user.displayName==='thodalf')
   const[authMode,setAuthMode]=useState('login') // 'login'|'register'
@@ -2900,6 +2920,11 @@ function AccountScreen({onBack,user,stats,onProfileUpdated,onLegal,onDeleteAccou
         </div>
 
         <div className="rounded-xl p-4 mb-4 border border-amber-900/40" style={{background:'rgba(8,5,2,0.78)'}}>
+          <h3 className="text-amber-300 font-bold mb-1 text-sm" style={CINZEL}>Aide</h3>
+          <MedBtn onClick={onRules} color="#fbbf24" icon={<BookOpen size={14}/>} className="w-full">Règles du jeu</MedBtn>
+        </div>
+
+        <div className="rounded-xl p-4 mb-4 border border-amber-900/40" style={{background:'rgba(8,5,2,0.78)'}}>
           <h3 className="text-amber-300 font-bold mb-1 text-sm" style={CINZEL}>Légal</h3>
           <div className="flex gap-2">
             <MedBtn onClick={()=>onLegal('cgu')} color="#a89484" className="flex-1 justify-center">CGU</MedBtn>
@@ -2913,7 +2938,7 @@ function AccountScreen({onBack,user,stats,onProfileUpdated,onLegal,onDeleteAccou
           <MedBtn onClick={forceClearCacheAndReload} color="#fbbf24" icon={<RefreshCw size={14}/>} className="w-full">Vider le cache & recharger</MedBtn>
         </div>
       </div>
-      <BottomNav onDeckBuilder={onDeckBuilder} onBooster={onBooster} onRules={onRules} onAccount={onAccount} onShop={onShop} onSocial={onSocial} unreadCount={unreadCount} user={user}/>
+      <BottomNav onPlay={onPlay} onDeckBuilder={onDeckBuilder} onBooster={onBooster} onAccount={onAccount} onShop={onShop} onSocial={onSocial} unreadCount={unreadCount} user={user}/>
     </div>
   )
 }
@@ -2929,7 +2954,7 @@ function notifText(n){
   if(n.type==='level_up')return `Niveau ${n.level} atteint ! +${n.boosters} booster${n.boosters>1?'s':''} gratuit${n.boosters>1?'s':''} et ${n.coins} pièces.`
   return ''
 }
-function SocialScreen({onBack,user,friends,friendRequests,notifications,onSendRequest,onRespondRequest,onChallengeFriend,onAcceptChallenge,onMarkAllRead,onDeckBuilder,onBooster,onRules,onAccount,onShop}){
+function SocialScreen({onBack,user,friends,friendRequests,notifications,onSendRequest,onRespondRequest,onChallengeFriend,onAcceptChallenge,onMarkAllRead,onPlay,onDeckBuilder,onBooster,onAccount,onShop}){
   const[pseudoInput,setPseudoInput]=useState('')
   const[sendError,setSendError]=useState('')
   const[sendOk,setSendOk]=useState('')
@@ -3034,7 +3059,7 @@ function SocialScreen({onBack,user,friends,friendRequests,notifications,onSendRe
             )}
         </div>
 
-        <BottomNav onDeckBuilder={onDeckBuilder} onBooster={onBooster} onRules={onRules} onAccount={onAccount} onShop={onShop} onSocial={()=>{}} unreadCount={0} user={user}/>
+        <BottomNav onPlay={onPlay} onDeckBuilder={onDeckBuilder} onBooster={onBooster} onAccount={onAccount} onShop={onShop} onSocial={()=>{}} unreadCount={0} user={user}/>
       </div>
     </div>
   )
@@ -3697,18 +3722,18 @@ export default function App(){
   return(
     <>
       <SoundToggle enabled={soundOn} onToggle={()=>setSoundOn(v=>!v)}/>
-      {screen==='menu'     && <MenuScreen onAI={()=>goToDeckSelect('ai')} onLocal={()=>goToDeckSelect('local')} onOnline={()=>{setPendingChallenge(null);setPendingJoinCode(null);goToDeckSelect('online')}} onRules={()=>setScreen('rules')} onDeckBuilder={()=>setScreen('deckbuilder')} onAccount={()=>setScreen('account')} onBooster={()=>setScreen('booster')} onShop={()=>setScreen('shop')} onSocial={()=>setScreen('social')} unreadCount={unreadCount} user={user} coins={coins}/>}
-      {screen==='rules'    && <RulesScreen onBack={()=>setScreen('menu')} user={user} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')} onSocial={()=>setScreen('social')} unreadCount={unreadCount}/>}
-      {screen==='deckbuilder' && <DeckBuilderScreen onBack={()=>setScreen('menu')} user={user} ownedSkins={ownedSkins} coins={coins} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')} onSocial={()=>setScreen('social')} unreadCount={unreadCount}/>}
-      {screen==='booster'  && <BoosterScreen onBack={()=>setScreen('menu')} user={user} ownedSkins={ownedSkins} coins={coins} onEarnCoins={earnCoins} onSellCard={sellCard} onSpendCoins={spendCoins} freeBoosters={freeBoosters} onUseFreeBooster={()=>setFreeBoosters(c=>Math.max(0,c-1))} soundEnabled={soundOn} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')} onSocial={()=>setScreen('social')} unreadCount={unreadCount}/>}
-      {screen==='shop'     && <ShopScreen onBack={()=>setScreen('menu')} user={user} coins={coins} ownedSkins={ownedSkins} onBuySkin={buySkin} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')} onSocial={()=>setScreen('social')} unreadCount={unreadCount}/>}
+      {screen==='menu'     && <MenuScreen onAI={()=>goToDeckSelect('ai')} onLocal={()=>goToDeckSelect('local')} onOnline={()=>{setPendingChallenge(null);setPendingJoinCode(null);goToDeckSelect('online')}} onPlay={()=>setScreen('menu')} onDeckBuilder={()=>setScreen('deckbuilder')} onAccount={()=>setScreen('account')} onBooster={()=>setScreen('booster')} onShop={()=>setScreen('shop')} onSocial={()=>setScreen('social')} unreadCount={unreadCount} user={user} coins={coins}/>}
+      {screen==='rules'    && <RulesScreen onBack={()=>setScreen('menu')} user={user} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onPlay={()=>setScreen('menu')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')} onSocial={()=>setScreen('social')} unreadCount={unreadCount}/>}
+      {screen==='deckbuilder' && <DeckBuilderScreen onBack={()=>setScreen('menu')} user={user} ownedSkins={ownedSkins} coins={coins} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onPlay={()=>setScreen('menu')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')} onSocial={()=>setScreen('social')} unreadCount={unreadCount}/>}
+      {screen==='booster'  && <BoosterScreen onBack={()=>setScreen('menu')} user={user} ownedSkins={ownedSkins} coins={coins} onEarnCoins={earnCoins} onSellCard={sellCard} onSpendCoins={spendCoins} freeBoosters={freeBoosters} onUseFreeBooster={()=>setFreeBoosters(c=>Math.max(0,c-1))} soundEnabled={soundOn} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onPlay={()=>setScreen('menu')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')} onSocial={()=>setScreen('social')} unreadCount={unreadCount}/>}
+      {screen==='shop'     && <ShopScreen onBack={()=>setScreen('menu')} user={user} coins={coins} ownedSkins={ownedSkins} onBuySkin={buySkin} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onPlay={()=>setScreen('menu')} onAccount={()=>setScreen('account')} onSocial={()=>setScreen('social')} unreadCount={unreadCount}/>}
       {screen==='deckselect' && <DeckSelectScreen mode={pendingMode} onBack={()=>setScreen('menu')} onSelect={handleDeckChosen}/>}
-      {screen==='account'  && <AccountScreen onBack={()=>setScreen('menu')} user={user} stats={stats} onProfileUpdated={refreshUser} onLegal={type=>setScreen(type)} onDeleteAccount={handleDeleteAccount} onReauthenticate={reauthenticate} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')} onSocial={()=>setScreen('social')} unreadCount={unreadCount}
+      {screen==='account'  && <AccountScreen onBack={()=>setScreen('menu')} user={user} stats={stats} onProfileUpdated={refreshUser} onLegal={type=>setScreen(type)} onDeleteAccount={handleDeleteAccount} onReauthenticate={reauthenticate} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onPlay={()=>setScreen('menu')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')} onSocial={()=>setScreen('social')} unreadCount={unreadCount}
         soundOn={soundOn} musicVolume={musicVolume} onMusicVolumeChange={v=>{setMusicVolumeState(v);setMusicVolume(v)}}
         sfxVolume={sfxVolume} onSfxVolumeChange={v=>{setSfxVolumeState(v);setSfxVolume(v)}}
         onDevGrantCoins={()=>earnCoins(1000)} onDevLevelUp={()=>{if(user)recordGameResult(user.uid,true).catch(()=>{})}}/>}
-      {(screen==='cgu'||screen==='privacy') && <LegalScreen type={screen} onBack={()=>setScreen(user?'account':'menu')} user={user} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')} onSocial={()=>setScreen('social')} unreadCount={unreadCount}/>}
-      {screen==='social'   && <SocialScreen onBack={()=>setScreen('menu')} user={user} friends={friends} friendRequests={friendRequests} notifications={notifications} onSendRequest={handleSendFriendRequest} onRespondRequest={handleRespondFriendRequest} onChallengeFriend={handleChallengeFriend} onAcceptChallenge={handleAcceptChallenge} onMarkAllRead={handleMarkAllNotifsRead} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')}/>}
+      {(screen==='cgu'||screen==='privacy') && <LegalScreen type={screen} onBack={()=>setScreen(user?'account':'menu')} user={user} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onPlay={()=>setScreen('menu')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')} onSocial={()=>setScreen('social')} unreadCount={unreadCount}/>}
+      {screen==='social'   && <SocialScreen onBack={()=>setScreen('menu')} user={user} friends={friends} friendRequests={friendRequests} notifications={notifications} onSendRequest={handleSendFriendRequest} onRespondRequest={handleRespondFriendRequest} onChallengeFriend={handleChallengeFriend} onAcceptChallenge={handleAcceptChallenge} onMarkAllRead={handleMarkAllNotifsRead} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onPlay={()=>setScreen('menu')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')}/>}
       {screen==='online'   && <OnlineLobbyScreen onBack={()=>{setPendingChallenge(null);setPendingJoinCode(null);setScreen('menu')}} onGameStart={handleOnlineStart} deck={chosenDeck} ownedSkins={ownedSkins} user={user} challengeTarget={pendingChallenge} autoJoinCode={pendingJoinCode}/>}
       {screen==='loading'  && game && <LoadingScreen onDone={()=>setScreen('game')}/>}
       {screen==='game'     && game && <GameScreen game={game} soundEnabled={soundOn} myPlayer={myPlayer} isAI={gameMode==='ai'} onAction={handleAction} onEndTurn={handleEndTurn} onHome={closeGame} onQuit={handleQuitGame} onPowerAction={handlePowerAction} onSurrender={handleSurrender} lastAnim={lastAnim} syncError={roomCode?syncError:null} showTutorial={gameMode==='ai'&&showTutorial} onTutorialClose={handleTutorialClose} pseudo={user?.displayName} opponent={opponentRef.current}/>}
