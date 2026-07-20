@@ -1399,7 +1399,7 @@ function TutorialOverlay({onClose,steps=TUTORIAL_STEPS,finalLabel='Compris, joue
 // ═══════════════════════════════════════════════════════════════════════════════
 //  GAME SCREEN
 // ═══════════════════════════════════════════════════════════════════════════════
-function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,onPowerAction,onSurrender,lastAnim,syncError,showTutorial,onTutorialClose,pseudo,opponent}){
+function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,onQuit,onPowerAction,onSurrender,lastAnim,syncError,showTutorial,onTutorialClose,pseudo,opponent}){
   const[drag,setDrag]=useState(null)
   const[zoomedCard,setZoomedCard]=useState(null)
   const[anims,setAnims]=useState({})
@@ -1407,6 +1407,7 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
   const[violentKeys,setViolentKeys]=useState({})
   const[targeting,setTargeting]=useState(null)
   const[confirmSurrender,setConfirmSurrender]=useState(false)
+  const[confirmQuit,setConfirmQuit]=useState(false)
   const[gameScale,setGameScale]=useState(1)
   const[compact,setCompact]=useState(()=>window.innerWidth<640)
   const touchDragRef=useRef(null)
@@ -1595,7 +1596,19 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
       <div className="bg-charta fixed inset-0 -z-10"/>
       <CardZoomOverlay card={zoomedCard} onClose={()=>setZoomedCard(null)} renderCard={c=><CardFace card={c} zoom/>}/>
       {showTutorial&&<TutorialOverlay onClose={onTutorialClose}/>}
-      <BackButton onClick={onHome} compact className="absolute top-3 left-3 z-10">Menu</BackButton>
+      <BackButton onClick={()=>{game.winner?onHome():setConfirmQuit(true)}} compact className="absolute top-3 left-3 z-10">Menu</BackButton>
+      {confirmQuit&&(
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 backdrop-blur-sm px-4">
+          <div className="wood-btn rounded-2xl p-5 max-w-sm w-full flex flex-col gap-3 text-center">
+            <h3 className="text-amber-200 font-black text-lg" style={CINZEL}>Quitter la partie ?</h3>
+            <p className="text-slate-200 text-sm leading-relaxed">La partie n'est pas terminée. Quitter maintenant compte comme une capitulation.</p>
+            <div className="flex items-center gap-2 mt-2">
+              <MedBtn onClick={()=>setConfirmQuit(false)} color="#a89484" className="flex-1 justify-center">Annuler</MedBtn>
+              <MedBtn onClick={()=>{setConfirmQuit(false);onQuit()}} color="#ef4444" className="flex-1 justify-center">Capituler et quitter</MedBtn>
+            </div>
+          </div>
+        </div>
+      )}
       {syncError&&(
         <div className="fixed top-0 left-0 right-0 z-30 bg-red-900/95 text-red-100 text-xs text-center py-1.5 px-10">
           ⚠ Synchronisation en ligne interrompue : {syncError}
@@ -3542,13 +3555,37 @@ export default function App(){
     else{setGame(g);if(roomCode)syncOnline(g)}
   }
 
-  function handleSurrender(losingPlayer){
-    if(!game)return
+  // Shared by the in-game "Capituler" button and the Menu-quit confirmation
+  // below — sets the game as lost/surrendered and, for online matches, syncs
+  // that outcome to the room (so the opponent's client sees it) before
+  // removing the room a few seconds later.
+  function surrenderGame(losingPlayer){
+    if(!game)return null
     const winningPlayer=losingPlayer===1?2:1
     const f={...game,winner:winningPlayer,surrendered:true}
     setGame(f)
     if(roomCode){syncOnline(f);setTimeout(()=>removeRoom(roomCode).catch(()=>{}),4000)}
+    return f
+  }
+
+  function handleSurrender(losingPlayer){
+    if(!surrenderGame(losingPlayer))return
     setTimeout(()=>setScreen('gameover'),300)
+  }
+
+  // Menu button clicked mid-game (see GameScreen's confirmQuit dialog): counts
+  // as a capitulation, then closes the session straight back to the menu
+  // instead of passing through the GameOverScreen — the player already chose
+  // to leave, so bookkeeping (stats/notification) is recorded directly here.
+  function handleQuitGame(){
+    if(game&&!game.winner){
+      surrenderGame(myPlayer??game.currentPlayer)
+      if(user&&(gameMode==='ai'||gameMode==='online'))recordGameResult(user.uid,false).catch(()=>{})
+      if(user&&gameMode==='online'){
+        pushNotification(user.uid,{type:'match_result',result:'loss',opponentUid:opponentRef.current?.uid||null,opponentPseudo:opponentRef.current?.pseudo||'Adversaire'}).catch(()=>{})
+      }
+    }
+    closeGame()
   }
 
   function handleEndTurn(){
@@ -3674,7 +3711,7 @@ export default function App(){
       {screen==='social'   && <SocialScreen onBack={()=>setScreen('menu')} user={user} friends={friends} friendRequests={friendRequests} notifications={notifications} onSendRequest={handleSendFriendRequest} onRespondRequest={handleRespondFriendRequest} onChallengeFriend={handleChallengeFriend} onAcceptChallenge={handleAcceptChallenge} onMarkAllRead={handleMarkAllNotifsRead} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')}/>}
       {screen==='online'   && <OnlineLobbyScreen onBack={()=>{setPendingChallenge(null);setPendingJoinCode(null);setScreen('menu')}} onGameStart={handleOnlineStart} deck={chosenDeck} ownedSkins={ownedSkins} user={user} challengeTarget={pendingChallenge} autoJoinCode={pendingJoinCode}/>}
       {screen==='loading'  && game && <LoadingScreen onDone={()=>setScreen('game')}/>}
-      {screen==='game'     && game && <GameScreen game={game} soundEnabled={soundOn} myPlayer={myPlayer} isAI={gameMode==='ai'} onAction={handleAction} onEndTurn={handleEndTurn} onHome={closeGame} onPowerAction={handlePowerAction} onSurrender={handleSurrender} lastAnim={lastAnim} syncError={roomCode?syncError:null} showTutorial={gameMode==='ai'&&showTutorial} onTutorialClose={handleTutorialClose} pseudo={user?.displayName} opponent={opponentRef.current}/>}
+      {screen==='game'     && game && <GameScreen game={game} soundEnabled={soundOn} myPlayer={myPlayer} isAI={gameMode==='ai'} onAction={handleAction} onEndTurn={handleEndTurn} onHome={closeGame} onQuit={handleQuitGame} onPowerAction={handlePowerAction} onSurrender={handleSurrender} lastAnim={lastAnim} syncError={roomCode?syncError:null} showTutorial={gameMode==='ai'&&showTutorial} onTutorialClose={handleTutorialClose} pseudo={user?.displayName} opponent={opponentRef.current}/>}
       {screen==='gameover' && game && <GameOverScreen winner={game.winner} isAI={gameMode==='ai'} surrendered={!!game.surrendered} onReplay={()=>startGame(gameMode)} onMenu={()=>setScreen('menu')} coinsAwarded={gameOverCoinsAwarded}/>}
     </>
   )

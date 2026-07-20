@@ -528,22 +528,29 @@ const NOTIFICATIONS_CAP = 50
 
 export async function pushNotification(uid, payload) {
   if (!db) return
-  const listRef = ref(db, `notifications/${uid}`)
-  await push(listRef, { ...payload, at: Date.now(), read: false })
-  const snap = await get(query(listRef, orderByChild('at'), limitToLast(NOTIFICATIONS_CAP + 1)))
-  const entries = snap.val()
-  if (entries && Object.keys(entries).length > NOTIFICATIONS_CAP) {
-    const oldestId = Object.entries(entries).sort((a, b) => (a[1].at || 0) - (b[1].at || 0))[0][0]
-    await remove(ref(db, `notifications/${uid}/${oldestId}`)).catch(() => {})
-  }
+  await push(ref(db, `notifications/${uid}`), { ...payload, at: Date.now(), read: false })
 }
 
+// Pruning down to NOTIFICATIONS_CAP happens here, driven by the mailbox
+// owner's own listener, rather than inside pushNotification(). A challenge/
+// friend-request/friend-accept notification is written by the *other*
+// player into this uid's mailbox, and the rules only grant read access to
+// the owner — pushNotification() previously did a get()+prune right after
+// its push(), which threw PERMISSION_DENIED for every sender that wasn't
+// the mailbox owner (the "permission denied on défier un ami" bug). Only
+// ever pruning from the owner's own subscription keeps every prune read+write
+// within rules the owner already satisfies.
 export function subscribeNotifications(uid, callback) {
   if (!db) { callback([]); return () => {} }
-  const listRef = query(ref(db, `notifications/${uid}`), orderByChild('at'), limitToLast(NOTIFICATIONS_CAP))
+  const listRef = query(ref(db, `notifications/${uid}`), orderByChild('at'), limitToLast(NOTIFICATIONS_CAP + 1))
   return onValue(listRef, snap => {
     const v = snap.val() || {}
-    const list = Object.entries(v).map(([id, n]) => ({ id, ...n })).sort((a, b) => (b.at || 0) - (a.at || 0))
+    const entries = Object.entries(v)
+    if (entries.length > NOTIFICATIONS_CAP) {
+      const oldestId = entries.sort((a, b) => (a[1].at || 0) - (b[1].at || 0))[0][0]
+      remove(ref(db, `notifications/${uid}/${oldestId}`)).catch(() => {})
+    }
+    const list = entries.map(([id, n]) => ({ id, ...n })).sort((a, b) => (b.at || 0) - (a.at || 0)).slice(0, NOTIFICATIONS_CAP)
     callback(list)
   })
 }

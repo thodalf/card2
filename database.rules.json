@@ -27,12 +27,14 @@
     // and deleting an account (deleteAccountData) both need to write the
     // *other* person's friends/{otherUid}/{myUid} entry, so write allows
     // either side of the pair, not just the list owner. Only the owner can
-    // read their own list.
+    // read their own list. Shape is validated to keep a compromised/rogue
+    // client from stuffing oversized junk into someone else's list.
     "friends": {
       "$uid": {
         ".read": "auth != null && auth.uid === $uid",
         "$friendUid": {
-          ".write": "auth != null && (auth.uid === $uid || auth.uid === $friendUid)"
+          ".write": "auth != null && (auth.uid === $uid || auth.uid === $friendUid)",
+          ".validate": "newData.hasChildren(['pseudo','since']) && newData.child('pseudo').isString() && newData.child('pseudo').val().length <= 12 && newData.child('since').isNumber()"
         }
       }
     },
@@ -49,23 +51,29 @@
         ".read": "auth != null && auth.uid === $uid",
         "$fromUid": {
           ".read": "auth != null && auth.uid === $fromUid",
-          ".write": "auth != null && (auth.uid === $uid || auth.uid === $fromUid)"
+          ".write": "auth != null && (auth.uid === $uid || auth.uid === $fromUid)",
+          ".validate": "newData.hasChildren(['fromPseudo','at']) && newData.child('fromPseudo').isString() && newData.child('fromPseudo').val().length <= 12 && newData.child('at').isNumber()"
         }
       }
     },
 
     // ── Notifications — any authenticated user can drop a NEW notification
     // into someone else's mailbox (friend request, challenge, match
-    // result). pushNotification() also opportunistically prunes the oldest
-    // entry once a mailbox passes 50, which runs as whoever triggered the
-    // new notification (not necessarily the mailbox owner) — so deleting an
-    // existing entry is allowed for anyone too, but *rewriting* one's
-    // content is owner-only. Only the owner reads their own mailbox.
+    // result); deleting an existing entry is allowed for anyone too (the
+    // owner's own subscribeNotifications() prunes past-cap entries — see
+    // firebase.js), but *rewriting* one's content is owner-only. Only the
+    // owner reads their own mailbox. .validate constrains payload shape so
+    // an authenticated attacker can't spam arbitrary/oversized junk into a
+    // stranger's mailbox, can't spoof who a notification is "from" (fromUid/
+    // byUid must match the actual writer), and — since a 'challenge'
+    // notification carries a "join this room" action — can only be sent to
+    // an existing friend, not blasted at arbitrary strangers.
     "notifications": {
       "$uid": {
         ".read": "auth != null && auth.uid === $uid",
         "$pushId": {
-          ".write": "auth != null && (!data.exists() || auth.uid === $uid || newData.val() === null)"
+          ".write": "auth != null && (!data.exists() || auth.uid === $uid || newData.val() === null)",
+          ".validate": "newData.val() === null || (newData.hasChildren(['type','at']) && newData.child('at').isNumber() && newData.child('type').val().matches(/^(friend_request|friend_accept|challenge|match_result|level_up)$/) && (!newData.hasChild('fromUid') || newData.child('fromUid').val() === auth.uid) && (!newData.hasChild('byUid') || newData.child('byUid').val() === auth.uid) && (!newData.hasChild('fromPseudo') || newData.child('fromPseudo').val().length <= 12) && (!newData.hasChild('byPseudo') || newData.child('byPseudo').val().length <= 12) && (!newData.hasChild('code') || newData.child('code').val().matches(/^[A-HJ-NP-Z2-9]{6}$/)) && (newData.child('type').val() !== 'challenge' || root.child('friends').child($uid).child(auth.uid).exists()))"
         }
       }
     },
@@ -74,16 +82,38 @@
     // anonymous (logged-out) online play is a supported feature, and a room
     // is a shared secret (the 6-character code) rather than an owned
     // resource — anyone who has the code is meant to be able to join it.
-    // The practical mitigation is the code space (33^6 ≈ 1.3B combinations)
+    // The practical mitigation is the code space (32^6 ≈ 1.07B combinations)
     // and each room's short lifetime, not an auth check. If anonymous play
     // is ever dropped, tighten this to hostUid/guestUid-based access.
+    //
+    // .read/.write are scoped to $code (not the bare "rooms"/"matchmaking"
+    // collections) specifically so a client can never dump/enumerate every
+    // active room or the whole matchmaking queue in one request — the app
+    // itself never reads those bare paths, only rooms/{code} and
+    // matchmaking/waiting|results/{id}, so this is free hardening.
+    // .validate rejects malformed/garbage payloads (wrong shape, a room code
+    // outside genRoomCode()'s alphabet) — cheap insurance against a script
+    // flooding the database with junk nodes instead of real game rooms.
     "rooms": {
-      ".read": true,
-      ".write": true
+      "$code": {
+        ".read": true,
+        ".write": "$code.matches(/^[A-HJ-NP-Z2-9]{6}$/)",
+        ".validate": "newData.hasChildren(['state','player2Joined','createdAt']) && newData.child('player2Joined').isBoolean() && newData.child('createdAt').isNumber()"
+      }
     },
     "matchmaking": {
-      ".read": true,
-      ".write": true
+      "waiting": {
+        ".read": true,
+        ".write": true,
+        ".validate": "newData.hasChildren(['id','ts']) && newData.child('id').isString() && newData.child('ts').isNumber()"
+      },
+      "results": {
+        "$id": {
+          ".read": true,
+          ".write": true,
+          ".validate": "newData.hasChildren(['code','at']) && newData.child('code').val().matches(/^[A-HJ-NP-Z2-9]{6}$/) && newData.child('at').isNumber()"
+        }
+      }
     },
 
     // Deny everything else by default.
