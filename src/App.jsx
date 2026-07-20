@@ -312,21 +312,25 @@ function openBoosterPack(ownedSkins){
   return Array.from({length:5},()=>genBoosterCard(ownedSkins))
 }
 const ALCHEMY_MIN_CARDS=2, ALCHEMY_MAX_CARDS=5
-const ALCHEMY_RARITY_WEIGHT={common:1,uncommon:2,rare:3,ultra:4,legendary:5}
-// Sacrifices 2-5 collection cards for one new, modestly stronger card — the
-// base result trades on the ingredients' average total plus a bonus that
-// grows with how many were sacrificed (+8% at 2, up to +14% at 5).
-// Independently, a jackpot roll (odds scaling with the ingredients' average
-// rarity) can instead produce a near-max card — a rare, memorable outcome
-// rather than the everyday result.
+// Ultra-rare and legendary cards are already near the top of the curve — letting
+// them into the furnace would trivialize reaching the cap, so only common/
+// uncommon/rare cards can be sacrificed.
+const ALCHEMY_EXCLUDED_RARITIES=['ultra','legendary']
+const ALCHEMY_RARITY_WEIGHT={common:1,uncommon:2,rare:3}
+// Sacrifices 2-5 collection cards for one new card guaranteed stronger than
+// the toughest ingredient — the base result trades on that ingredient's total
+// plus a bonus that grows with how many were sacrificed (+8% at 2, up to +14%
+// at 5). Independently, a jackpot roll (odds scaling with the ingredients'
+// average rarity) can instead produce a near-max card — a rare, memorable
+// outcome rather than the everyday result.
 function combineCardsAlchemy(cards,ownedSkins){
   const n=cards.length
-  const avgTotal=cards.reduce((s,c)=>s+c.total,0)/n
+  const maxTotal=Math.max(...cards.map(c=>c.total))
   const avgRarityWeight=cards.reduce((s,c)=>s+(ALCHEMY_RARITY_WEIGHT[c.rarity]||1),0)/n
   const bonus=1.08+0.02*(n-ALCHEMY_MIN_CARDS)
   const jackpotChance=0.02+avgRarityWeight*0.015
   const jackpot=Math.random()<jackpotChance
-  const total=jackpot?rnd(58,64):Math.min(64,Math.round(avgTotal*bonus))
+  const total=jackpot?rnd(58,64):Math.min(64,Math.max(maxTotal+1,Math.round(maxTotal*bonus)))
   const values=genValues(total)
   const rarity=boosterCardRarity(total)
   const imageUrl=pickCardImage(total,ownedSkins)
@@ -2536,6 +2540,7 @@ function BoosterScreen({onBack,user,ownedSkins,coins,onEarnCoins,onSellCard,onSp
   const canOpen=cloudReady&&remainingMs<=0&&!opening&&!pendingCards
   const allRevealed=pendingCards&&revealCount>=pendingCards.length
   const displayCollection=pendingCards?collection.filter(c=>!pendingCards.some(p=>p.id===c.id)):collection
+  const alchemyEligible=collection.filter(c=>!ALCHEMY_EXCLUDED_RARITIES.includes(c.rarity))
 
   function handleOpenBooster(mode='daily'){
     if(mode==='paid'){
@@ -2681,7 +2686,7 @@ function BoosterScreen({onBack,user,ownedSkins,coins,onEarnCoins,onSellCard,onSp
           <p className="text-slate-300 text-xs leading-relaxed flex-1">
             <span className="text-amber-300 font-bold" style={CINZEL}>Alchimie</span> — sacrifiez {ALCHEMY_MIN_CARDS} à {ALCHEMY_MAX_CARDS} cartes de votre collection pour en forger une seule, un peu plus forte. Une infime chance existe d'obtenir bien mieux.
           </p>
-          <MedBtn onClick={()=>setAlchemyOpen(true)} disabled={collection.length<ALCHEMY_MIN_CARDS} color="#c084fc" icon={<Sparkles size={14}/>} className="shrink-0">Alchimie</MedBtn>
+          <MedBtn onClick={()=>setAlchemyOpen(true)} disabled={alchemyEligible.length<ALCHEMY_MIN_CARDS} color="#c084fc" icon={<Sparkles size={14}/>} className="shrink-0">Alchimie</MedBtn>
         </div>
 
         <h3 className="text-amber-300 font-bold mb-3" style={CINZEL}>Ma Collection ({displayCollection.length})</h3>
@@ -2725,16 +2730,16 @@ function BoosterScreen({onBack,user,ownedSkins,coins,onEarnCoins,onSellCard,onSp
       </div>
       {alchemyOpen&&(
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 backdrop-blur-sm px-4" onClick={()=>{setAlchemyOpen(false);setAlchemySelected([])}}>
-          <div className="wood-btn rounded-2xl p-5 max-w-md w-full flex flex-col gap-3 max-h-[85vh]" onClick={e=>e.stopPropagation()}>
+          <div className="rounded-2xl border border-amber-900/50 p-5 max-w-md w-full flex flex-col gap-3 max-h-[85vh]" style={{background:'linear-gradient(160deg,rgba(24,16,7,0.97),rgba(10,7,3,0.97))'}} onClick={e=>e.stopPropagation()}>
             <div className="flex items-center justify-between">
               <h3 className="text-amber-200 font-black text-lg flex items-center gap-2" style={CINZEL}><Sparkles size={18}/> Alchimie</h3>
               <button onClick={()=>{setAlchemyOpen(false);setAlchemySelected([])}} className="text-slate-300 hover:text-white"><X size={18}/></button>
             </div>
             <p className="text-slate-200 text-xs leading-relaxed">
-              Choisissez {ALCHEMY_MIN_CARDS} à {ALCHEMY_MAX_CARDS} cartes à sacrifier : elles seront combinées en une seule carte neuve, un peu plus forte que leur moyenne. Une infime chance existe d'obtenir une carte bien plus puissante.
+              Choisissez {ALCHEMY_MIN_CARDS} à {ALCHEMY_MAX_CARDS} cartes à sacrifier : elles seront combinées en une seule carte neuve, garantie plus forte que la meilleure d'entre elles. Une infime chance existe d'obtenir une carte bien plus puissante. Les cartes ultra rares et légendaires ne peuvent pas être sacrifiées.
             </p>
             <div className="overflow-y-auto flex-1 grid grid-cols-3 sm:grid-cols-4 gap-2 py-1">
-              {collection.map(c=>{
+              {alchemyEligible.map(c=>{
                 const picked=alchemySelected.includes(c.id)
                 return(
                   <button key={c.id} onClick={()=>toggleAlchemySelect(c.id)} className={`relative rounded-lg transition-transform ${picked?'ring-2 ring-purple-400 scale-95':'hover:scale-105'}`}>
@@ -2743,6 +2748,7 @@ function BoosterScreen({onBack,user,ownedSkins,coins,onEarnCoins,onSellCard,onSp
                   </button>
                 )
               })}
+              {alchemyEligible.length===0&&<p className="col-span-full text-slate-400 text-xs text-center py-4">Aucune carte éligible — les ultra rares et légendaires ne peuvent pas être sacrifiées.</p>}
             </div>
             <div className="flex items-center justify-between gap-2 pt-2 border-t border-amber-900/40">
               <span className="text-slate-300 text-xs">{alchemySelected.length}/{ALCHEMY_MAX_CARDS} sélectionnée(s)</span>
@@ -2753,7 +2759,7 @@ function BoosterScreen({onBack,user,ownedSkins,coins,onEarnCoins,onSellCard,onSp
       )}
       {alchemyResult&&(
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/80 backdrop-blur-sm px-4">
-          <div className="wood-btn rounded-2xl p-6 max-w-sm w-full flex flex-col items-center gap-3 text-center">
+          <div className="rounded-2xl border border-amber-900/50 p-6 max-w-sm w-full flex flex-col items-center gap-3 text-center" style={{background:'linear-gradient(160deg,rgba(24,16,7,0.97),rgba(10,7,3,0.97))'}}>
             {alchemyResult.jackpot&&<p className="text-fuchsia-300 font-black text-lg animate-pulse" style={CINZEL_DEC}>✨ Coup de maître ! ✨</p>}
             <BoosterCardFace card={alchemyResult.card} animate onClick={()=>setZoomedCard(alchemyResult.card)}/>
             <p className="text-amber-200 font-bold" style={CINZEL}>Nouvelle carte {alchemyResult.card.rarity} · {alchemyResult.card.total} pts</p>
@@ -3467,28 +3473,26 @@ function NotificationBell({count,onClick}){
 function NotificationsPopin({notifications,onClose,onAcceptChallenge,onOpenBooster}){
   return(
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 backdrop-blur-sm px-4" onClick={onClose}>
-      <div className="wood-btn rounded-2xl p-5 max-w-sm w-full flex flex-col gap-3 max-h-[80vh]" onClick={e=>e.stopPropagation()}>
+      <div className="rounded-2xl border border-amber-900/50 p-5 max-w-sm w-full flex flex-col gap-3 max-h-[80vh]" style={{background:'linear-gradient(160deg,rgba(24,16,7,0.97),rgba(10,7,3,0.97))'}} onClick={e=>e.stopPropagation()}>
         <div className="flex items-center justify-between">
-          <h3 className="text-amber-200 font-black text-lg flex items-center gap-2" style={CINZEL}><Bell size={18}/> Notifications</h3>
-          <button onClick={onClose} className="text-slate-300 hover:text-white"><X size={18}/></button>
+          <h3 className="text-amber-200 font-black text-lg flex items-center gap-2 mx-auto" style={CINZEL}><Bell size={18}/> Notifications</h3>
+          <button onClick={onClose} className="text-slate-300 hover:text-white shrink-0"><X size={18}/></button>
         </div>
-        <div className="overflow-y-auto flex flex-col gap-2.5">
+        <div className="overflow-y-auto flex flex-col gap-3">
           {notifications.length===0
-            ?<p className="text-slate-400 text-xs">Aucune notification pour l'instant.</p>
+            ?<p className="text-slate-300 text-sm text-center py-2">Aucune notification pour l'instant.</p>
             :notifications.map(n=>{
               const Icon=NOTIF_ICON[n.type]||Bell
               return(
-                <div key={n.id} className={`flex items-start gap-2 pb-2.5 border-b border-amber-900/20 last:border-0 last:pb-0 ${n.read?'opacity-60':''}`}>
-                  <Icon size={14} className="text-amber-400 shrink-0 mt-0.5"/>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-slate-200 text-xs">{notifText(n)}</p>
-                    {n.type==='challenge'&&(
-                      <MedBtn onClick={()=>{onAcceptChallenge(n.code);onClose()}} color="#7cb87c" icon={<Swords size={12}/>} className="!px-2 !py-1.5 !text-xs mt-1.5">Accepter le défi</MedBtn>
-                    )}
-                    {n.type==='level_up'&&(
-                      <MedBtn onClick={()=>{onOpenBooster();onClose()}} color="#f59e0b" icon={<Gift size={12}/>} className="!px-2 !py-1.5 !text-xs mt-1.5">Ouvrir mes boosters</MedBtn>
-                    )}
-                  </div>
+                <div key={n.id} className={`flex flex-col items-center text-center gap-1.5 pb-3 border-b border-amber-900/20 last:border-0 last:pb-0 ${n.read?'opacity-60':''}`}>
+                  <Icon size={18} className="text-amber-400"/>
+                  <p className="text-slate-100 text-sm leading-snug">{notifText(n)}</p>
+                  {n.type==='challenge'&&(
+                    <MedBtn onClick={()=>{onAcceptChallenge(n.code);onClose()}} color="#7cb87c" icon={<Swords size={12}/>} className="!px-2 !py-1.5 !text-xs mt-1">Accepter le défi</MedBtn>
+                  )}
+                  {n.type==='level_up'&&(
+                    <MedBtn onClick={()=>{onOpenBooster();onClose()}} color="#f59e0b" icon={<Gift size={12}/>} className="!px-2 !py-1.5 !text-xs mt-1">Ouvrir mes boosters</MedBtn>
+                  )}
                 </div>
               )
             })}
