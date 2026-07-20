@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useLayoutEffect, useRef } from 'react'
 import { Copy, Volume2, VolumeX, Home, BookOpen, Wifi, Play, Users, Check, X, Zap, Bot, Layers, Plus, Trash2, Star, UserCircle, LogIn, LogOut, Mail, Lock, RefreshCw, Swords, Gift, ArrowRightLeft, Sparkles, Store, Coins, Bell, UserPlus, Send, Flag } from 'lucide-react'
 import {
   genRoomCode, createRoom, joinRoom, pushState, subscribeRoom, removeRoom,
@@ -1402,6 +1402,24 @@ function TutorialOverlay({onClose,steps=TUTORIAL_STEPS,finalLabel='Compris, joue
   )
 }
 
+// Tracks an element's rendered width (e.g. the hand row) so layout math (how
+// much cards need to overlap to fit) can react to the actual size instead of
+// guessing from the viewport width — accounts for the `zoom` scaling
+// GameScreen applies in compact mode. Measured with getBoundingClientRect in
+// a layout effect (synchronous, right after the triggering render commits)
+// rather than ResizeObserver, since ResizeObserver's callback only fires on
+// an actual animation-frame/rendering pass, which some contexts throttle or
+// suspend — deps should list whatever inputs actually change this element's
+// width (here: compact, gameScale).
+function useElementWidth(deps){
+  const ref=useRef(null)
+  const[width,setWidth]=useState(0)
+  useLayoutEffect(()=>{
+    setWidth(ref.current?.getBoundingClientRect().width||0)
+  },deps)
+  return[ref,width]
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 //  GAME SCREEN
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1416,6 +1434,14 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
   const[confirmQuit,setConfirmQuit]=useState(false)
   const[gameScale,setGameScale]=useState(1)
   const[compact,setCompact]=useState(()=>window.innerWidth<640)
+  // Reference width for how much room hand cards have to spread out in —
+  // the hand row itself can't be measured directly for this (a flex row
+  // with nowrap/no-shrink children just grows to fit its own content, so
+  // measuring it would be circular: its size depends on the very overlap
+  // margins we're trying to compute). The board grid, by contrast, sizes
+  // from fixed cell dimensions regardless of hand length, so it's a stable
+  // stand-in for "the design column width both the board and hands share."
+  const[boardRef,boardWidth]=useElementWidth([compact,gameScale])
   const touchDragRef=useRef(null)
   const localGameRef=useRef(game)
   const myPlayerRef_=useRef(myPlayer)
@@ -1596,22 +1622,37 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
           <PowerBar game={game} player={player} isMyTurn={isMyTurn} targeting={targeting} onActivatePower={type=>setTargeting(type)} onCancelTargeting={()=>setTargeting(null)} compact={compact}/>
         </div>
         <div className={`game-hand-cards flex ${compact?'gap-1.5':'gap-3'} justify-start flex-nowrap overflow-x-auto scrollbar-hide max-w-full px-1 py-4`}>
-          {(players[player]?.hand??[]).map((card,i)=>{
-            // Beyond 7 cards, a compact (phone) hand fans/overlaps instead of
+          {(()=>{
+            // Beyond 6 cards, a compact (phone) hand fans/overlaps instead of
             // relying purely on horizontal scroll — still scrollable as a
-            // fallback for the rare 8-10 card case, but the overlap alone gets
-            // most hands to fit on screen without needing to scroll at all.
-            // No explicit stacking order is set here — later cards simply paint
-            // over earlier ones via normal DOM order — so hover/drag can lift a
-            // covered card back to the front with a plain `hover:z-20` (see
-            // CardFace) instead of fighting an inline z-index.
-            const overlap=compact&&(players[player]?.hand?.length||0)>7&&i>0
-            return(
-              <div key={card.id} className="anim-idle shrink-0 relative" style={{animationDelay:`${i*0.18}s`,marginLeft:overlap?'-26px':undefined}}>
-                <CardFace card={card} compact={compact} draggable={canDrag} onDragStart={e=>handleDragStart(e,'hand',i,player)} onTouchStart={canDrag?e=>handleTouchStart(e,'hand',i,player):undefined} onClick={e=>{e.stopPropagation();setZoomedCard(card)}} flip={flip}/>
-              </div>
-            )
-          })}
+            // fallback, but the overlap alone gets most hands to fit on
+            // screen without needing to scroll at all. The overlap amount is
+            // derived from the board's measured width (boardWidth) — the
+            // hand row itself can't be used as the reference (a nowrap flex
+            // row of no-shrink cards just grows to fit its own content, so
+            // measuring it would be circular) — so a 7-card hand barely
+            // overlaps while a 10-card hand overlaps just enough to use the
+            // same column width as the board, clamped to keep a minimum
+            // clickable sliver of each covered card visible, and falling
+            // back to a fixed overlap before the first measurement lands.
+            const handLen=players[player]?.hand?.length||0
+            const cardW=64,gapPx=6,minVisible=22
+            const overlapActive=compact&&handLen>6
+            let overlapMargin=0
+            if(overlapActive){
+              overlapMargin=boardWidth
+                ?Math.min(0,Math.max((boardWidth-handLen*cardW)/(handLen-1)-gapPx,-(cardW-minVisible)))
+                :-26
+            }
+            return(players[player]?.hand??[]).map((card,i)=>{
+              const marginLeft=overlapMargin<0&&i>0?`${overlapMargin}px`:undefined
+              return(
+                <div key={card.id} className="anim-idle shrink-0 relative" style={{animationDelay:`${i*0.18}s`,marginLeft}}>
+                  <CardFace card={card} compact={compact} draggable={canDrag} onDragStart={e=>handleDragStart(e,'hand',i,player)} onTouchStart={canDrag?e=>handleTouchStart(e,'hand',i,player):undefined} onClick={e=>{e.stopPropagation();setZoomedCard(card)}} flip={flip}/>
+                </div>
+              )
+            })
+          })()}
           {!(players[player]?.hand?.length)&&<span className={`text-slate-600 text-xs flex items-center justify-center border-2 border-dashed border-slate-700/40 rounded-xl ${compact?'w-[64px] h-[64px]':'w-[118px] h-[118px]'}`}>vide</span>}
         </div>
       </div>
@@ -1655,7 +1696,7 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
             <span className={badge('Dépl',actionsLeft.moves,'yellow')} style={CINZEL}>Dépl {actionsLeft.moves}</span>
             <span className={badge('Att',actionsLeft.attack,'red')} style={CINZEL}>Att {actionsLeft.attack}</span>
           </div>
-          <div className={`grid grid-cols-5 ${compact?'gap-1 p-1.5':'gap-1.5 p-2.5'} rounded-2xl border transition-all ${targeting?'border-purple-600/60 shadow-[0_0_20px_rgba(147,51,234,0.2)]':'border-amber-900/40'}`}
+          <div ref={boardRef} className={`grid grid-cols-5 ${compact?'gap-1 p-1.5':'gap-1.5 p-2.5'} rounded-2xl border transition-all ${targeting?'border-purple-600/60 shadow-[0_0_20px_rgba(147,51,234,0.2)]':'border-amber-900/40'}`}
             style={{backgroundImage:'url(/images/plateau.png)',backgroundSize:'cover',backgroundPosition:'center'}}>
             {(flip?[4,3,2,1,0]:[0,1,2,3,4]).map(r=>(flip?[4,3,2,1,0]:[0,1,2,3,4]).map(c=>(
               <Cell key={`${r}-${c}`} r={r} c={c} card={board[r][c]} currentPlayer={currentPlayer} actionsLeft={actionsLeft} myPlayer={myPlayer}
@@ -1733,10 +1774,15 @@ function BackButton({onClick, children='Menu', compact=false, disabled=false, cl
 // Small medieval-styled action button reused across the Deck Builder
 function MedBtn({onClick, icon, color='#c9a020', children, className='', disabled=false, title, as='button'}){
   const Tag = as
+  // Long labels wrapping to two lines were getting crowded against the
+  // wood-plank artwork's beveled top/bottom edge at the default padding —
+  // shrink the font and add vertical breathing room once text crosses a
+  // rough single-line comfortable length.
+  const long=typeof children==='string'&&children.length>16
   return(
     <Tag onClick={onClick} title={title} disabled={as==='button'?disabled:undefined}
       className={`wood-btn inline-flex items-center justify-center gap-2 rounded-lg select-none ${disabled?'opacity-40 cursor-not-allowed':'cursor-pointer'} ${className}`}
-      style={{...CINZEL, fontSize:'0.8rem', letterSpacing:'0.06em', padding:'0.55rem 1.1rem', color,
+      style={{...CINZEL, fontSize:long?'0.72rem':'0.8rem', letterSpacing:'0.06em', lineHeight:1.25, padding:long?'0.75rem 1.2rem':'0.55rem 1.1rem', color,
         textShadow:'0 1px 2px rgba(0,0,0,0.85)'}}>
       {icon}{children&&<span>{children}</span>}
     </Tag>
@@ -3260,7 +3306,7 @@ function OnlineLobbyScreen({onBack,onGameStart,deck,ownedSkins,user,challengeTar
       {error&&<p className="text-red-400 text-sm bg-red-900/30 px-4 py-2 rounded-lg text-center max-w-sm">{error}</p>}
       {!mode&&(
         <div className="flex flex-col items-center gap-4">
-          <MedBtn onClick={handleMatchmaking} color="#7cb87c" icon={<Swords size={18}/>} className="!py-3 !px-6 !text-base">Trouver une partie</MedBtn>
+          <MedBtn onClick={handleMatchmaking} color="#7cb87c" icon={<Swords size={18}/>} className="!py-3 !px-6">Trouver une partie</MedBtn>
           <div className="flex gap-4">
             <MedBtn onClick={handleCreate} color="#7fa8d9" className="!py-3 !px-6 !text-base">Créer</MedBtn>
             <MedBtn onClick={()=>setMode('join')} color="#c9a5e0" className="!py-3 !px-6 !text-base">Rejoindre</MedBtn>
