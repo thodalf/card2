@@ -312,27 +312,26 @@ function openBoosterPack(ownedSkins){
   return Array.from({length:5},()=>genBoosterCard(ownedSkins))
 }
 const ALCHEMY_COST=30
-const ALCHEMY_RARITY_WEIGHT={common:1,uncommon:2}
-const ALCHEMY_RARITY_LABEL={common:'commune(s)',uncommon:'peu commune(s)'}
-// Fixed recipes: sacrifice an exact rarity composition to forge one new card
-// of the target rarity. The riskier/pricier "rare" recipe fails more often —
-// on failure the ingredients (and the coin cost) are still spent, but no card
-// comes out of it.
+const ALCHEMY_RARITY_WEIGHT={common:1,uncommon:2,rare:3}
+const ALCHEMY_RARITY_LABEL={common:'commune(s)',uncommon:'peu commune(s)',rare:'rare(s)'}
+// Fixed recipes: improve one existing card of the target rarity by feeding it
+// lower-tier fuel cards alongside it. The result is NOT guaranteed to reach
+// the next rarity tier up — it's usually just a stronger card of the same
+// rarity, occasionally spilling into the next tier if the boost (or a
+// jackpot) pushes it far enough. The riskier/pricier "rare" recipe fails much
+// more often — on failure the ingredients (and the coin cost) are still
+// spent, but no card comes out of it.
 const ALCHEMY_RECIPES={
-  uncommon:{target:'uncommon',label:'peu commune',requires:{common:2},failChance:1/20},
-  rare:{target:'rare',label:'rare',requires:{common:2,uncommon:2},failChance:1/12},
+  uncommon:{label:'peu commune',requires:{common:2,uncommon:1},failChance:1/5},
+  rare:{label:'rare',requires:{common:2,uncommon:2,rare:1},failChance:1/3},
 }
-// Lowest total that still counts as each rarity (see boosterCardRarity) —
-// floors the forged card's total so weak ingredients can't undercut the
-// recipe's whole point (a "peu commune" recipe must actually yield an
-// uncommon card, not a lucky-but-still-common one).
-const ALCHEMY_TARGET_MIN_TOTAL={uncommon:25,rare:41}
-// Forges one new card guaranteed stronger than the toughest ingredient and at
-// least within the recipe's target rarity — the base result trades on that
-// ingredient's total plus a bonus from the recipe's ingredient count.
-// Independently (when the recipe doesn't fail), a jackpot roll (odds scaling
-// with the ingredients' average rarity) can instead produce a near-max card —
-// a rare, memorable outcome rather than the everyday result.
+// Improves one card, guaranteed stronger than the toughest ingredient (which,
+// since the recipe includes a card of its own rarity, is normally that card
+// itself) — the base result trades on that ingredient's total plus a bonus
+// from the recipe's ingredient count. Independently (when the recipe doesn't
+// fail), a jackpot roll (odds scaling with the ingredients' average rarity)
+// can instead produce a near-max card — a rare, memorable outcome rather than
+// the everyday result.
 function runAlchemy(recipe,cards,ownedSkins){
   if(Math.random()<recipe.failChance)return{failed:true}
   const n=cards.length
@@ -341,8 +340,7 @@ function runAlchemy(recipe,cards,ownedSkins){
   const bonus=1.08+0.02*(n-2)
   const jackpotChance=0.02+avgRarityWeight*0.015
   const jackpot=Math.random()<jackpotChance
-  const targetMin=ALCHEMY_TARGET_MIN_TOTAL[recipe.target]||0
-  const total=jackpot?rnd(58,64):Math.min(64,Math.max(targetMin,maxTotal+1,Math.round(maxTotal*bonus)))
+  const total=jackpot?rnd(58,64):Math.min(64,Math.max(maxTotal+1,Math.round(maxTotal*bonus)))
   const values=genValues(total)
   const rarity=boosterCardRarity(total)
   const imageUrl=pickCardImage(total,ownedSkins)
@@ -556,7 +554,14 @@ const GHOST_BORDER = {1:{weak:'#1e40af',medium:'#3b82f6',strong:'#67e8f9'},2:{we
 const GHOST_BG     = {1:{weak:'#0f172a',medium:'#1e3a5f',strong:'#0a3344'},2:{weak:'#1c0404',medium:'#450a0a',strong:'#431407'}}
 const GHOST_BG2    = {1:{weak:'#1e293b',medium:'#1d4ed8',strong:'#0e7490'},2:{weak:'#3b0a0a',medium:'#991b1b',strong:'#9a3412'}}
 
-function createDragGhost(card) {
+function createDragGhost(card,flip=false) {
+  // Must mirror CardFace's own flip handling — the ghost is a completely
+  // separate DOM tree (not a clone), so without this it showed the card's
+  // raw, un-rotated values while the hand/board display (and the card once
+  // dropped) show them rotated 180° for the "you're always at the bottom"
+  // seat, making the dragged values look wrong relative to everything else.
+  const dispValues=flip?invertValues180(card.values):card.values
+  const dispBase=flip?invertValues180(card.baseValues||card.values):card.baseValues
   const tier=cardTier(card),p1=card.owner===1
   const bdr=GHOST_BORDER[card.owner][tier]
   const bg1=GHOST_BG[card.owner][tier],bg2=GHOST_BG2[card.owner][tier]
@@ -590,11 +595,11 @@ function createDragGhost(card) {
     const cell=document.createElement('div')
     cell.style.cssText='display:flex;align-items:center;justify-content:center;position:relative;z-index:2;'
     if(key){
-      const isDmg=card.values[key]<(card.baseValues?.[key]??card.values[key])
+      const isDmg=dispValues[key]<(dispBase?.[key]??dispValues[key])
       const span=document.createElement('span')
       const valBg=card.imageUrl?'background:rgba(0,0,0,0.65);border-radius:5px;padding:2px 4px;':'';
       span.style.cssText=`font-size:28px;font-weight:900;color:${isDmg?'#fca5a5':'#f8fafc'};text-shadow:0 1px 6px rgba(0,0,0,0.8);${valBg}`
-      span.textContent=String(card.values[key])
+      span.textContent=String(dispValues[key])
       cell.appendChild(span)
     }else{
       const span=document.createElement('span')
@@ -1549,7 +1554,7 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
     if(from==='hand'){const[hi,pl]=args;card=game.players[pl].hand[hi];setDrag({from:'hand',handIdx:hi,player:pl})}
     if(from==='board'){const[r,c]=args;card=game.board[r][c];setDrag({from:'board',r,c})}
     if(card){
-      const ghost=createDragGhost(card)
+      const ghost=createDragGhost(card,flip)
       e.dataTransfer.setDragImage(ghost,85,85)
       requestAnimationFrame(()=>requestAnimationFrame(()=>{if(ghost.parentNode)document.body.removeChild(ghost)}))
     }
@@ -1588,7 +1593,7 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
     if(!card||!dragInfo)return
     e.preventDefault()
     const touch=e.touches[0]
-    const ghost=createDragGhost(card)
+    const ghost=createDragGhost(card,flip)
     ghost.style.top=`${touch.clientY-85}px`
     ghost.style.left=`${touch.clientX-85}px`
     ghost.style.zIndex='9999'
@@ -2726,7 +2731,7 @@ function BoosterScreen({onBack,user,ownedSkins,coins,onEarnCoins,onSellCard,onSp
 
         <div className="rounded-xl p-4 mb-6 border border-amber-900/40 flex items-center justify-between gap-3" style={{background:'rgba(8,5,2,0.78)'}}>
           <p className="text-slate-300 text-xs leading-relaxed flex-1">
-            <span className="text-amber-300 font-bold" style={CINZEL}>Alchimie</span> — sacrifiez des cartes de votre collection ({ALCHEMY_COST} pièces) pour en forger une nouvelle, garantie plus forte. Une petite chance existe que la fusion échoue et ne produise rien.
+            <span className="text-amber-300 font-bold" style={CINZEL}>Alchimie</span> — sacrifiez des cartes de votre collection ({ALCHEMY_COST} pièces) pour en améliorer une, garantie plus forte (mais pas forcément d'une rareté supérieure). Une chance non négligeable existe que la fusion échoue et ne produise rien.
           </p>
           <MedBtn onClick={()=>setAlchemyOpen(true)} disabled={coins<ALCHEMY_COST} color="#c084fc" icon={<Sparkles size={14}/>} className="shrink-0">Alchimie</MedBtn>
         </div>
@@ -2780,7 +2785,7 @@ function BoosterScreen({onBack,user,ownedSkins,coins,onEarnCoins,onSellCard,onSp
             {!activeRecipe?(
               <>
                 <p className="text-slate-200 text-xs leading-relaxed">
-                  Choisissez une recette : les cartes requises seront sacrifiées pour forger une carte neuve, garantie plus forte que la meilleure d'entre elles. Une petite chance existe que la fusion échoue et ne produise rien.
+                  Choisissez une recette : les cartes requises seront sacrifiées pour améliorer l'une d'entre elles, garantie plus forte qu'avant — mais pas forcément d'une rareté supérieure. Une chance non négligeable existe que la fusion échoue et ne produise rien.
                 </p>
                 <div className="flex flex-col gap-2">
                   {Object.entries(ALCHEMY_RECIPES).map(([key,r])=>{
@@ -2790,7 +2795,7 @@ function BoosterScreen({onBack,user,ownedSkins,coins,onEarnCoins,onSellCard,onSp
                       <button key={key} onClick={()=>ok&&setAlchemyRecipe(key)} disabled={!ok}
                         className={`text-left rounded-xl p-3 border transition-colors ${ok?'border-purple-500/50 hover:border-purple-400 cursor-pointer':'border-slate-700 opacity-50 cursor-not-allowed'}`}
                         style={{background:'rgba(0,0,0,0.3)'}}>
-                        <p className="text-amber-200 font-bold text-sm" style={CINZEL}>Carte {r.label}</p>
+                        <p className="text-amber-200 font-bold text-sm" style={CINZEL}>Améliorer une carte {r.label}</p>
                         <p className="text-slate-300 text-xs mt-1">
                           {Object.entries(r.requires).map(([rarity,count])=>`${count} ${ALCHEMY_RARITY_LABEL[rarity]}`).join(' + ')} · {ALCHEMY_COST} pièces · {Math.round(r.failChance*100)}% d'échec
                         </p>
