@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Copy, Volume2, VolumeX, Home, BookOpen, Wifi, Play, Users, Check, X, Zap, Bot, Layers, Plus, Trash2, Star, UserCircle, LogIn, LogOut, Mail, Lock, RefreshCw, Swords, Gift, ArrowRightLeft, Sparkles, Store, Coins, Bell, UserPlus, Send } from 'lucide-react'
+import { Copy, Volume2, VolumeX, Home, BookOpen, Wifi, Play, Users, Check, X, Zap, Bot, Layers, Plus, Trash2, Star, UserCircle, LogIn, LogOut, Mail, Lock, RefreshCw, Swords, Gift, ArrowRightLeft, Sparkles, Store, Coins, Bell, UserPlus, Send, Flag } from 'lucide-react'
 import {
   genRoomCode, createRoom, joinRoom, pushState, subscribeRoom, removeRoom,
   onAuthChange, registerWithEmail, loginWithEmail, loginWithGoogle, logout, completeRedirectLogin,
@@ -309,7 +309,7 @@ function genBoosterCard(ownedSkins){
   return{id:`bc-${Date.now()}-${Math.random().toString(36).slice(2)}`,values,imageUrl,rarity,total,obtainedAt:Date.now()}
 }
 function openBoosterPack(ownedSkins){
-  return Array.from({length:4},()=>genBoosterCard(ownedSkins))
+  return Array.from({length:5},()=>genBoosterCard(ownedSkins))
 }
 const BOOSTER_COIN_MIN=10, BOOSTER_COIN_MAX=25
 const SELL_VALUE={common:5,uncommon:12,rare:30,ultra:60,legendary:100}
@@ -1288,13 +1288,13 @@ function PowerBar({game,player,isMyTurn,targeting,onActivatePower,onCancelTarget
   const pad=compact?'px-1.5 py-1':'px-2.5 py-1.5'
   const gap=compact?'gap-1':'gap-1.5'
   return(
-    <div className={`flex items-center justify-center ${gap} bg-purple-950/50 border border-purple-800/30 rounded-xl ${pad} ${compact?'min-h-[40px]':'min-h-[52px]'}`}>
+    <div className={`flex items-center justify-center ${gap} bg-black/40 border border-amber-900/40 rounded-xl ${pad} ${compact?'min-h-[40px]':'min-h-[52px]'}`}>
       {isTargetingHere?(
         <div className={`flex items-center ${gap}`}>
           <PowerCardDisplay type={targeting} isActive compact/>
           <div className="flex flex-col items-start gap-0.5">
-            <span className="text-yellow-400 text-[10px] font-bold animate-pulse leading-tight">{POWER_INFO[targeting].icon} Cible…</span>
-            <button onClick={onCancelTargeting} className="flex items-center gap-1 text-slate-400 hover:text-white bg-slate-700/70 hover:bg-slate-700 px-1.5 py-0.5 rounded-lg text-[10px] transition-colors"><X size={10}/> Annuler</button>
+            <span className="text-amber-300 text-[10px] font-bold animate-pulse leading-tight" style={CINZEL}>{POWER_INFO[targeting].icon} Cible…</span>
+            <MedBtn onClick={onCancelTargeting} color="#a89484" icon={<X size={10}/>} className="!px-1.5 !py-0.5 !text-[10px]">Annuler</MedBtn>
           </div>
         </div>
       ):(
@@ -1303,7 +1303,7 @@ function PowerBar({game,player,isMyTurn,targeting,onActivatePower,onCancelTarget
             <PowerCardDisplay key={i} type={type} compact
               onClick={canActivate?()=>onActivatePower(type):undefined}/>
           ))}
-          {hand.length===0&&<span className="text-slate-600 text-[10px]">Aucune carte pouvoir</span>}
+          {hand.length===0&&<span className="text-slate-500 text-[10px]" style={CINZEL}>Aucune carte pouvoir</span>}
         </div>
       )}
     </div>
@@ -1547,9 +1547,11 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
   // Tailwind can't statically see classes built from a template string like
   // `bg-${color}-900/50` — they never made it into the compiled CSS, so these
   // badges rendered with no color at all. Use a lookup of complete class
-  // strings instead, with solid/opaque colors for real contrast.
-  const ACTION_BADGE_COLOR={green:'bg-emerald-600 text-white border-emerald-300',yellow:'bg-amber-400 text-black border-amber-200',red:'bg-red-600 text-white border-red-300'}
-  const badge=(label,count,color)=>`px-2.5 py-1 rounded-full text-xs font-bold border shadow-sm ${count>0?ACTION_BADGE_COLOR[color]:'bg-slate-800/60 text-slate-500 border-slate-700/50'}`
+  // strings instead. Dark parchment chip + colored border/text, matching the
+  // wood/amber panels used everywhere else on the site instead of flat
+  // Tailwind fill colors.
+  const ACTION_BADGE_COLOR={green:'border-emerald-500/70 text-emerald-300',yellow:'border-amber-400/70 text-amber-300',red:'border-red-500/70 text-red-300'}
+  const badge=(label,count,color)=>`px-2.5 py-1 rounded-full text-xs font-bold border ${count>0?ACTION_BADGE_COLOR[color]:'border-slate-700/50 text-slate-500'}`
 
   // Render function (not a component) — avoids remount-on-render which kills drag events
   const renderHand=(player,canDrag)=>{
@@ -1572,7 +1574,7 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
         <div className="flex items-center justify-center gap-2 flex-wrap">
           <div className="flex items-center gap-2">
             {currentPlayer===player&&<span className="w-2 h-2 rounded-full bg-green-400 animate-pulse inline-block"/>}
-            <span className={`${activeColor} text-xs font-bold`}>{label} · {pts} pts</span>
+            <span className={`${activeColor} text-xs font-bold drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]`} style={CINZEL}>{label} · {pts} pts</span>
           </div>
           <PowerBar game={game} player={player} isMyTurn={isMyTurn} targeting={targeting} onActivatePower={type=>setTargeting(type)} onCancelTargeting={()=>setTargeting(null)} compact={compact}/>
         </div>
@@ -1589,7 +1591,8 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
   }
 
   return(
-    <div className="game-outer min-h-screen bg-gradient-to-br from-slate-900 via-slate-900 to-slate-800 overflow-y-auto relative">
+    <div className="game-outer min-h-screen overflow-y-auto relative">
+      <div className="bg-charta fixed inset-0 -z-10"/>
       <CardZoomOverlay card={zoomedCard} onClose={()=>setZoomedCard(null)} renderCard={c=><CardFace card={c} zoom/>}/>
       {showTutorial&&<TutorialOverlay onClose={onTutorialClose}/>}
       <BackButton onClick={onHome} compact className="absolute top-3 left-3 z-10">Menu</BackButton>
@@ -1605,12 +1608,12 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
 
         {/* Board + controls */}
         <div className={`game-board-area flex flex-col items-center ${compact?'gap-1.5':'gap-2'}`}>
-          <div className="flex gap-2">
-            <span className={badge('Pose',actionsLeft.placement,'green')}>Pose {actionsLeft.placement}</span>
-            <span className={badge('Dépl',actionsLeft.moves,'yellow')}>Dépl {actionsLeft.moves}</span>
-            <span className={badge('Att',actionsLeft.attack,'red')}>Att {actionsLeft.attack}</span>
+          <div className="flex gap-2 bg-black/40 border border-amber-900/40 rounded-full px-2 py-1">
+            <span className={badge('Pose',actionsLeft.placement,'green')} style={CINZEL}>Pose {actionsLeft.placement}</span>
+            <span className={badge('Dépl',actionsLeft.moves,'yellow')} style={CINZEL}>Dépl {actionsLeft.moves}</span>
+            <span className={badge('Att',actionsLeft.attack,'red')} style={CINZEL}>Att {actionsLeft.attack}</span>
           </div>
-          <div className={`grid grid-cols-5 ${compact?'gap-1 p-1.5':'gap-1.5 p-2.5'} rounded-2xl border transition-all ${targeting?'border-purple-600/60 shadow-[0_0_20px_rgba(147,51,234,0.2)]':'border-slate-700/30'}`}
+          <div className={`grid grid-cols-5 ${compact?'gap-1 p-1.5':'gap-1.5 p-2.5'} rounded-2xl border transition-all ${targeting?'border-purple-600/60 shadow-[0_0_20px_rgba(147,51,234,0.2)]':'border-amber-900/40'}`}
             style={{backgroundImage:'url(/images/plateau.png)',backgroundSize:'cover',backgroundPosition:'center'}}>
             {board.map((row,r)=>row.map((cell,c)=>(
               <Cell key={`${r}-${c}`} r={r} c={c} card={cell} currentPlayer={currentPlayer} actionsLeft={actionsLeft} myPlayer={myPlayer}
@@ -1620,29 +1623,27 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
             )))}
           </div>
           <div className="flex items-center gap-3 flex-wrap justify-center">
-            <span className={`text-sm font-bold ${currentPlayer===1?'text-blue-400':'text-red-400'}`}>
+            <span className={`text-sm font-bold drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)] ${currentPlayer===1?'text-blue-400':'text-red-400'}`} style={CINZEL}>
               Tour — {isAI&&currentPlayer===2?<span className="flex items-center gap-1.5"><Bot size={14} className="inline"/> IA réfléchit… <span className="animate-pulse">▪▪▪</span></span>:`Joueur ${currentPlayer}`}
               {!isAI&&myPlayer&&myPlayer!==currentPlayer&&<span className="text-slate-500 font-normal ml-2">(en attente…)</span>}
             </span>
             {isMyTurn&&!targeting&&!(isAI&&currentPlayer===2)&&(
-              <button onClick={onEndTurn} disabled={!canEndTurn}
+              <MedBtn onClick={onEndTurn} disabled={!canEndTurn}
                 title={canEndTurn?undefined:'Effectuez au moins une action (pose, déplacement ou attaque) avant de terminer votre tour.'}
-                className={`font-bold py-1.5 px-4 rounded-lg text-sm transition-all duration-200 ${canEndTurn?'bg-emerald-700 hover:bg-emerald-600 hover:scale-105 active:scale-95 text-white':'bg-slate-700 text-slate-400 cursor-not-allowed opacity-60'}`}>
-                Fin du tour ▶
-              </button>
+                color="#7cb87c" className="!px-3.5 !py-1.5 !text-sm">Fin du tour ▶</MedBtn>
             )}
             {isMyTurn&&!canEndTurn&&!targeting&&!(isAI&&currentPlayer===2)&&(
-              <span className="text-amber-400/80 text-xs">Effectuez au moins une action pour terminer le tour.</span>
+              <span className="text-amber-400/80 text-xs drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">Effectuez au moins une action pour terminer le tour.</span>
             )}
             {!(isAI&&currentPlayer===2)&&(
               confirmSurrender?(
                 <span className="flex items-center gap-1.5">
-                  <span className="text-slate-400 text-xs">Capituler ?</span>
-                  <button onClick={()=>{onSurrender(myPlayer??currentPlayer);setConfirmSurrender(false)}} className="bg-red-700 hover:bg-red-600 hover:scale-110 active:scale-95 text-white font-bold py-0.5 px-2 rounded text-xs transition-all duration-200">Oui</button>
-                  <button onClick={()=>setConfirmSurrender(false)} className="bg-slate-700 hover:bg-slate-600 hover:scale-110 active:scale-95 text-white font-bold py-0.5 px-2 rounded text-xs transition-all duration-200">Non</button>
+                  <span className="text-slate-300 text-xs drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">Capituler ?</span>
+                  <MedBtn onClick={()=>{onSurrender(myPlayer??currentPlayer);setConfirmSurrender(false)}} color="#ef4444" className="!px-2 !py-1 !text-xs">Oui</MedBtn>
+                  <MedBtn onClick={()=>setConfirmSurrender(false)} color="#a89484" className="!px-2 !py-1 !text-xs">Non</MedBtn>
                 </span>
               ):(
-                <button onClick={()=>setConfirmSurrender(true)} className="text-slate-500 hover:text-red-400 hover:scale-110 active:scale-95 inline-block transition-all duration-200">⚑ Cap.</button>
+                <MedBtn onClick={()=>setConfirmSurrender(true)} color="#a89484" icon={<Flag size={11}/>} className="!px-2 !py-1 !text-xs">Cap.</MedBtn>
               )
             )}
           </div>
@@ -2402,7 +2403,7 @@ function BoosterScreen({onBack,user,ownedSkins,coins,onEarnCoins,onSellCard,onSp
       onEarnCoins(reward)
       setCoinToast(reward)
       // Cleared by handleCloseReveal instead of its own timer — a fixed timeout
-      // raced the reveal stagger (4 cards × 650ms can outlast a 2.5s timer) and
+      // raced the reveal stagger (5 cards × 650ms can outlast a 2.5s timer) and
       // made the reward vanish right as the "Continuer" button appeared.
     },900))
   }
@@ -2447,7 +2448,7 @@ function BoosterScreen({onBack,user,ownedSkins,coins,onEarnCoins,onSellCard,onSp
       <div className="max-w-lg w-full">
         <h2 className="text-3xl font-black mb-1" style={{...CINZEL_DEC,background:'linear-gradient(to bottom,#ffe566,#c9a020)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',filter:'drop-shadow(0 1px 10px rgba(0,0,0,1))'}}>Booster de Cartes</h2>
         <p className="text-xs mb-5 text-slate-300 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">
-          Un booster gratuit de 4 cartes chaque jour, ou un booster supplémentaire à tout moment pour {BOOSTER_PURCHASE_PRICE} pièces. Très rarement (&lt;1%), une carte peut dépasser les {CARD_MAX_POINTS} pts habituels !
+          Un booster gratuit de 5 cartes chaque jour, ou un booster supplémentaire à tout moment pour {BOOSTER_PURCHASE_PRICE} pièces. Très rarement (&lt;1%), une carte peut dépasser les {CARD_MAX_POINTS} pts habituels !
         </p>
 
         <div className="rounded-xl p-6 mb-6 border border-amber-900/40 flex flex-col items-center gap-4 min-h-[220px] justify-center" style={{background:'rgba(8,5,2,0.78)'}}>
