@@ -1595,7 +1595,7 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
           </div>
           <PowerBar game={game} player={player} isMyTurn={isMyTurn} targeting={targeting} onActivatePower={type=>setTargeting(type)} onCancelTargeting={()=>setTargeting(null)} compact={compact}/>
         </div>
-        <div className={`game-hand-cards flex ${compact?'gap-1.5':'gap-3'} justify-start flex-nowrap overflow-x-auto scrollbar-hide max-w-full px-1`}>
+        <div className={`game-hand-cards flex ${compact?'gap-1.5':'gap-3'} justify-start flex-nowrap overflow-x-auto scrollbar-hide max-w-full px-1 py-4`}>
           {(players[player]?.hand??[]).map((card,i)=>(
             <div key={card.id} className="anim-idle shrink-0" style={{animationDelay:`${i*0.18}s`}}>
               <CardFace card={card} compact={compact} draggable={canDrag} onDragStart={e=>handleDragStart(e,'hand',i,player)} onTouchStart={canDrag?e=>handleTouchStart(e,'hand',i,player):undefined} onClick={e=>{e.stopPropagation();setZoomedCard(card)}} flip={flip}/>
@@ -2285,7 +2285,28 @@ function BoosterCardFace({card,animate=false,revealed=true,size='normal',onClick
     </div>
   )
 }
+// Max tilt in degrees for the pointer/touch-driven zoom — a bit more dramatic
+// than the automatic idle's ~±9° since this one is a deliberate manipulation,
+// not a passive ambient float.
+const ZOOM_TILT_MAX=18
 function CardZoomOverlay({card,onClose,renderCard}){
+  const[tilt,setTilt]=useState({rx:0,ry:0})
+  const[interacting,setInteracting]=useState(false)
+  const wrapRef=useRef(null)
+  // Mouse (continuous hover, no click needed) and touch (drag) both funnel
+  // through here: normalized cursor/finger position within the card's own
+  // bounding box, mapped to a rotateX/rotateY pair. The automatic CSS idle
+  // animation (`idleClass`) takes back over the instant the pointer leaves —
+  // see the conditional style/className split below.
+  function updateTilt(clientX,clientY){
+    const el=wrapRef.current;if(!el)return
+    const rect=el.getBoundingClientRect()
+    const nx=Math.max(-1,Math.min(1,((clientX-rect.left)/rect.width)*2-1))
+    const ny=Math.max(-1,Math.min(1,((clientY-rect.top)/rect.height)*2-1))
+    setTilt({rx:-ny*ZOOM_TILT_MAX,ry:nx*ZOOM_TILT_MAX})
+    setInteracting(true)
+  }
+  function release(){setInteracting(false)}
   if(!card)return null
   // Parallax cards get the slow-tilt variant of the idle float (same keyframes,
   // longer duration) so the inner layers — synced to that exact same duration,
@@ -2296,9 +2317,14 @@ function CardZoomOverlay({card,onClose,renderCard}){
   return(
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm" onClick={onClose}>
       <div className="flex flex-col items-center gap-3 select-none">
-        <div className="relative flex items-center justify-center zoom-card-perspective">
+        <div ref={wrapRef} className="relative flex items-center justify-center zoom-card-perspective"
+          onClick={e=>e.stopPropagation()}
+          onMouseMove={e=>updateTilt(e.clientX,e.clientY)} onMouseLeave={release}
+          onTouchMove={e=>{const t=e.touches[0];if(t)updateTilt(t.clientX,t.clientY)}}
+          onTouchEnd={release} onTouchCancel={release}>
           <div className="absolute inset-0 m-auto zoom-aura rounded-full pointer-events-none" style={{width:'135%',height:'135%'}}/>
-          <div className={idleClass}>
+          <div className={interacting?undefined:idleClass}
+            style={interacting?{transform:`rotateX(${tilt.rx}deg) rotateY(${tilt.ry}deg)`,transformStyle:'preserve-3d',transition:'transform 0.08s linear'}:undefined}>
             {renderCard?renderCard(card):<BoosterCardFace card={card} size='large'/>}
           </div>
         </div>
