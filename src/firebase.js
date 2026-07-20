@@ -61,14 +61,14 @@ export async function registerWithEmail(email, password) {
   try {
     const user = (await createUserWithEmailAndPassword(auth, email, password)).user
     // Default pseudo is the part of the email before "@" — the player can rename
-    // later. Email local-parts routinely contain characters RTDB keys reject
-    // (a dot is extremely common, e.g. "john.doe@…") so strip anything
-    // claimUsername would bounce, not just the ones a raw copy would hit.
-    // A common prefix (e.g. "john") may also already be claimed by someone
-    // else, so fall back to a random-suffixed variant rather than ever blocking
-    // registration on a name collision.
-    let base = email.split('@')[0].replace(/[.#$[\]/\x00-\x1F\x7F]/g, '').slice(0, 20)
-    if (base.length < 2) base = 'joueur' // too short/empty after stripping — claimUsername requires 2-24 chars
+    // later. Email local-parts routinely contain characters claimUsername now
+    // rejects (dots, plus-tags, accents in international addresses), so run
+    // it through the same filter, leaving room for the 4-digit collision
+    // suffix below. A common prefix (e.g. "john") may also already be claimed
+    // by someone else, so fall back to a random-suffixed variant rather than
+    // ever blocking registration on a name collision.
+    let base = sanitizePseudoInput(email.split('@')[0]).slice(0, PSEUDO_MAX_LEN - 4)
+    if (base.length < 2) base = 'joueur' // too short/empty after stripping — claimUsername requires 2-12 chars
     let pseudo = base
     try { await claimUsername(user.uid, base) }
     catch {
@@ -419,18 +419,26 @@ export async function clearMatchResult(myId) {
 export function normalizePseudo(pseudo) {
   return (pseudo || '').trim().toLowerCase()
 }
-// Realtime Database keys can't contain . # $ [ ] / or ASCII control chars —
-// reject those up front with a clear message instead of letting the SDK
-// throw an opaque "Invalid path" error deep inside the transaction below.
-const INVALID_PSEUDO_CHARS = /[.#$[\]/\x00-\x1F\x7F]/
+// Pseudos are restricted to plain ASCII letters/digits — no spaces, accents
+// or symbols — both so they stay trivial to type/search for friend requests
+// and so they can never collide with RTDB's reserved key characters
+// (. # $ [ ] / and control chars), which a blacklist would have to keep
+// re-deriving anyway.
+export const PSEUDO_MAX_LEN = 12
+const PSEUDO_ALLOWED_CHARS = /^[A-Za-z0-9]*$/
+// Strips anything not allowed and truncates — used to live-filter pseudo
+// input fields as the user types, not just reject on submit.
+export function sanitizePseudoInput(s) {
+  return (s || '').replace(/[^A-Za-z0-9]/g, '').slice(0, PSEUDO_MAX_LEN)
+}
 
 // Claims `pseudo` for `uid`, atomically releasing whatever pseudo `uid` held
 // before. Fails if the normalized name is already claimed by a different uid.
 export async function claimUsername(uid, pseudo) {
   if (!db) throw new Error('Firebase not configured')
   const trimmed = (pseudo || '').trim()
-  if (trimmed.length < 2 || trimmed.length > 24) throw new Error('Le pseudo doit contenir entre 2 et 24 caractères.')
-  if (INVALID_PSEUDO_CHARS.test(trimmed)) throw new Error('Le pseudo ne peut pas contenir . # $ [ ] / ni de caractères de contrôle.')
+  if (trimmed.length < 2 || trimmed.length > PSEUDO_MAX_LEN) throw new Error(`Le pseudo doit contenir entre 2 et ${PSEUDO_MAX_LEN} caractères.`)
+  if (!PSEUDO_ALLOWED_CHARS.test(trimmed)) throw new Error('Le pseudo ne peut contenir que des lettres et des chiffres, sans espace ni accent.')
   const normalized = normalizePseudo(trimmed)
   if (!normalized) throw new Error('Pseudo invalide.')
   const slotRef = ref(db, `usernames/${normalized}`)

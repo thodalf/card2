@@ -38,12 +38,17 @@
     },
 
     // ── Friend request mailbox — sender writes into the recipient's
-    // mailbox; recipient clears it on accept/decline. Only the recipient
-    // can read their own pending requests.
+    // mailbox; recipient clears it on accept/decline. Only the recipient can
+    // read the whole mailbox, but sendFriendRequest() also needs to read back
+    // its own single entry (friendRequests/{toUid}/{fromUid}) to detect an
+    // already-pending request before re-sending — without this nested rule
+    // that read hits the parent's owner-only rule and throws PERMISSION_DENIED
+    // for the sender, which is the "permission denied on add friend" bug.
     "friendRequests": {
       "$uid": {
         ".read": "auth != null && auth.uid === $uid",
         "$fromUid": {
+          ".read": "auth != null && auth.uid === $fromUid",
           ".write": "auth != null && (auth.uid === $uid || auth.uid === $fromUid)"
         }
       }

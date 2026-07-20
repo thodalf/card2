@@ -9,7 +9,7 @@ import {
   joinMatchmaking, leaveMatchmaking, publishMatchResult, subscribeMatchResult, clearMatchResult,
   loadCloudCollection, saveCloudCollection, loadCloudLastBooster, saveCloudLastBooster,
   loadCloudEconomy, saveCloudEconomy, loadCloudDeletedIds, saveCloudDeletedIds,
-  claimUsername, getUidByPseudo, sendFriendRequest, respondFriendRequest,
+  claimUsername, getUidByPseudo, sendFriendRequest, respondFriendRequest, sanitizePseudoInput, PSEUDO_MAX_LEN,
   subscribeFriends, subscribeFriendRequests,
   pushNotification, subscribeNotifications, markNotificationRead, markAllNotificationsRead,
 } from './firebase.js'
@@ -2778,7 +2778,7 @@ function AccountScreen({onBack,user,stats,onProfileUpdated,onLegal,onDeleteAccou
             )}
             <label className="text-slate-400 text-[11px] mb-1 block">Pseudo (affiché en partie)</label>
             <div className="flex gap-2 mb-1">
-              <input value={pseudo} onChange={e=>setPseudo(e.target.value)} maxLength={24} placeholder="Pseudo"
+              <input value={pseudo} onChange={e=>setPseudo(sanitizePseudoInput(e.target.value))} maxLength={PSEUDO_MAX_LEN} placeholder="Pseudo"
                 className="flex-1 min-w-0 bg-slate-800 text-slate-200 text-sm border border-slate-700 rounded-lg px-3 py-2 outline-none focus:border-amber-500"/>
               <MedBtn onClick={handleSavePseudo} disabled={pseudoSaving||!pseudo.trim()||pseudo.trim()===(user.displayName||'')}
                 color={pseudoSaved?'#34d399':'#c9a020'} icon={<Check size={14}/>} className="shrink-0">
@@ -2956,7 +2956,7 @@ function SocialScreen({onBack,user,friends,friendRequests,notifications,onSendRe
         <div className={sectionCls} style={sectionStyle}>
           <h3 className="text-amber-300 font-bold mb-2 flex items-center gap-1.5" style={CINZEL}><UserPlus size={15}/> Ajouter un ami</h3>
           <form onSubmit={handleSend} className="flex gap-2">
-            <input value={pseudoInput} onChange={e=>setPseudoInput(e.target.value)} maxLength={24} placeholder="Pseudo"
+            <input value={pseudoInput} onChange={e=>setPseudoInput(sanitizePseudoInput(e.target.value))} maxLength={PSEUDO_MAX_LEN} placeholder="Pseudo"
               className="flex-1 min-w-0 bg-slate-800 text-slate-200 text-sm border border-slate-700 rounded-lg px-3 py-2 outline-none focus:border-amber-500"/>
             <MedBtn disabled={sending||!pseudoInput.trim()} color="#7cb87c" icon={<Send size={14}/>} className="shrink-0">Envoyer</MedBtn>
           </form>
