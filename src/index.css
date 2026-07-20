@@ -4,6 +4,12 @@
 
 * { box-sizing: border-box; }
 
+/* Stops the browser's native pull-to-refresh/rubber-band gesture from firing
+   when a drag (placing/moving a card, tilting a zoomed card) starts near the
+   top of the screen on mobile — this is a game, not a page you'd want to
+   accidentally reload mid-match. */
+html, body { overscroll-behavior-y: none; }
+
 .scrollbar-hide { scrollbar-width: none; -ms-overflow-style: none; }
 .scrollbar-hide::-webkit-scrollbar { display: none; }
 

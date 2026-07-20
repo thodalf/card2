@@ -1201,7 +1201,7 @@ function CardFace({card,small=false,compact=false,zoom=false,draggable=false,onD
   return(
     <div draggable={draggable} onDragStart={draggable?onDragStart:undefined} onTouchStart={onTouchStart} onClick={onClick}
       className={`${sz} border-2 ${theme.border} ${hasImg?playerGlow:theme.glow} rounded-xl bg-gradient-to-br ${hasImg?'':theme.bg} relative select-none overflow-hidden transition-all duration-200
-        ${draggable?`cursor-grab active:cursor-grabbing active:scale-95 hover:scale-125 hover:brightness-110 hover:-translate-y-1 ${hoverGlow}`:''}
+        ${draggable?`cursor-grab active:cursor-grabbing active:scale-95 hover:scale-125 hover:z-20 hover:brightness-110 hover:-translate-y-1 ${hoverGlow}`:''}
         ${onClick&&!draggable?'cursor-zoom-in':''}
         ${isTarget?'target-pulse ring-2 ring-yellow-400 ring-offset-1 ring-offset-slate-900 cursor-pointer brightness-110':''}
         ${animClass}`}>
@@ -1596,11 +1596,22 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
           <PowerBar game={game} player={player} isMyTurn={isMyTurn} targeting={targeting} onActivatePower={type=>setTargeting(type)} onCancelTargeting={()=>setTargeting(null)} compact={compact}/>
         </div>
         <div className={`game-hand-cards flex ${compact?'gap-1.5':'gap-3'} justify-start flex-nowrap overflow-x-auto scrollbar-hide max-w-full px-1 py-4`}>
-          {(players[player]?.hand??[]).map((card,i)=>(
-            <div key={card.id} className="anim-idle shrink-0" style={{animationDelay:`${i*0.18}s`}}>
-              <CardFace card={card} compact={compact} draggable={canDrag} onDragStart={e=>handleDragStart(e,'hand',i,player)} onTouchStart={canDrag?e=>handleTouchStart(e,'hand',i,player):undefined} onClick={e=>{e.stopPropagation();setZoomedCard(card)}} flip={flip}/>
-            </div>
-          ))}
+          {(players[player]?.hand??[]).map((card,i)=>{
+            // Beyond 7 cards, a compact (phone) hand fans/overlaps instead of
+            // relying purely on horizontal scroll — still scrollable as a
+            // fallback for the rare 8-10 card case, but the overlap alone gets
+            // most hands to fit on screen without needing to scroll at all.
+            // No explicit stacking order is set here — later cards simply paint
+            // over earlier ones via normal DOM order — so hover/drag can lift a
+            // covered card back to the front with a plain `hover:z-20` (see
+            // CardFace) instead of fighting an inline z-index.
+            const overlap=compact&&(players[player]?.hand?.length||0)>7&&i>0
+            return(
+              <div key={card.id} className="anim-idle shrink-0 relative" style={{animationDelay:`${i*0.18}s`,marginLeft:overlap?'-26px':undefined}}>
+                <CardFace card={card} compact={compact} draggable={canDrag} onDragStart={e=>handleDragStart(e,'hand',i,player)} onTouchStart={canDrag?e=>handleTouchStart(e,'hand',i,player):undefined} onClick={e=>{e.stopPropagation();setZoomedCard(card)}} flip={flip}/>
+              </div>
+            )
+          })}
           {!(players[player]?.hand?.length)&&<span className={`text-slate-600 text-xs flex items-center justify-center border-2 border-dashed border-slate-700/40 rounded-xl ${compact?'w-[64px] h-[64px]':'w-[118px] h-[118px]'}`}>vide</span>}
         </div>
       </div>
@@ -2293,6 +2304,30 @@ function CardZoomOverlay({card,onClose,renderCard}){
   const[tilt,setTilt]=useState({rx:0,ry:0})
   const[interacting,setInteracting]=useState(false)
   const wrapRef=useRef(null)
+  const backdropRef=useRef(null)
+  // While the zoom modal is open, the page underneath must not scroll — on
+  // mobile, dragging a finger to tilt the card (or just resting it near the
+  // top of the screen) would otherwise scroll the game behind it, or worse,
+  // trigger the browser's pull-to-refresh. `overflow:hidden` on the body
+  // alone doesn't reliably stop touch rubber-band scrolling on every mobile
+  // browser, so a non-passive touchmove listener on the backdrop backs it up
+  // — React's synthetic onTouchMove is passive by default and can't
+  // preventDefault, hence a native listener via ref instead.
+  useEffect(()=>{
+    if(!card)return
+    const prevBodyOverflow=document.body.style.overflow
+    const prevHtmlOverflow=document.documentElement.style.overflow
+    document.body.style.overflow='hidden'
+    document.documentElement.style.overflow='hidden'
+    const blockTouch=e=>e.preventDefault()
+    const el=backdropRef.current
+    el?.addEventListener('touchmove',blockTouch,{passive:false})
+    return()=>{
+      document.body.style.overflow=prevBodyOverflow
+      document.documentElement.style.overflow=prevHtmlOverflow
+      el?.removeEventListener('touchmove',blockTouch)
+    }
+  },[card])
   // Mouse (continuous hover, no click needed) and touch (drag) both funnel
   // through here: normalized cursor/finger position within the card's own
   // bounding box, mapped to a rotateX/rotateY pair. The automatic CSS idle
@@ -2315,7 +2350,7 @@ function CardZoomOverlay({card,onClose,renderCard}){
   const resolvedFile=(card.imageUrl||(card.file?`/images/card/${card.file}`:'')).split('/').pop()
   const idleClass=PARALLAX_SKINS[resolvedFile]?'zoom-card-idle-slow':'zoom-card-idle'
   return(
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm" onClick={onClose}>
+    <div ref={backdropRef} className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm" onClick={onClose}>
       <div className="flex flex-col items-center gap-3 select-none">
         <div ref={wrapRef} className="relative flex items-center justify-center zoom-card-perspective"
           onClick={e=>e.stopPropagation()}
