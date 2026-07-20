@@ -154,7 +154,7 @@ function genDeck(owner,ownedSkins) {
 //  DECK BUILDER — storage & helpers
 // ═══════════════════════════════════════════════════════════════════════════════
 const DECKS_KEY='tacticalcards_decks'
-const DECK_MAX_POINTS=150
+const DECK_MAX_POINTS=200
 const CARD_MAX_POINTS=40
 const DECK_MAX_CARDS=10
 const FACE_KEYS=['topLeft','top','topRight','left','right','bottomLeft','bottom','bottomRight']
@@ -312,35 +312,38 @@ function openBoosterPack(ownedSkins){
   return Array.from({length:5},()=>genBoosterCard(ownedSkins))
 }
 const ALCHEMY_COST=30
-const ALCHEMY_RARITY_WEIGHT={common:1,uncommon:2,rare:3}
 const ALCHEMY_RARITY_LABEL={common:'commune(s)',uncommon:'peu commune(s)',rare:'rare(s)'}
+const ALCHEMY_RARITY_ORDER=['common','uncommon','rare','ultra','legendary']
+const ALCHEMY_RARITY_MIN_TOTAL={common:8,uncommon:25,rare:41,ultra:51,legendary:61}
 // Fixed recipes: improve one existing card of the target rarity by feeding it
-// lower-tier fuel cards alongside it. The result is NOT guaranteed to reach
-// the next rarity tier up — it's usually just a stronger card of the same
-// rarity, occasionally spilling into the next tier if the boost (or a
-// jackpot) pushes it far enough. The riskier/pricier "rare" recipe fails much
-// more often — on failure the ingredients (and the coin cost) are still
+// lower-tier fuel cards alongside it. The riskier/pricier "rare" recipe fails
+// much more often — on failure the ingredients (and the coin cost) are still
 // spent, but no card comes out of it.
 const ALCHEMY_RECIPES={
   uncommon:{label:'peu commune',requires:{common:2,uncommon:1},failChance:1/5},
   rare:{label:'rare',requires:{common:2,uncommon:2,rare:1},failChance:1/3},
 }
-// Improves one card, guaranteed stronger than the toughest ingredient (which,
-// since the recipe includes a card of its own rarity, is normally that card
-// itself) — the base result trades on that ingredient's total plus a bonus
-// from the recipe's ingredient count. Independently (when the recipe doesn't
-// fail), a jackpot roll (odds scaling with the ingredients' average rarity)
-// can instead produce a near-max card — a rare, memorable outcome rather than
-// the everyday result.
+// Improves one card by a small margin (+1 to +3 points) over the toughest
+// ingredient — deliberately modest, so a big value jump stays rare rather
+// than the norm. That alone keeps the result in the same rarity almost
+// always, UNLESS the ingredient was already near the very top of its bracket
+// (so even the small bump spills into the next tier — unavoidable, not
+// gated). Otherwise, only a 1% roll bumps it into the next tier up, landing
+// just inside that bracket rather than near the cap.
 function runAlchemy(recipe,cards,ownedSkins){
   if(Math.random()<recipe.failChance)return{failed:true}
-  const n=cards.length
   const maxTotal=Math.max(...cards.map(c=>c.total))
-  const avgRarityWeight=cards.reduce((s,c)=>s+(ALCHEMY_RARITY_WEIGHT[c.rarity]||1),0)/n
-  const bonus=1.08+0.02*(n-2)
-  const jackpotChance=0.02+avgRarityWeight*0.015
-  const jackpot=Math.random()<jackpotChance
-  const total=jackpot?rnd(58,64):Math.min(64,Math.max(maxTotal+1,Math.round(maxTotal*bonus)))
+  const maxRarity=boosterCardRarity(maxTotal)
+  let total=maxTotal+rnd(1,3)
+  let jackpot=false
+  if(boosterCardRarity(total)===maxRarity&&Math.random()<0.01){
+    const nextRarity=ALCHEMY_RARITY_ORDER[ALCHEMY_RARITY_ORDER.indexOf(maxRarity)+1]
+    if(nextRarity){
+      const nextMin=ALCHEMY_RARITY_MIN_TOTAL[nextRarity]
+      total=Math.min(64,rnd(nextMin,Math.min(64,nextMin+4)))
+      jackpot=true
+    }
+  }
   const values=genValues(total)
   const rarity=boosterCardRarity(total)
   const imageUrl=pickCardImage(total,ownedSkins)
@@ -1403,7 +1406,7 @@ function LoadingScreen({onDone,images=ALL_MATCH_IMAGES,audio=[],title='Préparat
 const TUTORIAL_STEPS=[
   {icon:'👋',title:'Bienvenue !',text:"C'est votre première partie contre l'IA. Ce court tutoriel explique les règles et les actions — vous pouvez le passer à tout moment, le plateau reste visible derrière."},
   {icon:'🎲',title:'Le plateau',text:"On joue sur une grille de 5×5 cases. Les 4 coins (marqués d'une croix) sont bloqués. Votre camp est en haut du plateau, celui de l'IA en bas."},
-  {icon:'🎴',title:'Vos cartes',text:"Chaque carte a un chiffre sur ses 8 faces (haut, bas, côtés, diagonales). Votre deck compte 6 cartes : 2 faibles, 2 moyennes et 2 puissantes."},
+  {icon:'🎴',title:'Vos cartes',text:`Chaque carte a un chiffre sur ses 8 faces (haut, bas, côtés, diagonales). Un deck contient entre 1 et 10 cartes pour ${DECK_MAX_POINTS} points maximum — le deck aléatoire par défaut en propose 6 (2 faibles, 2 moyennes, 2 puissantes).`},
   {icon:'✋',title:'Poser une carte',text:"Glissez une carte depuis votre main (en haut de l'écran) vers une case libre de votre camp. Une seule pose par tour."},
   {icon:'↔️',title:'Déplacer une carte',text:"Vous pouvez déplacer jusqu'à 2 cartes déjà en jeu, diagonales autorisées, en les faisant glisser vers une case adjacente libre."},
   {icon:'⚔️',title:'Attaquer',text:"Glissez une de vos cartes sur une carte adverse juste à côté (haut, bas, gauche ou droite — pas en diagonale) pour l'attaquer. Une seule attaque par tour."},
@@ -1959,11 +1962,12 @@ function MenuScreen({onLocal,onAI,onOnline,onPlay,onDeckBuilder,onAccount,onBoos
 }
 function RulesScreen({onBack,user,onPlay,onDeckBuilder,onBooster,onAccount,onShop,onSocial,unreadCount}){
   const S=[
-    ['🎴 Les cartes','Chaque carte a un chiffre sur chacune de ses 8 faces (haut, bas, les côtés, et les diagonales). Votre deck compte 6 cartes : deux plutôt faibles, deux moyennes et deux très puissantes. Vous pouvez créer les vôtres dans le Deck Builder, avec vos propres chiffres et un portrait de votre choix (d\'autres s\'achètent dans la Boutique).'],
+    ['🎴 Les cartes',`Chaque carte a un chiffre sur chacune de ses 8 faces (haut, bas, les côtés, et les diagonales). Un deck contient entre 1 et 10 cartes de votre collection, pour un total de ${DECK_MAX_POINTS} points maximum — le deck aléatoire par défaut en propose 6 (deux plutôt faibles, deux moyennes et deux très puissantes). Vos cartes s'obtiennent en ouvrant des boosters depuis la page Booster ; les portraits s'y ajoutent aléatoirement (d'autres s'achètent dans la Boutique).`],
     ['🎲 Le plateau','On joue sur une grille de 5 cases sur 5. Les 4 coins sont bloqués : personne ne peut y poser de carte. Vous démarrez en haut du plateau, votre adversaire en bas.'],
     ['⚡ Pendant votre tour','À chaque tour, vous pouvez poser une carte depuis votre main dans votre camp, déplacer deux cartes déjà en jeu (les déplacements en diagonale sont autorisés), et attaquer une fois une carte adverse juste à côté de la vôtre (seulement en haut, en bas, à gauche ou à droite — pas en diagonale). Vos pouvoirs spéciaux sont gratuits et ne comptent pas dans ces actions.'],
     ['💥 Le combat','Quand vous attaquez une carte voisine, vos deux cartes s\'affrontent sur les faces qui se touchent : chacune y perd 1 point. Si un chiffre tombe sous zéro, la carte est détruite.'],
     ['🃏 Les pouvoirs','En plus de vos cartes classiques, vous disposez de pouvoirs gratuits, à utiliser quand vous le souhaitez : vous commencez la partie avec 2 cartes Barrage (bloque définitivement une case vide du plateau) et 1 carte Rotation (fait tourner les chiffres d\'une carte).'],
+    ['⚗️ L\'alchimie',`Sur la page Booster, sacrifiez des cartes de votre collection pour en améliorer une (${ALCHEMY_COST} pièces) : 2 communes + 1 peu commune pour tenter d'améliorer une carte peu commune, ou 2 communes + 2 peu communes + 1 rare pour une carte rare. Le résultat est garanti plus fort qu'avant (mais reste le plus souvent dans la même rareté), avec une chance non négligeable que la fusion échoue et détruise les cartes sacrifiées sans rien donner en retour.`],
     ['🤖 Face à l\'ordinateur','En mode Solo, votre adversaire est joué par une intelligence artificielle : elle pose, déplace, attaque et utilise ses pouvoirs toute seule.'],
     ['🏆 Comment gagner','Dès qu\'un joueur n\'a plus aucune carte, ni en main ni sur le plateau, la partie s\'arrête et son adversaire remporte la victoire.'],
   ]
@@ -2325,7 +2329,7 @@ function DeckBuilderScreen({onBack,user,ownedSkins,coins,onPlay,onDeckBuilder,on
             className="wood-btn w-7 h-7 shrink-0 rounded-full flex items-center justify-center text-amber-300 font-black text-sm">?</button>
         </div>
         <p className="text-xs mb-5 text-slate-300 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">
-          {user?`☁ Connecté (${user.displayName||user.email}) — decks synchronisés dans le cloud.`:'Connectez-vous depuis le menu (Mon Compte) pour synchroniser vos decks dans le cloud.'}
+          ☁ Connecté ({user.displayName||user.email}) — decks synchronisés dans le cloud.
         </p>
         <div className="flex flex-col gap-3 mb-4">
           {decks.map(d=>{
