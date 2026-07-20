@@ -137,10 +137,27 @@ function genValues(total) {
   v[7]=rem;const s=shuf(v)
   return {topLeft:s[0]+1,top:s[1]+1,topRight:s[2]+1,left:s[3]+1,right:s[4]+1,bottomLeft:s[5]+1,bottom:s[6]+1,bottomRight:s[7]+1}
 }
+// Builds the point-per-card spread for the built-in "Deck aléatoire" — a
+// random card count (not always 6) split into roughly even thirds of
+// weak/medium/strong cards, with per-tier ranges scaled to the deck's average
+// so the whole thing still sums to exactly DECK_MAX_POINTS regardless of how
+// many cards were rolled.
 function genDeckTotals() {
-  const t=[[15,20],[15,20],[24,28],[24,28],[32,42],[32,42]]
-  for(let i=0;i<3000;i++){const r=t.map(([lo,hi])=>rnd(lo,hi));if(r.reduce((a,b)=>a+b,0)===150)return r}
-  return [15,15,25,25,35,35]
+  const n=rnd(6,DECK_MAX_CARDS)
+  const base=DECK_MAX_POINTS/n
+  const weakCount=Math.round(n/3),strongCount=Math.round(n/3),medCount=n-weakCount-strongCount
+  const tiers=[
+    ...Array(weakCount).fill([Math.round(base*0.6),Math.round(base*0.8)]),
+    ...Array(medCount).fill([Math.round(base*0.9),Math.round(base*1.1)]),
+    ...Array(strongCount).fill([Math.round(base*1.2),Math.round(base*1.4)]),
+  ]
+  for(let i=0;i<8000;i++){
+    const r=tiers.map(([lo,hi])=>rnd(lo,hi))
+    if(r.reduce((a,b)=>a+b,0)===DECK_MAX_POINTS)return r
+  }
+  const fallback=tiers.map(([lo,hi])=>Math.round((lo+hi)/2))
+  fallback[fallback.length-1]+=DECK_MAX_POINTS-fallback.reduce((a,b)=>a+b,0)
+  return fallback
 }
 function genDeck(owner,ownedSkins) {
   return shuf(genDeckTotals()).map((total,i)=>{
@@ -1406,7 +1423,7 @@ function LoadingScreen({onDone,images=ALL_MATCH_IMAGES,audio=[],title='Préparat
 const TUTORIAL_STEPS=[
   {icon:'👋',title:'Bienvenue !',text:"C'est votre première partie contre l'IA. Ce court tutoriel explique les règles et les actions — vous pouvez le passer à tout moment, le plateau reste visible derrière."},
   {icon:'🎲',title:'Le plateau',text:"On joue sur une grille de 5×5 cases. Les 4 coins (marqués d'une croix) sont bloqués. Votre camp est en haut du plateau, celui de l'IA en bas."},
-  {icon:'🎴',title:'Vos cartes',text:`Chaque carte a un chiffre sur ses 8 faces (haut, bas, côtés, diagonales). Un deck contient entre 1 et 10 cartes pour ${DECK_MAX_POINTS} points maximum — le deck aléatoire par défaut en propose 6 (2 faibles, 2 moyennes, 2 puissantes).`},
+  {icon:'🎴',title:'Vos cartes',text:`Chaque carte a un chiffre sur ses 8 faces (haut, bas, côtés, diagonales). Un deck contient entre 1 et 10 cartes pour ${DECK_MAX_POINTS} points maximum — le deck aléatoire par défaut en propose entre 6 et ${DECK_MAX_CARDS}, avec un mélange de cartes faibles, moyennes et puissantes.`},
   {icon:'✋',title:'Poser une carte',text:"Glissez une carte depuis votre main (en haut de l'écran) vers une case libre de votre camp. Une seule pose par tour."},
   {icon:'↔️',title:'Déplacer une carte',text:"Vous pouvez déplacer jusqu'à 2 cartes déjà en jeu, diagonales autorisées, en les faisant glisser vers une case adjacente libre."},
   {icon:'⚔️',title:'Attaquer',text:"Glissez une de vos cartes sur une carte adverse juste à côté (haut, bas, gauche ou droite — pas en diagonale) pour l'attaquer. Une seule attaque par tour."},
@@ -1962,7 +1979,7 @@ function MenuScreen({onLocal,onAI,onOnline,onPlay,onDeckBuilder,onAccount,onBoos
 }
 function RulesScreen({onBack,user,onPlay,onDeckBuilder,onBooster,onAccount,onShop,onSocial,unreadCount}){
   const S=[
-    ['🎴 Les cartes',`Chaque carte a un chiffre sur chacune de ses 8 faces (haut, bas, les côtés, et les diagonales). Un deck contient entre 1 et 10 cartes de votre collection, pour un total de ${DECK_MAX_POINTS} points maximum — le deck aléatoire par défaut en propose 6 (deux plutôt faibles, deux moyennes et deux très puissantes). Vos cartes s'obtiennent en ouvrant des boosters depuis la page Booster ; les portraits s'y ajoutent aléatoirement (d'autres s'achètent dans la Boutique).`],
+    ['🎴 Les cartes',`Chaque carte a un chiffre sur chacune de ses 8 faces (haut, bas, les côtés, et les diagonales). Un deck contient entre 1 et 10 cartes de votre collection, pour un total de ${DECK_MAX_POINTS} points maximum — le deck aléatoire par défaut en propose entre 6 et ${DECK_MAX_CARDS}, avec un mélange de cartes faibles, moyennes et puissantes. Vos cartes s'obtiennent en ouvrant des boosters depuis la page Booster ; les portraits s'y ajoutent aléatoirement (d'autres s'achètent dans la Boutique).`],
     ['🎲 Le plateau','On joue sur une grille de 5 cases sur 5. Les 4 coins sont bloqués : personne ne peut y poser de carte. Vous démarrez en haut du plateau, votre adversaire en bas.'],
     ['⚡ Pendant votre tour','À chaque tour, vous pouvez poser une carte depuis votre main dans votre camp, déplacer deux cartes déjà en jeu (les déplacements en diagonale sont autorisés), et attaquer une fois une carte adverse juste à côté de la vôtre (seulement en haut, en bas, à gauche ou à droite — pas en diagonale). Vos pouvoirs spéciaux sont gratuits et ne comptent pas dans ces actions.'],
     ['💥 Le combat','Quand vous attaquez une carte voisine, vos deux cartes s\'affrontent sur les faces qui se touchent : chacune y perd 1 point. Si un chiffre tombe sous zéro, la carte est détruite.'],
@@ -2957,7 +2974,7 @@ function DeckSelectScreen({mode,onBack,onSelect}){
         <div className="flex flex-col gap-3">
           <button onClick={()=>onSelect(null)} className="rounded-xl p-4 border border-amber-900/40 text-left transition-all duration-200 hover:border-amber-500 hover:-translate-y-0.5 hover:scale-[1.015] active:scale-[0.99]" style={{background:'rgba(8,5,2,0.78)'}}>
             <span className="text-amber-200 font-bold" style={CINZEL}>Deck aléatoire</span>
-            <p className="text-slate-400 text-xs mt-0.5">6 cartes générées aléatoirement (2 faibles, 2 moyennes, 2 fortes)</p>
+            <p className="text-slate-400 text-xs mt-0.5">6 à {DECK_MAX_CARDS} cartes générées aléatoirement (mélange de cartes faibles, moyennes et fortes), pour {DECK_MAX_POINTS} points au total</p>
           </button>
           {decks.map(d=>{
             const total=deckTotalPts(d)
