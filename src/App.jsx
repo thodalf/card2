@@ -311,6 +311,27 @@ function genBoosterCard(ownedSkins){
 function openBoosterPack(ownedSkins){
   return Array.from({length:5},()=>genBoosterCard(ownedSkins))
 }
+const ALCHEMY_MIN_CARDS=2, ALCHEMY_MAX_CARDS=5
+const ALCHEMY_RARITY_WEIGHT={common:1,uncommon:2,rare:3,ultra:4,legendary:5}
+// Sacrifices 2-5 collection cards for one new, modestly stronger card — the
+// base result trades on the ingredients' average total plus a bonus that
+// grows with how many were sacrificed (+8% at 2, up to +14% at 5).
+// Independently, a jackpot roll (odds scaling with the ingredients' average
+// rarity) can instead produce a near-max card — a rare, memorable outcome
+// rather than the everyday result.
+function combineCardsAlchemy(cards,ownedSkins){
+  const n=cards.length
+  const avgTotal=cards.reduce((s,c)=>s+c.total,0)/n
+  const avgRarityWeight=cards.reduce((s,c)=>s+(ALCHEMY_RARITY_WEIGHT[c.rarity]||1),0)/n
+  const bonus=1.08+0.02*(n-ALCHEMY_MIN_CARDS)
+  const jackpotChance=0.02+avgRarityWeight*0.015
+  const jackpot=Math.random()<jackpotChance
+  const total=jackpot?rnd(58,64):Math.min(64,Math.round(avgTotal*bonus))
+  const values=genValues(total)
+  const rarity=boosterCardRarity(total)
+  const imageUrl=pickCardImage(total,ownedSkins)
+  return{card:{id:`al-${Date.now()}-${Math.random().toString(36).slice(2)}`,values,imageUrl,rarity,total,obtainedAt:Date.now()},jackpot}
+}
 const BOOSTER_COIN_MIN=10, BOOSTER_COIN_MAX=25
 const SELL_VALUE={common:5,uncommon:12,rare:30,ultra:60,legendary:100}
 const ONLINE_WIN_COIN_REWARD=20
@@ -1829,7 +1850,7 @@ function BottomNav({onPlay,onDeckBuilder,onBooster,onAccount,onShop,onSocial,unr
       }
       <MenuIconBtn onClick={onShop}    icon={<Store size={18}/>}    label="Boutique" color="#f59e0b"/>
       {user
-        ?<MenuIconBtn onClick={onSocial} icon={<span className="relative">{unreadCount>0&&<span className="absolute -top-1 -right-1.5 w-3.5 h-3.5 rounded-full bg-red-600 text-white text-[8px] font-bold flex items-center justify-center leading-none">{unreadCount>9?'9+':unreadCount}</span>}<Bell size={18}/></span>} label="Amis" color="#c084fc"/>
+        ?<MenuIconBtn onClick={onSocial} icon={<Bell size={18}/>} label="Amis" color="#c084fc"/>
         :<MenuIconBtn onClick={onAccount} icon={<Lock size={16}/>} label="Amis" color="#64748b"/>
       }
       <MenuIconBtn onClick={onAccount} icon={<UserCircle size={18}/>} label={user?'Compte':'Connexion'} color="#38bdf8" title={user?(user.displayName||user.email):undefined}/>
@@ -2448,6 +2469,9 @@ function BoosterScreen({onBack,user,ownedSkins,coins,onEarnCoins,onSellCard,onSp
   const[coinToast,setCoinToast]=useState(null)
   const[,setNow]=useState(()=>Date.now())
   const[zoomedCard,setZoomedCard]=useState(null)
+  const[alchemyOpen,setAlchemyOpen]=useState(false)
+  const[alchemySelected,setAlchemySelected]=useState([])
+  const[alchemyResult,setAlchemyResult]=useState(null)
   // Until the cloud fetch resolves, lastBoosterAt only reflects THIS device's local
   // record — briefly showing the booster as openable even if it was already opened
   // elsewhere today. Gate canOpen on this so the button can't flash active.
@@ -2562,6 +2586,20 @@ function BoosterScreen({onBack,user,ownedSkins,coins,onEarnCoins,onSellCard,onSp
     onSellCard(card.rarity)
     snd('coin',soundEnabled)
   }
+  function toggleAlchemySelect(cardId){
+    setAlchemySelected(sel=>sel.includes(cardId)?sel.filter(id=>id!==cardId):(sel.length>=ALCHEMY_MAX_CARDS?sel:[...sel,cardId]))
+  }
+  function handleAlchemyCombine(){
+    const chosen=collection.filter(c=>alchemySelected.includes(c.id))
+    if(chosen.length<ALCHEMY_MIN_CARDS)return
+    const{card,jackpot}=combineCardsAlchemy(chosen,ownedSkins)
+    setCollection(c=>[...c.filter(x=>!alchemySelected.includes(x.id)),card])
+    setDeletedCollectionIds(ids=>Array.from(new Set([...ids,...alchemySelected])))
+    setAlchemySelected([])
+    setAlchemyOpen(false)
+    setAlchemyResult({card,jackpot})
+    snd('power',soundEnabled)
+  }
 
   if(!user)return(
     <div className="bg-charta min-h-screen flex flex-col items-center justify-center gap-5 px-4">
@@ -2639,6 +2677,13 @@ function BoosterScreen({onBack,user,ownedSkins,coins,onEarnCoins,onSellCard,onSp
           )}
         </div>
 
+        <div className="rounded-xl p-4 mb-6 border border-amber-900/40 flex items-center justify-between gap-3" style={{background:'rgba(8,5,2,0.78)'}}>
+          <p className="text-slate-300 text-xs leading-relaxed flex-1">
+            <span className="text-amber-300 font-bold" style={CINZEL}>Alchimie</span> — sacrifiez {ALCHEMY_MIN_CARDS} à {ALCHEMY_MAX_CARDS} cartes de votre collection pour en forger une seule, un peu plus forte. Une infime chance existe d'obtenir bien mieux.
+          </p>
+          <MedBtn onClick={()=>setAlchemyOpen(true)} disabled={collection.length<ALCHEMY_MIN_CARDS} color="#c084fc" icon={<Sparkles size={14}/>} className="shrink-0">Alchimie</MedBtn>
+        </div>
+
         <h3 className="text-amber-300 font-bold mb-3" style={CINZEL}>Ma Collection ({displayCollection.length})</h3>
         {displayCollection.length===0
           ?<p className="text-slate-300 text-sm text-center py-6 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">Aucune carte en attente. Ouvrez un booster pour en obtenir !</p>
@@ -2678,6 +2723,44 @@ function BoosterScreen({onBack,user,ownedSkins,coins,onEarnCoins,onSellCard,onSp
       </div>
       <BottomNav onPlay={onPlay} onDeckBuilder={onDeckBuilder} onBooster={onBooster} onAccount={onAccount} onShop={onShop} onSocial={onSocial} unreadCount={unreadCount} user={user}/>
       </div>
+      {alchemyOpen&&(
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 backdrop-blur-sm px-4" onClick={()=>{setAlchemyOpen(false);setAlchemySelected([])}}>
+          <div className="wood-btn rounded-2xl p-5 max-w-md w-full flex flex-col gap-3 max-h-[85vh]" onClick={e=>e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h3 className="text-amber-200 font-black text-lg flex items-center gap-2" style={CINZEL}><Sparkles size={18}/> Alchimie</h3>
+              <button onClick={()=>{setAlchemyOpen(false);setAlchemySelected([])}} className="text-slate-300 hover:text-white"><X size={18}/></button>
+            </div>
+            <p className="text-slate-200 text-xs leading-relaxed">
+              Choisissez {ALCHEMY_MIN_CARDS} à {ALCHEMY_MAX_CARDS} cartes à sacrifier : elles seront combinées en une seule carte neuve, un peu plus forte que leur moyenne. Une infime chance existe d'obtenir une carte bien plus puissante.
+            </p>
+            <div className="overflow-y-auto flex-1 grid grid-cols-3 sm:grid-cols-4 gap-2 py-1">
+              {collection.map(c=>{
+                const picked=alchemySelected.includes(c.id)
+                return(
+                  <button key={c.id} onClick={()=>toggleAlchemySelect(c.id)} className={`relative rounded-lg transition-transform ${picked?'ring-2 ring-purple-400 scale-95':'hover:scale-105'}`}>
+                    <BoosterCardFace card={c} size="small"/>
+                    {picked&&<div className="absolute inset-0 bg-purple-500/30 rounded-lg flex items-center justify-center pointer-events-none"><Check size={20} className="text-white"/></div>}
+                  </button>
+                )
+              })}
+            </div>
+            <div className="flex items-center justify-between gap-2 pt-2 border-t border-amber-900/40">
+              <span className="text-slate-300 text-xs">{alchemySelected.length}/{ALCHEMY_MAX_CARDS} sélectionnée(s)</span>
+              <MedBtn onClick={handleAlchemyCombine} disabled={alchemySelected.length<ALCHEMY_MIN_CARDS} color="#c084fc" icon={<Sparkles size={14}/>}>Fusionner</MedBtn>
+            </div>
+          </div>
+        </div>
+      )}
+      {alchemyResult&&(
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/80 backdrop-blur-sm px-4">
+          <div className="wood-btn rounded-2xl p-6 max-w-sm w-full flex flex-col items-center gap-3 text-center">
+            {alchemyResult.jackpot&&<p className="text-fuchsia-300 font-black text-lg animate-pulse" style={CINZEL_DEC}>✨ Coup de maître ! ✨</p>}
+            <BoosterCardFace card={alchemyResult.card} animate onClick={()=>setZoomedCard(alchemyResult.card)}/>
+            <p className="text-amber-200 font-bold" style={CINZEL}>Nouvelle carte {alchemyResult.card.rarity} · {alchemyResult.card.total} pts</p>
+            <MedBtn onClick={()=>setAlchemyResult(null)} color="#34d399" icon={<Sparkles size={14}/>}>Continuer</MedBtn>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -3061,21 +3144,17 @@ function notifText(n){
   if(n.type==='level_up')return `Niveau ${n.level} atteint ! +${n.boosters} booster${n.boosters>1?'s':''} gratuit${n.boosters>1?'s':''} et ${n.coins} pièces.`
   return ''
 }
-function SocialScreen({onBack,user,friends,friendRequests,notifications,onSendRequest,onRespondRequest,onChallengeFriend,onAcceptChallenge,onMarkAllRead,onPlay,onDeckBuilder,onBooster,onAccount,onShop}){
+function SocialScreen({onBack,user,friends,friendRequests,onSendRequest,onRespondRequest,onChallengeFriend,onPlay,onDeckBuilder,onBooster,onAccount,onShop}){
   const[pseudoInput,setPseudoInput]=useState('')
   const[sendError,setSendError]=useState('')
   const[sendOk,setSendOk]=useState('')
   const[sending,setSending]=useState(false)
 
-  // Opening this screen is the read receipt — simplest model that keeps the
-  // BottomNav badge in sync without per-item "mark as read" bookkeeping.
-  useEffect(()=>{if(user)onMarkAllRead()},[user])
-
   if(!user)return(
     <div className="bg-charta min-h-screen flex flex-col items-center justify-center gap-5 px-4">
       <div className="text-6xl select-none">🔒</div>
       <p className="text-amber-300 font-bold text-xl text-center drop-shadow-[0_1px_4px_rgba(0,0,0,0.9)]" style={CINZEL}>Connexion requise</p>
-      <p className="text-slate-300 text-sm text-center max-w-xs drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">Connectez-vous pour ajouter des amis, envoyer des défis et voir vos notifications.</p>
+      <p className="text-slate-300 text-sm text-center max-w-xs drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">Connectez-vous pour ajouter des amis et leur envoyer des défis.</p>
       <BackButton onClick={onBack}>Menu</BackButton>
     </div>
   )
@@ -3138,30 +3217,6 @@ function SocialScreen({onBack,user,friends,friendRequests,notifications,onSendRe
                     <MedBtn onClick={()=>onChallengeFriend(f.uid,f.pseudo)} color="#7cb87c" icon={<Swords size={12}/>} className="!px-2 !py-1.5 !text-xs shrink-0">Défier</MedBtn>
                   </div>
                 ))}
-              </div>
-            )}
-        </div>
-
-        <div className={sectionCls} style={sectionStyle}>
-          <h3 className="text-amber-300 font-bold mb-2 flex items-center gap-1.5" style={CINZEL}><Bell size={15}/> Notifications</h3>
-          {notifications.length===0
-            ?<p className="text-slate-400 text-xs">Aucune notification pour l'instant.</p>
-            :(
-              <div className="flex flex-col gap-2.5">
-                {notifications.map(n=>{
-                  const Icon=NOTIF_ICON[n.type]||Bell
-                  return(
-                    <div key={n.id} className={`flex items-start gap-2 pb-2.5 border-b border-amber-900/20 last:border-0 last:pb-0 ${n.read?'opacity-60':''}`}>
-                      <Icon size={14} className="text-amber-400 shrink-0 mt-0.5"/>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-slate-200 text-xs">{notifText(n)}</p>
-                        {n.type==='challenge'&&(
-                          <MedBtn onClick={()=>onAcceptChallenge(n.code)} color="#7cb87c" icon={<Swords size={12}/>} className="!px-2 !py-1.5 !text-xs mt-1.5">Accepter le défi</MedBtn>
-                        )}
-                      </div>
-                    </div>
-                  )
-                })}
               </div>
             )}
         </div>
@@ -3390,6 +3445,59 @@ function SoundToggle({enabled,onToggle}){
   )
 }
 
+// Round HUD button, next to the sound toggle — opens the notifications popin.
+// Hidden during an active match (unlike the sound toggle) so it never sits on
+// top of the board.
+function NotificationBell({count,onClick}){
+  return(
+    <button onClick={onClick} title="Notifications"
+      className="wood-btn fixed top-3 right-16 z-50 w-10 h-10 rounded-full flex items-center justify-center transition-all duration-200 hover:scale-110 active:scale-90"
+      style={{color:count>0?'#e8c766':'#7a6a52'}}>
+      <Bell size={18}/>
+      {count>0&&(
+        <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-red-600 text-white text-[10px] font-bold flex items-center justify-center border-2 border-slate-900">
+          {count>9?'9+':count}
+        </span>
+      )}
+    </button>
+  )
+}
+// Global popin listing notifications — lives outside the "Amis" page so it's
+// reachable (via NotificationBell) from anywhere except an active match.
+function NotificationsPopin({notifications,onClose,onAcceptChallenge,onOpenBooster}){
+  return(
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 backdrop-blur-sm px-4" onClick={onClose}>
+      <div className="wood-btn rounded-2xl p-5 max-w-sm w-full flex flex-col gap-3 max-h-[80vh]" onClick={e=>e.stopPropagation()}>
+        <div className="flex items-center justify-between">
+          <h3 className="text-amber-200 font-black text-lg flex items-center gap-2" style={CINZEL}><Bell size={18}/> Notifications</h3>
+          <button onClick={onClose} className="text-slate-300 hover:text-white"><X size={18}/></button>
+        </div>
+        <div className="overflow-y-auto flex flex-col gap-2.5">
+          {notifications.length===0
+            ?<p className="text-slate-400 text-xs">Aucune notification pour l'instant.</p>
+            :notifications.map(n=>{
+              const Icon=NOTIF_ICON[n.type]||Bell
+              return(
+                <div key={n.id} className={`flex items-start gap-2 pb-2.5 border-b border-amber-900/20 last:border-0 last:pb-0 ${n.read?'opacity-60':''}`}>
+                  <Icon size={14} className="text-amber-400 shrink-0 mt-0.5"/>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-slate-200 text-xs">{notifText(n)}</p>
+                    {n.type==='challenge'&&(
+                      <MedBtn onClick={()=>{onAcceptChallenge(n.code);onClose()}} color="#7cb87c" icon={<Swords size={12}/>} className="!px-2 !py-1.5 !text-xs mt-1.5">Accepter le défi</MedBtn>
+                    )}
+                    {n.type==='level_up'&&(
+                      <MedBtn onClick={()=>{onOpenBooster();onClose()}} color="#f59e0b" icon={<Gift size={12}/>} className="!px-2 !py-1.5 !text-xs mt-1.5">Ouvrir mes boosters</MedBtn>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 //  MAIN APP
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -3424,6 +3532,7 @@ export default function App(){
   const[notifications,setNotifications]=useState([])
   const[pendingChallenge,setPendingChallenge]=useState(null) // {uid,pseudo} — "Défier" was clicked, going through deck-select
   const[pendingJoinCode,setPendingJoinCode]=useState(null) // a challenge notification was accepted, going through deck-select
+  const[notifPopinOpen,setNotifPopinOpen]=useState(false)
   const unreadCount=notifications.filter(n=>!n.read).length
   const ignoreNextRef=useRef(false)
   const unsubRef=useRef(null)
@@ -3769,6 +3878,9 @@ export default function App(){
     const unreadIds=notifications.filter(n=>!n.read).map(n=>n.id)
     if(user&&unreadIds.length)markAllNotificationsRead(user.uid,unreadIds).catch(()=>{})
   }
+  // Opening the popin is the read receipt — same "whole-batch" model the
+  // notifications list used when it lived inside the Amis page.
+  function openNotifPopin(){setNotifPopinOpen(true);handleMarkAllNotifsRead()}
 
   function handleOnlineStart(state,code,player,opponent){
     setLastAnim(null) // don't replay the previous match's death animation on the new board
@@ -3829,6 +3941,8 @@ export default function App(){
   return(
     <>
       <SoundToggle enabled={soundOn} onToggle={()=>setSoundOn(v=>!v)}/>
+      {screen!=='game'&&<NotificationBell count={unreadCount} onClick={openNotifPopin}/>}
+      {notifPopinOpen&&<NotificationsPopin notifications={notifications} onClose={()=>setNotifPopinOpen(false)} onAcceptChallenge={handleAcceptChallenge} onOpenBooster={()=>{setNotifPopinOpen(false);setScreen('booster')}}/>}
       {screen==='menu'     && <MenuScreen onAI={()=>goToDeckSelect('ai')} onLocal={()=>goToDeckSelect('local')} onOnline={()=>{setPendingChallenge(null);setPendingJoinCode(null);goToDeckSelect('online')}} onPlay={()=>setScreen('menu')} onDeckBuilder={()=>setScreen('deckbuilder')} onAccount={()=>setScreen('account')} onBooster={()=>setScreen('booster')} onShop={()=>setScreen('shop')} onSocial={()=>setScreen('social')} unreadCount={unreadCount} user={user} coins={coins}/>}
       {screen==='rules'    && <RulesScreen onBack={()=>setScreen('menu')} user={user} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onPlay={()=>setScreen('menu')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')} onSocial={()=>setScreen('social')} unreadCount={unreadCount}/>}
       {screen==='deckbuilder' && <DeckBuilderScreen onBack={()=>setScreen('menu')} user={user} ownedSkins={ownedSkins} coins={coins} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onPlay={()=>setScreen('menu')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')} onSocial={()=>setScreen('social')} unreadCount={unreadCount}/>}
@@ -3840,7 +3954,7 @@ export default function App(){
         sfxVolume={sfxVolume} onSfxVolumeChange={v=>{setSfxVolumeState(v);setSfxVolume(v)}}
         onDevGrantCoins={()=>earnCoins(1000)} onDevLevelUp={()=>{if(user)recordGameResult(user.uid,true).catch(()=>{})}}/>}
       {(screen==='cgu'||screen==='privacy') && <LegalScreen type={screen} onBack={()=>setScreen(user?'account':'menu')} user={user} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onPlay={()=>setScreen('menu')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')} onSocial={()=>setScreen('social')} unreadCount={unreadCount}/>}
-      {screen==='social'   && <SocialScreen onBack={()=>setScreen('menu')} user={user} friends={friends} friendRequests={friendRequests} notifications={notifications} onSendRequest={handleSendFriendRequest} onRespondRequest={handleRespondFriendRequest} onChallengeFriend={handleChallengeFriend} onAcceptChallenge={handleAcceptChallenge} onMarkAllRead={handleMarkAllNotifsRead} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onPlay={()=>setScreen('menu')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')}/>}
+      {screen==='social'   && <SocialScreen onBack={()=>setScreen('menu')} user={user} friends={friends} friendRequests={friendRequests} onSendRequest={handleSendFriendRequest} onRespondRequest={handleRespondFriendRequest} onChallengeFriend={handleChallengeFriend} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onPlay={()=>setScreen('menu')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')}/>}
       {screen==='online'   && <OnlineLobbyScreen onBack={()=>{setPendingChallenge(null);setPendingJoinCode(null);setScreen('menu')}} onGameStart={handleOnlineStart} deck={chosenDeck} ownedSkins={ownedSkins} user={user} challengeTarget={pendingChallenge} autoJoinCode={pendingJoinCode}/>}
       {screen==='loading'  && game && <LoadingScreen onDone={()=>setScreen('game')}/>}
       {screen==='game'     && game && <GameScreen game={game} soundEnabled={soundOn} myPlayer={myPlayer} isAI={gameMode==='ai'} onAction={handleAction} onEndTurn={handleEndTurn} onHome={closeGame} onQuit={handleQuitGame} onPowerAction={handlePowerAction} onSurrender={handleSurrender} lastAnim={lastAnim} syncError={roomCode?syncError:null} showTutorial={gameMode==='ai'&&showTutorial} onTutorialClose={handleTutorialClose} pseudo={user?.displayName} opponent={opponentRef.current}/>}
