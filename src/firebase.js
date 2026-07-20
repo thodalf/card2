@@ -294,9 +294,24 @@ function deserializePlayers(players) {
   return result
 }
 
+// Mirrors deserializePlayers: RTDB prunes a node entirely once every child under
+// it serializes to an empty array/object (e.g. once both players have used all
+// their power cards, powerCardHand:{1:[],2:[]} vanishes on the wire), so this
+// can't just spread `raw` and trust `powerCardHand` survived — it can come back
+// as undefined even though newGame() always sets it locally.
+function deserializePowerCardHand(powerCardHand) {
+  const result = { 1: [], 2: [] }
+  if (!powerCardHand) return result
+  for (const id of Object.keys(powerCardHand)) {
+    const h = powerCardHand[id]
+    result[id] = Array.isArray(h) ? h : Object.values(h ?? {})
+  }
+  return result
+}
+
 function deserializeState(raw) {
   if (!raw) return null
-  return { ...raw, board: deserializeBoard(raw.board), players: deserializePlayers(raw.players) }
+  return { ...raw, board: deserializeBoard(raw.board), players: deserializePlayers(raw.players), powerCardHand: deserializePowerCardHand(raw.powerCardHand) }
 }
 
 // hostUid/guestUid (+ pseudo) are optional (anonymous online play is still

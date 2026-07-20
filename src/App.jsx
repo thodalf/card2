@@ -1277,29 +1277,33 @@ function PowerCardDisplay({type,onClick,isActive=false,animClass='',compact=fals
 // ═══════════════════════════════════════════════════════════════════════════════
 //  POWER BAR
 // ═══════════════════════════════════════════════════════════════════════════════
-function PowerBar({game,isMyTurn,targeting,onActivatePower,onCancelTargeting,compact=false}){
-  const cp=game.currentPlayer,myHand=game.powerCardHand[cp]||[]
-  const minH=compact?'min-h-[52px]':'min-h-[72px]'
-  const pad=compact?'px-2 py-1':'px-4 py-2'
-  const gap=compact?'gap-1.5':'gap-3'
+// One compact power-card space per player (rendered inside that player's own
+// hand section, next to their regular hand) rather than a single shared bar
+// in the board area — each side manages its own power cards independently.
+function PowerBar({game,player,isMyTurn,targeting,onActivatePower,onCancelTargeting,compact=false}){
+  const hand=game.powerCardHand[player]||[]
+  const isActingPlayer=game.currentPlayer===player
+  const canActivate=isActingPlayer&&isMyTurn
+  const isTargetingHere=!!targeting&&isActingPlayer
+  const pad=compact?'px-1.5 py-1':'px-2.5 py-1.5'
+  const gap=compact?'gap-1':'gap-1.5'
   return(
-    <div className={`flex items-center justify-center ${gap} bg-purple-950/50 border border-purple-800/30 rounded-2xl ${pad} w-full ${minH}`}>
-      {targeting?(
+    <div className={`flex items-center justify-center ${gap} bg-purple-950/50 border border-purple-800/30 rounded-xl ${pad} ${compact?'min-h-[40px]':'min-h-[52px]'}`}>
+      {isTargetingHere?(
         <div className={`flex items-center ${gap}`}>
-          <PowerCardDisplay type={targeting} isActive compact={compact}/>
-          <div className="flex flex-col items-start gap-1">
-            <span className={`text-yellow-400 ${compact?'text-xs':'text-sm'} font-bold animate-pulse`}>{POWER_INFO[targeting].icon} Sélectionnez une cible…</span>
-            <button onClick={onCancelTargeting} className="flex items-center gap-1 text-slate-400 hover:text-white bg-slate-700/70 hover:bg-slate-700 px-2 py-1 rounded-lg text-xs transition-colors"><X size={11}/> Annuler</button>
+          <PowerCardDisplay type={targeting} isActive compact/>
+          <div className="flex flex-col items-start gap-0.5">
+            <span className="text-yellow-400 text-[10px] font-bold animate-pulse leading-tight">{POWER_INFO[targeting].icon} Cible…</span>
+            <button onClick={onCancelTargeting} className="flex items-center gap-1 text-slate-400 hover:text-white bg-slate-700/70 hover:bg-slate-700 px-1.5 py-0.5 rounded-lg text-[10px] transition-colors"><X size={10}/> Annuler</button>
           </div>
         </div>
       ):(
-        <div className="flex items-center gap-2 flex-wrap justify-center">
-          {myHand.map((type,i)=>(
-            <PowerCardDisplay key={i} type={type} compact={compact}
-              onClick={isMyTurn?()=>onActivatePower(type):undefined}/>
+        <div className={`flex items-center ${gap} flex-wrap justify-center`}>
+          {hand.map((type,i)=>(
+            <PowerCardDisplay key={i} type={type} compact
+              onClick={canActivate?()=>onActivatePower(type):undefined}/>
           ))}
-          {!isMyTurn&&myHand.length>0&&<span className="text-slate-500 text-xs ml-1">En attente…</span>}
-          {myHand.length===0&&<span className="text-slate-600 text-xs">Aucune carte pouvoir</span>}
+          {hand.length===0&&<span className="text-slate-600 text-[10px]">Aucune carte pouvoir</span>}
         </div>
       )}
     </div>
@@ -1395,7 +1399,7 @@ function TutorialOverlay({onClose,steps=TUTORIAL_STEPS,finalLabel='Compris, joue
 // ═══════════════════════════════════════════════════════════════════════════════
 //  GAME SCREEN
 // ═══════════════════════════════════════════════════════════════════════════════
-function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,onPowerAction,onSurrender,lastAnim,syncError,showTutorial,onTutorialClose,pseudo}){
+function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,onPowerAction,onSurrender,lastAnim,syncError,showTutorial,onTutorialClose,pseudo,opponent}){
   const[drag,setDrag]=useState(null)
   const[zoomedCard,setZoomedCard]=useState(null)
   const[anims,setAnims]=useState({})
@@ -1554,17 +1558,23 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
     const pts=isP1?p1pts:p2pts
     // Show the logged-in player's pseudo on their own hand (Solo vs IA: always P1;
     // online: whichever side myPlayer is). Local hotseat has no single "you" — both
-    // sides are physically shared on one device — so it keeps J1/J2. The opponent's
-    // identity isn't synced anywhere yet, so it also falls back to J1/J2.
+    // sides are physically shared on one device — so it keeps J1/J2. Online, the
+    // opponent's pseudo (when known — anonymous opponents have none) comes from the
+    // room's host/guest identity captured at match start.
     const isYou=myPlayer!=null&&player===myPlayer
     const label=isAI&&!isP1
       ?<span className="flex items-center gap-1"><Bot size={11}/>IA</span>
-      :(isYou&&pseudo?pseudo:(isP1?'J1':'J2'))
+      :isYou&&pseudo?pseudo
+      :(!isYou&&myPlayer!=null&&opponent?.pseudo)?opponent.pseudo
+      :(isP1?'J1':'J2')
     return(
       <div className="game-hand-section flex flex-col items-center gap-1.5">
-        <div className="flex items-center gap-2">
-          {currentPlayer===player&&<span className="w-2 h-2 rounded-full bg-green-400 animate-pulse inline-block"/>}
-          <span className={`${activeColor} text-xs font-bold`}>{label} · {pts} pts</span>
+        <div className="flex items-center justify-center gap-2 flex-wrap">
+          <div className="flex items-center gap-2">
+            {currentPlayer===player&&<span className="w-2 h-2 rounded-full bg-green-400 animate-pulse inline-block"/>}
+            <span className={`${activeColor} text-xs font-bold`}>{label} · {pts} pts</span>
+          </div>
+          <PowerBar game={game} player={player} isMyTurn={isMyTurn} targeting={targeting} onActivatePower={type=>setTargeting(type)} onCancelTargeting={()=>setTargeting(null)} compact={compact}/>
         </div>
         <div className={`game-hand-cards flex ${compact?'gap-1.5':'gap-3'} justify-center flex-wrap`}>
           {(players[player]?.hand??[]).map((card,i)=>(
@@ -1609,7 +1619,6 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
                 targeting={targeting} game={game} onBoardTouchStart={handleTouchStart} compact={compact}/>
             )))}
           </div>
-          <PowerBar game={game} isMyTurn={isMyTurn} targeting={targeting} onActivatePower={type=>setTargeting(type)} onCancelTargeting={()=>setTargeting(null)} compact={compact}/>
           <div className="flex items-center gap-3 flex-wrap justify-center">
             <span className={`text-sm font-bold ${currentPlayer===1?'text-blue-400':'text-red-400'}`}>
               Tour — {isAI&&currentPlayer===2?<span className="flex items-center gap-1.5"><Bot size={14} className="inline"/> IA réfléchit… <span className="animate-pulse">▪▪▪</span></span>:`Joueur ${currentPlayer}`}
@@ -3162,7 +3171,7 @@ function OnlineLobbyScreen({onBack,onGameStart,deck,ownedSkins,user,challengeTar
         <div className="wood-btn rounded-2xl p-6 w-72">
           <p className="text-amber-200/80 text-sm mb-2">Code de la partie :</p>
           <input value={inputCode} onChange={e=>setInputCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,6))} className="bg-black/40 text-white font-black text-2xl tracking-widest text-center border border-amber-800/50 rounded-lg px-4 py-2 w-full outline-none focus:border-amber-400 mb-3" placeholder="XXXXXX" maxLength={6}/>
-          <MedBtn onClick={handleJoin} disabled={inputCode.length!==6} color="#c9a5e0" className="w-full">Rejoindre</MedBtn>
+          <MedBtn onClick={()=>handleJoin()} disabled={inputCode.length!==6} color="#c9a5e0" className="w-full">Rejoindre</MedBtn>
           <MedBtn onClick={()=>setMode(null)} color="#a89484" className="w-full mt-2">Retour</MedBtn>
         </div>
       )}
@@ -3664,7 +3673,7 @@ export default function App(){
       {screen==='social'   && <SocialScreen onBack={()=>setScreen('menu')} user={user} friends={friends} friendRequests={friendRequests} notifications={notifications} onSendRequest={handleSendFriendRequest} onRespondRequest={handleRespondFriendRequest} onChallengeFriend={handleChallengeFriend} onAcceptChallenge={handleAcceptChallenge} onMarkAllRead={handleMarkAllNotifsRead} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onRules={()=>setScreen('rules')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')}/>}
       {screen==='online'   && <OnlineLobbyScreen onBack={()=>{setPendingChallenge(null);setPendingJoinCode(null);setScreen('menu')}} onGameStart={handleOnlineStart} deck={chosenDeck} ownedSkins={ownedSkins} user={user} challengeTarget={pendingChallenge} autoJoinCode={pendingJoinCode}/>}
       {screen==='loading'  && game && <LoadingScreen onDone={()=>setScreen('game')}/>}
-      {screen==='game'     && game && <GameScreen game={game} soundEnabled={soundOn} myPlayer={myPlayer} isAI={gameMode==='ai'} onAction={handleAction} onEndTurn={handleEndTurn} onHome={closeGame} onPowerAction={handlePowerAction} onSurrender={handleSurrender} lastAnim={lastAnim} syncError={roomCode?syncError:null} showTutorial={gameMode==='ai'&&showTutorial} onTutorialClose={handleTutorialClose} pseudo={user?.displayName}/>}
+      {screen==='game'     && game && <GameScreen game={game} soundEnabled={soundOn} myPlayer={myPlayer} isAI={gameMode==='ai'} onAction={handleAction} onEndTurn={handleEndTurn} onHome={closeGame} onPowerAction={handlePowerAction} onSurrender={handleSurrender} lastAnim={lastAnim} syncError={roomCode?syncError:null} showTutorial={gameMode==='ai'&&showTutorial} onTutorialClose={handleTutorialClose} pseudo={user?.displayName} opponent={opponentRef.current}/>}
       {screen==='gameover' && game && <GameOverScreen winner={game.winner} isAI={gameMode==='ai'} surrendered={!!game.surrendered} onReplay={()=>startGame(gameMode)} onMenu={()=>setScreen('menu')} coinsAwarded={gameOverCoinsAwarded}/>}
     </>
   )
