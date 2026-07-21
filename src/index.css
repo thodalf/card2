@@ -212,23 +212,32 @@ button.wood-btn.menu-fade-up:active:not(:disabled) {
   animation: title-shimmer 6s linear infinite, title-glow-pulse 3.2s ease-in-out infinite;
 }
 
-/* ── Booster pack opening + card reveal ──────────────────────── */
+/* ── Booster pack opening + card reveal ──────────────────────────────────
+   Reworked to match the site's carved-wood/gold-ember look (same amber glow
+   recipe as .wood-btn-halo) instead of the old flat purple gift-box gradient
+   — see the BoosterScreen button's background for the wood/parchment tone. ── */
 @keyframes booster-idle {
-  0%,100% { transform: translateY(0) rotate(-1deg);  filter: drop-shadow(0 0 12px rgba(251,191,36,0.35)); }
-  50%     { transform: translateY(-8px) rotate(1deg); filter: drop-shadow(0 0 22px rgba(251,191,36,0.55)); }
+  0%,100% {
+    transform: translateY(0) rotate(-1deg);
+    box-shadow: inset 0 1px 0 rgba(255,224,175,0.2), inset 0 -4px 10px rgba(0,0,0,0.55), 0 4px 14px rgba(0,0,0,0.6), 0 0 10px rgba(251,191,36,0.3);
+  }
+  50% {
+    transform: translateY(-8px) rotate(1deg);
+    box-shadow: inset 0 1px 0 rgba(255,224,175,0.2), inset 0 -4px 10px rgba(0,0,0,0.55), 0 4px 14px rgba(0,0,0,0.6), 0 0 22px rgba(251,191,36,0.55);
+  }
 }
 .booster-pack-idle { animation: booster-idle 2.6s ease-in-out infinite; }
 
 @keyframes booster-shake {
-  0%,100%  { transform: translate(0,0) rotate(0deg) scale(1); }
+  0%,100%  { transform: translate(0,0) rotate(0deg) scale(1); box-shadow: 0 0 0 rgba(250,204,21,0); }
   10%      { transform: translate(-4px,0) rotate(-3deg) scale(1.02); }
   20%      { transform: translate(4px,0) rotate(3deg) scale(1.02); }
   30%      { transform: translate(-6px,0) rotate(-4deg) scale(1.05); }
   40%      { transform: translate(6px,0) rotate(4deg) scale(1.05); }
-  50%      { transform: translate(-6px,0) rotate(-4deg) scale(1.1); }
+  50%      { transform: translate(-6px,0) rotate(-4deg) scale(1.1); box-shadow: 0 0 22px rgba(250,204,21,0.45); }
   60%      { transform: translate(6px,0) rotate(4deg) scale(1.1); }
-  75%      { transform: scale(1.35); filter: brightness(2.2); opacity: 1; }
-  100%     { transform: scale(0.2); filter: brightness(4); opacity: 0; }
+  75%      { transform: scale(1.35); filter: brightness(2.2); opacity: 1; box-shadow: 0 0 60px rgba(250,204,21,0.9); }
+  100%     { transform: scale(0.2); filter: brightness(4); opacity: 0; box-shadow: 0 0 80px rgba(250,204,21,0); }
 }
 .booster-pack-opening { animation: booster-shake 0.9s ease-in-out forwards; }
 

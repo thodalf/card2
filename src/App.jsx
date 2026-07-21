@@ -480,19 +480,25 @@ let _ctx=null
 const getCtx=()=>_ctx||(_ctx=new(window.AudioContext||window.webkitAudioContext)())
 let _sfxVolume=loadSfxVolumePref()
 function setSfxVolume(v){_sfxVolume=Math.min(1,Math.max(0,v));saveSfxVolumePref(_sfxVolume)}
+// Placement/movement/combat sounds are real recorded files (public/sounds) —
+// a fresh Audio() per call rather than one shared/reused instance so two of
+// these can overlap (e.g. an AI move immediately followed by an attack)
+// without cutting each other off.
+const SFX_FILES={
+  'place-weak':'/sounds/placed.wav','place-medium':'/sounds/placed.wav','place-strong':'/sounds/placed.wav',
+  move:'/sounds/walk.wav', attack:'/sounds/fight.wav', destroy:'/sounds/explosion.wav',
+}
 function snd(type,enabled){
   if(!enabled||!type||_sfxVolume<=0)return
+  const file=SFX_FILES[type]
+  if(file){
+    try{const a=new Audio(file);a.volume=_sfxVolume;a.play().catch(()=>{})}catch(e){}
+    return
+  }
   try{
     const c=getCtx(),t=c.currentTime
     const tone=(freq,wt,dur,vol=0.25)=>{const o=c.createOscillator(),g=c.createGain();o.type=wt;o.connect(g);g.connect(c.destination);o.frequency.setValueAtTime(freq,t);g.gain.setValueAtTime(vol*_sfxVolume,t);g.gain.exponentialRampToValueAtTime(0.001,t+dur);o.start(t);o.stop(t+dur);return o}
-    const noise=(dur,vol,shape)=>{const buf=c.createBuffer(1,c.sampleRate*dur,c.sampleRate);const d=buf.getChannelData(0);for(let i=0;i<d.length;i++)d[i]=(Math.random()*2-1)*shape(i/d.length);const n=c.createBufferSource(),ng=c.createGain();n.buffer=buf;n.connect(ng);ng.connect(c.destination);ng.gain.setValueAtTime(vol*_sfxVolume,t);ng.gain.exponentialRampToValueAtTime(0.001,t+dur);n.start(t)}
-    if(type==='place-weak'){const o=tone(280,'sine',0.25,0.18);o.frequency.exponentialRampToValueAtTime(200,t+0.22)}
-    if(type==='place-medium'){const o=tone(380,'triangle',0.28,0.22);o.frequency.exponentialRampToValueAtTime(280,t+0.24);tone(760,'sine',0.1,0.12)}
-    if(type==='place-strong'){const o=tone(520,'sawtooth',0.32,0.28);o.frequency.exponentialRampToValueAtTime(260,t+0.28);tone(1040,'triangle',0.14,0.18).frequency.exponentialRampToValueAtTime(780,t+0.16);noise(0.06,0.25,x=>1-x)}
-    if(type==='move'){const o=tone(300,'sine',0.15);o.frequency.exponentialRampToValueAtTime(150,t+0.12)}
     if(type==='power'){tone(660,'triangle',0.35,0.2).frequency.exponentialRampToValueAtTime(990,t+0.2);tone(880,'sine',0.2,0.12).frequency.exponentialRampToValueAtTime(1320,t+0.18)}
-    if(type==='attack'){const o=tone(200,'sawtooth',0.2,0.35);o.frequency.exponentialRampToValueAtTime(60,t+0.15);noise(0.08,0.2,()=>1)}
-    if(type==='destroy'){noise(0.5,0.5,x=>Math.pow(1-x,1.5));const o=tone(80,'sine',0.5,0.5);o.frequency.exponentialRampToValueAtTime(15,t+0.5)}
     if(type==='coin'){tone(1318.5,'sine',0.18,0.22);tone(1975.5,'triangle',0.22,0.15)}
   }catch(e){}
 }
@@ -2710,7 +2716,7 @@ function BoosterScreen({onBack,user,ownedSkins,coins,onEarnCoins,onSellCard,onSp
                   opening?'border-amber-400 booster-pack-opening'
                     :canOpen?'border-amber-400 booster-pack-idle cursor-pointer hover:scale-105'
                     :'border-slate-700 opacity-50 cursor-not-allowed'}`}
-                style={{background:'linear-gradient(135deg,#3b0764,#1e1b4b)'}}>
+                style={{background:'radial-gradient(circle at 50% 30%,rgba(251,191,36,0.18),transparent 60%),linear-gradient(160deg,#3d2410,#1a0f05)'}}>
                 <Gift size={44} className={canOpen||opening?'text-amber-300':'text-slate-500'}/>
               </button>
               {!cloudReady
