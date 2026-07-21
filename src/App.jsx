@@ -14,7 +14,14 @@ import {
   pushNotification, subscribeNotifications, markNotificationRead, markAllNotificationsRead,
 } from './firebase.js'
 
-// Nukes any service-worker cache so a stale PWA build can't keep serving old code
+// Nukes any service-worker cache so a stale PWA build can't keep serving old code.
+// A plain reload() alone unreliably picked up the fresh version on the very first
+// click: index.html isn't content-hashed, so without a cache-busting query string
+// the browser's own HTTP disk cache (a layer below and independent of the
+// ServiceWorker/CacheStorage APIs we just cleared) could still serve the stale
+// document, requiring a second manual click/reload to actually notice — location
+// .replace with a unique query param forces this exact navigation to be treated
+// as a brand-new, never-cached URL.
 async function forceClearCacheAndReload() {
   try {
     if ('serviceWorker' in navigator) {
@@ -26,7 +33,9 @@ async function forceClearCacheAndReload() {
       await Promise.all(keys.map(k => caches.delete(k)))
     }
   } finally {
-    window.location.reload()
+    const url = new URL(window.location.href)
+    url.searchParams.set('_cachebust', Date.now().toString())
+    window.location.replace(url.toString())
   }
 }
 
@@ -109,10 +118,12 @@ const ALL_MATCH_IMAGES=[...FREE_CARD_IMAGES,...SKIN_CATALOG.map(s=>`/images/card
 // App-boot preload set: every match image (so the first match never pops in) plus the
 // two menu background variants (landscape/portrait) and the menu music track — the
 // one audio file guaranteed to play within seconds of the app opening. The four combat
-// SFX are preloaded too so the very first attack/move/placement/kill of a match plays
-// instantly instead of showing the network-fetch delay of an un-cached Audio() src.
+// SFX are decoded into AudioBuffers up front too (see preloadSfxBuffer) so the very
+// first attack/move/placement/kill of a match plays instantly instead of showing the
+// fetch+decode delay of a cold `playSfxBuffer` call.
 const BOOT_IMAGES=['/images/menu.png','/images/menuvertical.png',...ALL_MATCH_IMAGES]
-const BOOT_AUDIO=['/musiques/menu.mp3','/sounds/explosion.wav','/sounds/fight.wav','/sounds/placed.wav','/sounds/walk.wav']
+const BOOT_AUDIO=['/musiques/menu.mp3']
+const BOOT_SFX=['/sounds/explosion.wav','/sounds/fight.wav','/sounds/placed.wav','/sounds/walk.wav']
 function preloadImage(src){
   return new Promise(resolve=>{
     const img=new window.Image()
@@ -482,19 +493,39 @@ let _ctx=null
 const getCtx=()=>_ctx||(_ctx=new(window.AudioContext||window.webkitAudioContext)())
 let _sfxVolume=loadSfxVolumePref()
 function setSfxVolume(v){_sfxVolume=Math.min(1,Math.max(0,v));saveSfxVolumePref(_sfxVolume)}
-// Placement/movement/combat sounds are real recorded files (public/sounds) —
-// a fresh Audio() per call rather than one shared/reused instance so two of
-// these can overlap (e.g. an AI move immediately followed by an attack)
-// without cutting each other off.
+// Placement/movement/combat sounds are real recorded files (public/sounds),
+// decoded once into an in-memory AudioBuffer and played through the same
+// WebAudio graph as the procedural sounds below — unlike `new Audio(file)`,
+// this has zero per-play network/decode latency once the buffer is cached
+// (see preloadSfxBuffer, called at boot) and supports any number of
+// overlapping plays (e.g. an AI move immediately followed by an attack)
+// without cutting each other off or depending on browser audio-element quirks.
 const SFX_FILES={
   'place-weak':'/sounds/placed.wav','place-medium':'/sounds/placed.wav','place-strong':'/sounds/placed.wav',
   move:'/sounds/walk.wav', attack:'/sounds/fight.wav', destroy:'/sounds/explosion.wav',
+}
+const _sfxBufferCache={}
+function preloadSfxBuffer(file){
+  if(_sfxBufferCache[file])return _sfxBufferCache[file]
+  const p=fetch(file).then(r=>r.arrayBuffer()).then(buf=>getCtx().decodeAudioData(buf)).catch(()=>null)
+  _sfxBufferCache[file]=p
+  return p
+}
+function playSfxBuffer(file,vol){
+  preloadSfxBuffer(file).then(buffer=>{
+    if(!buffer)return
+    const c=getCtx(),src=c.createBufferSource(),g=c.createGain()
+    src.buffer=buffer
+    src.connect(g);g.connect(c.destination)
+    g.gain.value=vol
+    src.start(0)
+  })
 }
 function snd(type,enabled){
   if(!enabled||!type||_sfxVolume<=0)return
   const file=SFX_FILES[type]
   if(file){
-    try{const a=new Audio(file);a.volume=_sfxVolume;a.play().catch(()=>{})}catch(e){}
+    playSfxBuffer(file,_sfxVolume)
     return
   }
   try{
@@ -527,10 +558,35 @@ function _randomTrackIdx(excludeIdx) {
   return i
 }
 
+// Browsers block audio-with-sound until a genuine user gesture, and every
+// music mode (menu/game/outcome) can hit that block — not just the menu, as
+// before, which meant a blocked game-track play() had no retry and left a
+// match silent for good. This is one shared, single-registration gesture
+// wait (previously the menu mode re-attached 4 fresh document listeners on
+// every single startMusic call, stacking up harmlessly but doing nothing for
+// the other two modes) — a play() rejection re-arms it, chained on real
+// gesture events only, so it can't spin in a tight loop.
+let _gestureWaiters = []
+function _armGestureRetry(fn) {
+  _gestureWaiters.push(fn)
+  if (_gestureWaiters.length > 1) return // listener already attached
+  const events = ['pointerdown', 'click', 'touchend', 'keydown']
+  const onGesture = () => {
+    events.forEach(ev => document.removeEventListener(ev, onGesture))
+    const waiters = _gestureWaiters
+    _gestureWaiters = []
+    waiters.forEach(w => w())
+  }
+  events.forEach(ev => document.addEventListener(ev, onGesture, { once: true }))
+}
+function _playWithRetry(audio) {
+  audio.play().catch(() => { _armGestureRetry(() => { if (audio === _audio) _playWithRetry(audio) }) })
+}
+
 function _playNextGameTrack() {
   if (!_audio) return
   _audio.src = GAME_TRACKS[_gameTrackIdx]
-  _audio.play().catch(() => {})
+  _playWithRetry(_audio)
 }
 
 function startMusic(enabled, isMenu = false, outcome = null) {
@@ -545,18 +601,11 @@ function startMusic(enabled, isMenu = false, outcome = null) {
     // One-shot victory/defeat stinger — doesn't loop, doesn't fall back to game tracks
     _audio.src = outcome === 'victory' ? '/musiques/victory.mp3' : '/musiques/defeat.mp3'
     _audio.loop = false
-    _audio.play().catch(() => {})
+    _playWithRetry(_audio)
   } else if (isMenu) {
     _audio.src = '/musiques/menu.mp3'
     _audio.loop = true
-    // Browsers block audio with sound until a genuine user gesture — retry on
-    // whichever gesture type the browser actually honors (pointerdown covers
-    // most desktop/Android cases, but Safari/iOS sometimes only counts a
-    // real 'click' or 'touchend').
-    const GESTURE_EVENTS = ['pointerdown', 'click', 'touchend', 'keydown']
-    const tryPlay = () => { if (_audio) _audio.play().catch(() => {}) }
-    GESTURE_EVENTS.forEach(ev => document.addEventListener(ev, tryPlay, { once: true }))
-    tryPlay()
+    _playWithRetry(_audio)
   } else {
     _gameTrackIdx = _randomTrackIdx(-1)
     _audio.addEventListener('ended', () => {
@@ -1392,15 +1441,15 @@ function PowerBar({game,player,isMyTurn,targeting,onActivatePower,onCancelTarget
 //  app-boot preload (menu backgrounds + menu music) and the per-match one
 //  (card portraits, board) shown between choosing a match and playing it.
 // ═══════════════════════════════════════════════════════════════════════════════
-function LoadingScreen({onDone,images=ALL_MATCH_IMAGES,audio=[],title='Préparation du combat…',minDelayMs=1300}){
+function LoadingScreen({onDone,images=ALL_MATCH_IMAGES,audio=[],sfx=[],title='Préparation du combat…',minDelayMs=1300}){
   const[progress,setProgress]=useState(0)
   useEffect(()=>{
     let cancelled=false,loaded=0
-    const total=images.length+audio.length
+    const total=images.length+audio.length+sfx.length
     const bump=()=>{loaded++;if(!cancelled)setProgress(total?Math.round(loaded/total*100):100)}
     try{getCtx()}catch(e){} // warm up the WebAudio context so the first SFX isn't delayed
     const minDelay=new Promise(resolve=>setTimeout(resolve,minDelayMs))
-    const tasks=[...images.map(src=>preloadImage(src).then(bump)),...audio.map(src=>preloadAudio(src).then(bump))]
+    const tasks=[...images.map(src=>preloadImage(src).then(bump)),...audio.map(src=>preloadAudio(src).then(bump)),...sfx.map(src=>preloadSfxBuffer(src).then(bump))]
     Promise.all([Promise.all(tasks),minDelay]).then(()=>{if(!cancelled)onDone()})
     return()=>{cancelled=true}
   },[])
@@ -4063,7 +4112,7 @@ export default function App(){
 
   // App-boot preload — menu backgrounds, every match image and the menu track,
   // so the very first screen never pops in silently/blank.
-  if(!booted)return <LoadingScreen onDone={()=>setBooted(true)} images={BOOT_IMAGES} audio={BOOT_AUDIO} title="Chargement de Charta Logica…" minDelayMs={800}/>
+  if(!booted)return <LoadingScreen onDone={()=>setBooted(true)} images={BOOT_IMAGES} audio={BOOT_AUDIO} sfx={BOOT_SFX} title="Chargement de Charta Logica…" minDelayMs={800}/>
 
   return(
     <>

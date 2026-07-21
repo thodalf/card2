@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
+import { RangeRequestsPlugin } from 'workbox-range-requests'
 
 export default defineConfig({
   define: {
@@ -36,12 +37,19 @@ export default defineConfig({
         globPatterns: ['**/*.{js,css,html,ico,woff2}'],
         runtimeCaching: [
           {
-            // Music tracks — cache on first use for offline play
+            // Music tracks — cache on first use for offline play. <audio>/Audio()
+            // playback issues Range requests (206 partial content), which Workbox's
+            // default cacheable-response check rejects — without RangeRequestsPlugin
+            // every play attempt also fires a doomed-to-fail cache-write behind the
+            // scenes (visible in devtools as a spurious extra 503 on the same URL).
+            // The plugin caches the full response once and serves any requested byte
+            // range out of that single cached copy instead.
             urlPattern: /\/musiques\/.+\.mp3$/,
             handler: 'CacheFirst',
             options: {
               cacheName: 'audio-cache',
-              expiration: { maxEntries: 10, maxAgeSeconds: 60 * 60 * 24 * 30 }
+              expiration: { maxEntries: 10, maxAgeSeconds: 60 * 60 * 24 * 30 },
+              plugins: [new RangeRequestsPlugin()]
             }
           },
           {

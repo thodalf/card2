@@ -24,3 +24,18 @@
     X-Frame-Options = "DENY"
     Referrer-Policy = "strict-origin-when-cross-origin"
     Permissions-Policy = "camera=(), microphone=(), geolocation=(), usb=()"
+
+# index.html isn't content-hashed (unlike the JS/CSS it references), and sw.js
+# is what decides whether a client even learns a new version exists — letting
+# either sit in a CDN/browser cache is how "vider le cache & recharger" (or
+# the automatic update check in main.jsx) ends up checking a stale copy of
+# the thing that's supposed to tell it a new deploy happened.
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "no-cache"
+
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "no-cache"
