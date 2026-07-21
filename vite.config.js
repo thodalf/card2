@@ -10,6 +10,10 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
+      // Registered manually in main.jsx (via virtual:pwa-register) instead of the
+      // default auto-injected script, so a new deployment can force-reload the
+      // page immediately instead of waiting for the next natural navigation.
+      injectRegister: false,
       includeAssets: ['icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png'],
       manifest: {
         name: 'Charta Logica',
@@ -32,11 +36,20 @@ export default defineConfig({
         globPatterns: ['**/*.{js,css,html,ico,woff2}'],
         runtimeCaching: [
           {
-            // Audio files — cache on first use for offline play
+            // Music tracks — cache on first use for offline play
             urlPattern: /\/musiques\/.+\.mp3$/,
             handler: 'CacheFirst',
             options: {
               cacheName: 'audio-cache',
+              expiration: { maxEntries: 10, maxAgeSeconds: 60 * 60 * 24 * 30 }
+            }
+          },
+          {
+            // Combat/UI sound effects — same idea as the music cache above
+            urlPattern: /\/sounds\/.+\.wav$/,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'sfx-cache',
               expiration: { maxEntries: 10, maxAgeSeconds: 60 * 60 * 24 * 30 }
             }
           },

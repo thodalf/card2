@@ -108,9 +108,11 @@ const ALL_MATCH_IMAGES=[...FREE_CARD_IMAGES,...SKIN_CATALOG.map(s=>`/images/card
   ...Object.values(PARALLAX_SKINS).flatMap(l=>[`/images/card/${l.bg}`,`/images/card/${l.fg}`])]
 // App-boot preload set: every match image (so the first match never pops in) plus the
 // two menu background variants (landscape/portrait) and the menu music track — the
-// one audio file guaranteed to play within seconds of the app opening.
+// one audio file guaranteed to play within seconds of the app opening. The four combat
+// SFX are preloaded too so the very first attack/move/placement/kill of a match plays
+// instantly instead of showing the network-fetch delay of an un-cached Audio() src.
 const BOOT_IMAGES=['/images/menu.png','/images/menuvertical.png',...ALL_MATCH_IMAGES]
-const BOOT_AUDIO=['/musiques/menu.mp3']
+const BOOT_AUDIO=['/musiques/menu.mp3','/sounds/explosion.wav','/sounds/fight.wav','/sounds/placed.wav','/sounds/walk.wav']
 function preloadImage(src){
   return new Promise(resolve=>{
     const img=new window.Image()
