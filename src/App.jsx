@@ -88,13 +88,23 @@ const SKIN_CATALOG = [
   // Priced above the usual cosmetic skin to reflect the extra effect.
   {id:'elf_sylvestre',file:'elf_sylvestre.png',name:'Elfe sylvestre',  tier:'strong', price:250},
   {id:'roi',          file:'roi.png',          name:'Roi',             tier:'strong', price:200},
+  // Same parallax treatment as elf_sylvestre above (see PARALLAX_SKINS) —
+  // mage.png/reine.png are real flat fallback files but only ever used as the
+  // PARALLAX_SKINS lookup key here, the actual display always composites
+  // magesansfond.png/reinesansfond.png over them.
+  {id:'mage',         file:'mage.png',         name:'Mage',            tier:'strong', price:250},
+  {id:'reine',        file:'reine.png',        name:'Reine',           tier:'strong', price:250},
 ]
 // Keyed by the (possibly virtual, see elf_sylvestre above) filename a card would
 // otherwise show. When zoomed, the two layers animate with a differing amount of
 // drift each — the foreground swings noticeably more than the background — which
 // is what actually reads as parallax; riding the shared idle-tilt rotation alone
 // moves both layers as one rigid body and cancels the depth cue out.
-const PARALLAX_SKINS={'elf_sylvestre.png':{bg:'fondforet.png',fg:'elfsansfond.png'}}
+const PARALLAX_SKINS={
+  'elf_sylvestre.png':{bg:'fondforet.png',fg:'elfsansfond.png'},
+  'mage.png':{bg:'mage.png',fg:'magesansfond.png'},
+  'reine.png':{bg:'reine.png',fg:'reinesansfond.png'},
+}
 function pickCardImage(total,ownedSkins){
   const tier=total<=20?'weak':total<=28?'medium':'strong'
   const owned=SKIN_CATALOG.filter(s=>s.tier===tier&&(ownedSkins||[]).includes(s.id)).map(s=>s.file)
@@ -1257,10 +1267,20 @@ function soundForAIAction(action,g){
 // ═══════════════════════════════════════════════════════════════════════════════
 //  CARD FACE
 // ═══════════════════════════════════════════════════════════════════════════════
+// Foreground drifts noticeably more than the background per degree of tilt —
+// that differential is what actually reads as parallax/depth, not the
+// absolute amount. Calibrated to land near the old idle keyframes' peak
+// displacement (~5px bg, ~29px fg) at ZOOM_TILT_MAX degrees.
+const PARALLAX_BG_PX_PER_DEG=0.3
+const PARALLAX_FG_PX_PER_DEG=1.6
 // `layer` lets a parallax skin's two images be split across other content (see
 // the zoomed CardFace/BoosterCardFace, which sandwich the value grid between
-// them) instead of always stacking both at once.
-function CardImageLayer({imageUrl,zoom,className,layer='both'}){
+// them) instead of always stacking both at once. `tilt`/`interacting` (from
+// CardZoomOverlay) drive the layers directly while the user is actively
+// dragging/hovering — tilting the card left (negative `ry`) shifts both
+// layers left, foreground more than background, so the parallax visibly
+// tracks the user's own input instead of only playing a canned idle drift.
+function CardImageLayer({imageUrl,zoom,className,layer='both',tilt,interacting}){
   const file=imageUrl?.split('/').pop()
   const layers=PARALLAX_SKINS[file]
   if(!layers)return <img src={imageUrl} alt="" className={className}/>
@@ -1276,10 +1296,12 @@ function CardImageLayer({imageUrl,zoom,className,layer='both'}){
   // layers would have no positioned ancestor whatsoever and size themselves
   // against the viewport instead, covering the whole page.
   const positioned=/\b(absolute|relative|fixed|sticky)\b/.test(className||'')
+  const live=zoom&&interacting&&tilt
+  const liveStyle=factor=>live?{transform:`translate(${tilt.ry*factor}px,${-tilt.rx*factor}px)${factor===PARALLAX_BG_PX_PER_DEG?' scale(1.1)':''}`,transition:'transform 0.08s linear'}:undefined
   return(
     <div className={`overflow-hidden ${positioned?'':'relative'} ${className}`}>
-      {layer!=='fg'&&<img src={`/images/card/${layers.bg}`} alt="" className={`absolute inset-0 w-full h-full object-cover ${zoom?'parallax-bg-idle':''}`}/>}
-      {layer!=='bg'&&<img src={`/images/card/${layers.fg}`} alt="" className={`absolute inset-0 w-full h-full object-cover ${zoom?'parallax-fg-idle':''}`}/>}
+      {layer!=='fg'&&<img src={`/images/card/${layers.bg}`} alt="" className={`absolute inset-0 w-full h-full object-cover ${zoom&&!live?'parallax-bg-idle':''}`} style={liveStyle(PARALLAX_BG_PX_PER_DEG)}/>}
+      {layer!=='bg'&&<img src={`/images/card/${layers.fg}`} alt="" className={`absolute inset-0 w-full h-full object-cover ${zoom&&!live?'parallax-fg-idle':''}`} style={liveStyle(PARALLAX_FG_PX_PER_DEG)}/>}
     </div>
   )
 }
@@ -1287,7 +1309,7 @@ const TIER_THEME={
   1:{weak:{border:'border-blue-700/70',bg:'from-blue-950 to-slate-900',glow:'',center:'text-blue-800 text-[8px]',sym:'·'},medium:{border:'border-blue-500',bg:'from-blue-900 to-blue-800',glow:'',center:'text-blue-500/50 text-[9px]',sym:'◆'},strong:{border:'border-cyan-300',bg:'from-blue-700 to-cyan-900',glow:'shadow-[0_0_14px_rgba(34,211,238,0.45)]',center:'text-cyan-300/70 text-sm',sym:'✦'}},
   2:{weak:{border:'border-red-800/70',bg:'from-red-950 to-slate-900',glow:'',center:'text-red-900 text-[8px]',sym:'·'},medium:{border:'border-red-500',bg:'from-red-900 to-red-800',glow:'',center:'text-red-500/50 text-[9px]',sym:'◆'},strong:{border:'border-orange-300',bg:'from-red-700 to-orange-900',glow:'shadow-[0_0_14px_rgba(251,146,60,0.45)]',center:'text-orange-300/70 text-sm',sym:'✦'}},
 }
-function CardFace({card,small=false,compact=false,zoom=false,draggable=false,onDragStart,onTouchStart,onClick,animClass='',isTarget=false,flip=false}){
+function CardFace({card,small=false,compact=false,zoom=false,draggable=false,onDragStart,onTouchStart,onClick,animClass='',isTarget=false,flip=false,tilt,interacting}){
   const tier=cardTier(card),theme=TIER_THEME[card.owner][tier]
   // `flip` is purely a display transform for GameScreen's "you're always at the
   // bottom" seat rotation — it never touches card.values itself (combat still
@@ -1324,11 +1346,12 @@ function CardFace({card,small=false,compact=false,zoom=false,draggable=false,onD
         ${onClick&&!draggable?'cursor-zoom-in':''}
         ${isTarget?'target-pulse ring-2 ring-yellow-400 ring-offset-1 ring-offset-slate-900 cursor-pointer brightness-110':''}
         ${animClass}`}>
-      {hasImg&&<CardImageLayer imageUrl={card.imageUrl} zoom={zoom} layer={isParallax?'bg':'both'} className="absolute inset-0 w-full h-full object-cover"/>}
+      {hasImg&&<CardImageLayer imageUrl={card.imageUrl} zoom={zoom} layer={isParallax?'bg':'both'} className="absolute inset-0 w-full h-full object-cover" tilt={tilt} interacting={interacting}/>}
       {hasImg&&<div className={`absolute inset-0 bg-gradient-to-t ${card.owner===1?'from-blue-900/50':'from-red-900/50'} to-transparent`}/>}
       {!hasImg&&tier==='strong'&&<div className={`absolute inset-0 opacity-10 ${card.owner===1?'bg-cyan-300':'bg-orange-300'}`}/>}
       {!hasImg&&<div className={`absolute inset-0 bg-gradient-to-br ${theme.bg}`}/>}
-      <div className={`absolute inset-0 grid grid-cols-3 grid-rows-3 ${fs} p-0.5 ${isParallax?'parallax-num-idle':''}`}>
+      <div className={`absolute inset-0 grid grid-cols-3 grid-rows-3 ${fs} p-0.5 ${isParallax&&!(zoom&&interacting&&tilt)?'parallax-num-idle':''}`}
+        style={isParallax&&zoom&&interacting&&tilt?{transform:`translate(${tilt.ry*PARALLAX_BG_PX_PER_DEG}px,${-tilt.rx*PARALLAX_BG_PX_PER_DEG}px)`,transition:'transform 0.08s linear'}:undefined}>
         {GRID_KEYS.map((row,ri)=>row.map((key,ci)=>(
           <div key={`${ri}-${ci}`} className="flex items-center justify-center leading-none">
             {key?<span
@@ -1340,7 +1363,7 @@ function CardFace({card,small=false,compact=false,zoom=false,draggable=false,onD
           </div>
         )))}
       </div>
-      {isParallax&&<CardImageLayer imageUrl={card.imageUrl} zoom={zoom} layer="fg" className="absolute inset-0 w-full h-full object-cover pointer-events-none"/>}
+      {isParallax&&<CardImageLayer imageUrl={card.imageUrl} zoom={zoom} layer="fg" className="absolute inset-0 w-full h-full object-cover pointer-events-none" tilt={tilt} interacting={interacting}/>}
       <div className={`absolute bottom-0.5 right-1 ${zoom?'text-sm bottom-2 right-3':'text-[9px]'} font-bold opacity-50 ${card.owner===1?'text-blue-200':'text-red-200'}`}>{card.total}</div>
     </div>
   )
@@ -1781,7 +1804,7 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
   return(
     <div className="game-outer min-h-screen overflow-y-auto relative">
       <div className="bg-charta fixed inset-0 -z-10"/>
-      <CardZoomOverlay card={zoomedCard} onClose={()=>setZoomedCard(null)} renderCard={c=><CardFace card={c} zoom flip={flip}/>}/>
+      <CardZoomOverlay card={zoomedCard} onClose={()=>setZoomedCard(null)} renderCard={(c,t)=><CardFace card={c} zoom flip={flip} tilt={t.tilt} interacting={t.interacting}/>}/>
       {showTutorial&&<TutorialOverlay onClose={onTutorialClose}/>}
       <BackButton onClick={()=>{game.winner?onHome():setConfirmQuit(true)}} compact className="absolute top-3 left-3 z-10">Menu</BackButton>
       {confirmQuit&&(
@@ -2443,7 +2466,7 @@ const RARITY_THEME={
   ultra:    {label:'Ultra rare',  color:'#c084fc'},
   legendary:{label:'Légendaire',  color:'#fbbf24'},
 }
-function BoosterCardFace({card,animate=false,revealed=true,size='normal',onClick}){
+function BoosterCardFace({card,animate=false,revealed=true,size='normal',onClick,tilt,interacting}){
   const rarity=card.rarity||'common'
   const theme=RARITY_THEME[rarity]
   const isRare=rarity==='rare'||rarity==='ultra'||rarity==='legendary'
@@ -2460,16 +2483,17 @@ function BoosterCardFace({card,animate=false,revealed=true,size='normal',onClick
   return(
     <div onClick={onClick} className={`${dim} rounded-xl border-2 relative overflow-hidden shrink-0 ${animClass} ${onClick?'cursor-zoom-in':''}`}
       style={{borderColor:theme.color,background:'#1e293b'}}>
-      <CardImageLayer imageUrl={imageUrl} zoom={zoom} layer={isParallax?'bg':'both'} className="absolute inset-0 w-full h-full object-cover"/>
+      <CardImageLayer imageUrl={imageUrl} zoom={zoom} layer={isParallax?'bg':'both'} className="absolute inset-0 w-full h-full object-cover" tilt={tilt} interacting={interacting}/>
       <div className="absolute inset-0 bg-black/25"/>
-      <div className={`absolute inset-0 grid grid-cols-3 grid-rows-3 ${textSz} p-0.5 ${isParallax?'parallax-num-idle':''}`}>
+      <div className={`absolute inset-0 grid grid-cols-3 grid-rows-3 ${textSz} p-0.5 ${isParallax&&!(zoom&&interacting&&tilt)?'parallax-num-idle':''}`}
+        style={isParallax&&zoom&&interacting&&tilt?{transform:`translate(${tilt.ry*PARALLAX_BG_PX_PER_DEG}px,${-tilt.rx*PARALLAX_BG_PX_PER_DEG}px)`,transition:'transform 0.08s linear'}:undefined}>
         {GRID_KEYS.map((row,ri)=>row.map((key,ci)=>(
           <div key={`${ri}-${ci}`} className="flex items-center justify-center">
             {key&&<span className="font-black text-white" style={{textShadow:'0 1px 4px #000,0 0 3px #000'}}>{card.values[key]}</span>}
           </div>
         )))}
       </div>
-      {isParallax&&<CardImageLayer imageUrl={imageUrl} zoom={zoom} layer="fg" className="absolute inset-0 w-full h-full object-cover pointer-events-none"/>}
+      {isParallax&&<CardImageLayer imageUrl={imageUrl} zoom={zoom} layer="fg" className="absolute inset-0 w-full h-full object-cover pointer-events-none" tilt={tilt} interacting={interacting}/>}
       <div className={`absolute bottom-0 left-0 right-0 text-center ${labelSz} font-black py-0.5`}
         style={{color:theme.color,background:'rgba(0,0,0,0.55)',textShadow:'0 1px 2px #000'}}>
         {theme.label} · {pts}pts
@@ -2541,7 +2565,7 @@ function CardZoomOverlay({card,onClose,renderCard}){
           <div className="absolute inset-0 m-auto zoom-aura rounded-full pointer-events-none" style={{width:'135%',height:'135%'}}/>
           <div className={interacting?undefined:idleClass}
             style={interacting?{transform:`rotateX(${tilt.rx}deg) rotateY(${tilt.ry}deg)`,transformStyle:'preserve-3d',transition:'transform 0.08s linear'}:undefined}>
-            {renderCard?renderCard(card):<BoosterCardFace card={card} size='large'/>}
+            {renderCard?renderCard(card,{tilt,interacting}):<BoosterCardFace card={card} size='large' tilt={tilt} interacting={interacting}/>}
           </div>
         </div>
         <span className="text-slate-400 text-xs">Appuyer pour fermer</span>
@@ -2961,10 +2985,10 @@ function ShopScreen({onBack,coins,ownedSkins,onBuySkin,onPlay,onDeckBuilder,onBo
       <div className="min-h-screen pt-14 pb-28 px-4 flex flex-col items-center overflow-y-auto">
         <BackButton onClick={onBack} compact className="fixed top-3 left-3 z-20">Menu</BackButton>
         <CoinBadge coins={coins}/>
-        <CardZoomOverlay card={zoomedSkin} onClose={()=>setZoomedSkin(null)} renderCard={s=>(
+        <CardZoomOverlay card={zoomedSkin} onClose={()=>setZoomedSkin(null)} renderCard={(s,t)=>(
           <div className="w-[88vw] h-[88vw] max-w-[420px] max-h-[420px] rounded-2xl overflow-hidden border-4 relative"
             style={{borderColor:ownedSkins.includes(s.id)?'#34d399':'#8b6239'}}>
-            <CardImageLayer imageUrl={`/images/card/${s.file}`} zoom className="absolute inset-0 w-full h-full object-cover"/>
+            <CardImageLayer imageUrl={`/images/card/${s.file}`} zoom className="absolute inset-0 w-full h-full object-cover" tilt={t.tilt} interacting={t.interacting}/>
             <div className="absolute bottom-0 inset-x-0 text-center py-3" style={{background:'rgba(0,0,0,0.65)'}}>
               <span className="text-amber-200 font-black text-xl" style={CINZEL_DEC}>{s.name}</span>
             </div>
