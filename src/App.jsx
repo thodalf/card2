@@ -70,30 +70,35 @@ const shuf = a => { const b=[...a]; for(let i=b.length-1;i>0;i--){const j=rnd(0,
 // Each points tier draws its portrait from a small free pool for visual variety.
 // The rest of the roster is sold as cosmetic skins in the shop (see SKIN_CATALOG)
 // and only joins this pool — for THIS account's random cards — once purchased.
+// All portraits are opaque paintings — served as JPEG (roughly a tenth the size
+// of the original lossless PNG exports at the same visual quality). Only the
+// parallax foreground cutouts below actually need alpha, so those alone stay in
+// a transparency-capable format (WebP: still far smaller than PNG for this).
 const CARD_IMAGE_TIERS = {
-  weak:   ['gnome.png'],
-  medium: ['elf.png'],
-  strong: ['dragon.png'],
+  weak:   ['gnome.jpg'],
+  medium: ['elf.jpg'],
+  strong: ['dragon.jpg'],
 }
 const SKIN_CATALOG = [
-  {id:'hobbit',       file:'hobbit.png',       name:'Hobbit',          tier:'weak',   price:50},
-  {id:'elf_noir',     file:'elf_noir.png',     name:'Elfe noir',       tier:'medium', price:100},
-  {id:'orc',          file:'orc.png',          name:'Orc',             tier:'medium', price:100},
-  {id:'nain_femme',   file:'nain_femme.png',   name:'Naine',           tier:'medium', price:100},
-  {id:'nain',         file:'nain.png',         name:'Nain',            tier:'medium', price:100},
-  {id:'bard',         file:'bard.png',         name:'Barde',           tier:'medium', price:100},
-  {id:'elf_foret',    file:'elf_foret.png',    name:'Elfe des forêts', tier:'medium', price:100},
-  // No standalone image file — composited live from elfsansfond.png + fondforet.png
+  {id:'hobbit',       file:'hobbit.jpg',       name:'Hobbit',          tier:'weak',   price:50},
+  {id:'elf_noir',     file:'elf_noir.jpg',     name:'Elfe noir',       tier:'medium', price:100},
+  {id:'orc',          file:'orc.jpg',          name:'Orc',             tier:'medium', price:100},
+  {id:'nain_femme',   file:'nain_femme.jpg',   name:'Naine',           tier:'medium', price:100},
+  {id:'nain',         file:'nain.jpg',         name:'Nain',            tier:'medium', price:100},
+  {id:'bard',         file:'bard.jpg',         name:'Barde',           tier:'medium', price:100},
+  {id:'elf_foret',    file:'elf_foret.jpg',    name:'Elfe des forêts', tier:'medium', price:100},
+  // No standalone image file — composited live from elfsansfond.webp + fondforet.jpg
   // (see PARALLAX_SKINS below), and animated with a parallax shift when zoomed.
   // Priced above the usual cosmetic skin to reflect the extra effect.
-  {id:'elf_sylvestre',file:'elf_sylvestre.png',name:'Elfe sylvestre',  tier:'strong', price:250},
-  {id:'roi',          file:'roi.png',          name:'Roi',             tier:'strong', price:200},
+  {id:'elf_sylvestre',file:'elf_sylvestre.jpg',name:'Elfe sylvestre',  tier:'strong', price:250},
+  {id:'roi',          file:'roi.jpg',          name:'Roi',             tier:'strong', price:200},
   // Same parallax treatment as elf_sylvestre above (see PARALLAX_SKINS) —
-  // mage.png/reine.png are real flat fallback files but only ever used as the
-  // PARALLAX_SKINS lookup key here, the actual display always composites
-  // magesansfond.png/reinesansfond.png over them.
-  {id:'mage',         file:'mage.png',         name:'Mage',            tier:'strong', price:250},
-  {id:'reine',        file:'reine.png',        name:'Reine',           tier:'strong', price:250},
+  // mage.jpg/reine.jpg double as both this catalog's flat `file` reference
+  // AND the actual background layer of the composite (see PARALLAX_SKINS'
+  // `bg`), the foreground cutout (magesansfond.webp/reinesansfond.webp)
+  // always renders on top of it.
+  {id:'mage',         file:'mage.jpg',         name:'Mage',            tier:'strong', price:250},
+  {id:'reine',        file:'reine.jpg',        name:'Reine',           tier:'strong', price:250},
 ]
 // Keyed by the (possibly virtual, see elf_sylvestre above) filename a card would
 // otherwise show. When zoomed, the two layers animate with a differing amount of
@@ -101,9 +106,9 @@ const SKIN_CATALOG = [
 // is what actually reads as parallax; riding the shared idle-tilt rotation alone
 // moves both layers as one rigid body and cancels the depth cue out.
 const PARALLAX_SKINS={
-  'elf_sylvestre.png':{bg:'fondforet.png',fg:'elfsansfond.png'},
-  'mage.png':{bg:'mage.png',fg:'magesansfond.png'},
-  'reine.png':{bg:'reine.png',fg:'reinesansfond.png'},
+  'elf_sylvestre.jpg':{bg:'fondforet.jpg',fg:'elfsansfond.webp'},
+  'mage.jpg':{bg:'mage.jpg',fg:'magesansfond.webp'},
+  'reine.jpg':{bg:'reine.jpg',fg:'reinesansfond.webp'},
 }
 function pickCardImage(total,ownedSkins){
   const tier=total<=20?'weak':total<=28?'medium':'strong'
@@ -112,7 +117,7 @@ function pickCardImage(total,ownedSkins){
   return `/images/card/${pool[rnd(0,pool.length-1)]}`
 }
 // Portraits the Deck Builder gallery can offer — the free set plus any owned skins
-const FREE_CARD_IMAGES=['gnome.png','elf.png','dragon.png'].map(f=>`/images/card/${f}`)
+const FREE_CARD_IMAGES=['gnome.jpg','elf.jpg','dragon.jpg'].map(f=>`/images/card/${f}`)
 function cardImageGallery(ownedSkins){
   const owned=SKIN_CATALOG.filter(s=>(ownedSkins||[]).includes(s.id)).map(s=>`/images/card/${s.file}`)
   return [...FREE_CARD_IMAGES,...owned]
@@ -123,7 +128,7 @@ function cardImageGallery(ownedSkins){
 // PARALLAX_SKINS' fg/bg layers aren't referenced by any SKIN_CATALOG `file`
 // entry directly (only the flat composite is), so they'd otherwise never be
 // preloaded and would pop in the first time that card gets zoomed.
-const ALL_MATCH_IMAGES=[...FREE_CARD_IMAGES,...SKIN_CATALOG.map(s=>`/images/card/${s.file}`),'/images/plateau.png',
+const ALL_MATCH_IMAGES=[...FREE_CARD_IMAGES,...SKIN_CATALOG.map(s=>`/images/card/${s.file}`),'/images/plateau.jpg',
   ...Object.values(PARALLAX_SKINS).flatMap(l=>[`/images/card/${l.bg}`,`/images/card/${l.fg}`])]
 // App-boot preload set: every match image (so the first match never pops in) plus the
 // two menu background variants (landscape/portrait) and the menu music track — the
@@ -131,7 +136,7 @@ const ALL_MATCH_IMAGES=[...FREE_CARD_IMAGES,...SKIN_CATALOG.map(s=>`/images/card
 // SFX are decoded into AudioBuffers up front too (see preloadSfxBuffer) so the very
 // first attack/move/placement/kill of a match plays instantly instead of showing the
 // fetch+decode delay of a cold `playSfxBuffer` call.
-const BOOT_IMAGES=['/images/menu.png','/images/menuvertical.png',...ALL_MATCH_IMAGES]
+const BOOT_IMAGES=['/images/menu.jpg','/images/menuvertical.jpg',...ALL_MATCH_IMAGES]
 const BOOT_AUDIO=['/musiques/menu.mp3']
 const BOOT_SFX=['/sounds/explosion.wav','/sounds/fight.wav','/sounds/placed.wav','/sounds/walk.wav']
 function preloadImage(src){
@@ -255,7 +260,7 @@ function saveTutorialSeen(){try{localStorage.setItem(TUTORIAL_SEEN_KEY,'1')}catc
 const DECK_TUTORIAL_SEEN_KEY='tacticalcards_deck_tutorial_seen'
 function loadDeckTutorialSeen(){try{return localStorage.getItem(DECK_TUTORIAL_SEEN_KEY)==='1'}catch{return false}}
 function saveDeckTutorialSeen(){try{localStorage.setItem(DECK_TUTORIAL_SEEN_KEY,'1')}catch{}}
-const DEFAULT_CARD_IMAGE='/images/card/gnome.png'
+const DEFAULT_CARD_IMAGE='/images/card/gnome.jpg'
 function customCardPts(card){
   return FACE_KEYS.reduce((s,k)=>s+(card.values[k]||0),0)
 }
@@ -1839,7 +1844,7 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
             <span className={badge('Att',actionsLeft.attack,'red')} style={CINZEL}>Att {actionsLeft.attack}</span>
           </div>
           <div ref={boardRef} className={`grid grid-cols-5 ${compact?'gap-1 p-1.5':'gap-1.5 p-2.5'} rounded-2xl border transition-all ${targeting?'border-purple-600/60 shadow-[0_0_20px_rgba(147,51,234,0.2)]':'border-amber-900/40'}`}
-            style={{backgroundImage:'url(/images/plateau.png)',backgroundSize:'cover',backgroundPosition:'center'}}>
+            style={{backgroundImage:'url(/images/plateau.jpg)',backgroundSize:'cover',backgroundPosition:'center'}}>
             {(flip?[4,3,2,1,0]:[0,1,2,3,4]).map(r=>(flip?[4,3,2,1,0]:[0,1,2,3,4]).map(c=>(
               <Cell key={`${r}-${c}`} r={r} c={c} card={board[r][c]} currentPlayer={currentPlayer} actionsLeft={actionsLeft} myPlayer={myPlayer}
                 onDragStart={handleDragStart} onDrop={handleDrop} onCellClick={handleCellClick} onZoom={setZoomedCard}

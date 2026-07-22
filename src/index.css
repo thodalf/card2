@@ -30,21 +30,21 @@ html, body { overscroll-behavior-y: none; }
 
 /* ── Shared menu-art background — portrait art swaps in on narrow/mobile screens ── */
 .bg-charta {
-  background-image: linear-gradient(rgba(6,6,10,0.20),rgba(6,6,10,0.20)), url('/images/menu.png');
+  background-image: linear-gradient(rgba(6,6,10,0.20),rgba(6,6,10,0.20)), url('/images/menu.jpg');
   background-size: cover;
   background-position: center;
 }
 @media (max-width: 640px) {
   .bg-charta {
-    background-image: linear-gradient(rgba(6,6,10,0.20),rgba(6,6,10,0.20)), url('/images/menuvertical.png');
+    background-image: linear-gradient(rgba(6,6,10,0.20),rgba(6,6,10,0.20)), url('/images/menuvertical.jpg');
   }
 }
 
 /* ── Shared wood-carved button look — plank artwork as the actual background,
-   swapped for the round variant (planche_rond.png) on rounded-full buttons
+   swapped for the round variant (planche_rond.webp) on rounded-full buttons
    like the bottom-nav icons, everything else gets the rectangular plank. ── */
 .wood-btn {
-  background-image: url('/images/planche.png');
+  background-image: url('/images/planche.webp');
   background-size: 100% 100%;
   background-position: center;
   background-repeat: no-repeat;
@@ -55,7 +55,7 @@ html, body { overscroll-behavior-y: none; }
     0 3px 10px rgba(0,0,0,0.5);
 }
 .wood-btn.rounded-full {
-  background-image: url('/images/planche_rond.png');
+  background-image: url('/images/planche_rond.webp');
   background-size: cover;
 }
 
@@ -448,6 +448,6 @@ button.wood-btn.menu-fade-up:active:not(:disabled) {
   }
 
   .bg-slate-900\/50 {
-    background-image: url('/images/plateau.png');
+    background-image: url('/images/plateau.jpg');
   }
 }
