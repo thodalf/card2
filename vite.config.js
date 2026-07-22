@@ -46,16 +46,16 @@ export default defineConfig(async () => {
           ],
           screenshots: [
             {
-              src: '/screenshots/menu-wide.png',
+              src: '/screenshots/menu-wide.jpg',
               sizes: '1272x2644',
-              type: 'image/png',
+              type: 'image/jpeg',
               form_factor: 'narrow',
               label: 'Menu principal de Charta Logica'
             },
             {
-              src: '/screenshots/game-narrow.png',
+              src: '/screenshots/game-narrow.jpg',
               sizes: '1272x2637',
-              type: 'image/png',
+              type: 'image/jpeg',
               form_factor: 'narrow',
               label: 'Partie en cours sur le plateau 5x5'
             }
