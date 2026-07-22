@@ -29,6 +29,12 @@ export default defineConfig(async () => {
         includeAssets: ['icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png'],
         manifest: {
           id: '/',
+          // Declares the SW to tools (PWABuilder among them) that check the
+          // manifest statically instead of running the page's JS to observe
+          // the runtime registerSW() call in main.jsx — without this field,
+          // a perfectly working registration can still get flagged as
+          // "missing" by scanners that never execute anything.
+          serviceworker: { src: '/sw.js', scope: '/', type: 'classic', use_cache: false },
           name: 'Charta Logica',
           short_name: 'Charta Logica',
           description: 'Jeu de cartes tactique 2 joueurs pour affronter l\'IA ou d\'autres joueurs en ligne sur un plateau 5x5, avec deck-building et boosters de cartes.',
