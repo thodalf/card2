@@ -204,8 +204,43 @@ const CARD_MAX_POINTS=40
 const DECK_MAX_CARDS=10
 const FACE_KEYS=['topLeft','top','topRight','left','right','bottomLeft','bottom','bottomRight']
 
+// Card/background art was re-encoded from PNG to JPEG/WebP (see the image
+// constants above) after decks/collections had already been persisted to
+// localStorage and Firebase with the old .png paths baked into each card's
+// imageUrl. Without this table those saved references 404 forever — migrating
+// on read (rather than a one-off migration script) also covers cloud data
+// pulled down on a device that never re-saves locally.
+const IMAGE_FILE_MIGRATIONS={
+  'gnome.png':'gnome.jpg','elf.png':'elf.jpg','dragon.png':'dragon.jpg',
+  'hobbit.png':'hobbit.jpg','elf_noir.png':'elf_noir.jpg','orc.png':'orc.jpg',
+  'nain_femme.png':'nain_femme.jpg','nain.png':'nain.jpg','bard.png':'bard.jpg',
+  'elf_foret.png':'elf_foret.jpg','elf_sylvestre.png':'elf_sylvestre.jpg',
+  'roi.png':'roi.jpg','mage.png':'mage.jpg','reine.png':'reine.jpg',
+  'fondforet.png':'fondforet.jpg','elfsansfond.png':'elfsansfond.webp',
+  'magesansfond.png':'magesansfond.webp','reinesansfond.png':'reinesansfond.webp',
+  'plateau.png':'plateau.jpg','menu.png':'menu.jpg','menuvertical.png':'menuvertical.jpg',
+  'planche.png':'planche.webp','planche_rond.png':'planche_rond.webp',
+}
+function migrateImageUrl(url){
+  if(!url)return url
+  const parts=url.split('/')
+  const mapped=IMAGE_FILE_MIGRATIONS[parts[parts.length-1]]
+  if(!mapped)return url
+  parts[parts.length-1]=mapped
+  return parts.join('/')
+}
+function migrateCardImage(card){
+  return card&&card.imageUrl?{...card,imageUrl:migrateImageUrl(card.imageUrl)}:card
+}
+// Handles both item shapes mergeById/loadDecks/loadCollection deal with:
+// a deck (imageUrl nested per-card) or a collection card (imageUrl at top level).
+function migrateItemImages(item){
+  if(!item)return item
+  if(item.cards)return{...item,cards:item.cards.map(migrateCardImage)}
+  return migrateCardImage(item)
+}
 function loadDecks(){
-  try{return JSON.parse(localStorage.getItem(DECKS_KEY)||'[]')}catch{return[]}
+  try{return (JSON.parse(localStorage.getItem(DECKS_KEY)||'[]')).map(migrateItemImages)}catch{return[]}
 }
 function saveDecks(decks){
   try{localStorage.setItem(DECKS_KEY,JSON.stringify(decks))}
@@ -300,7 +335,7 @@ const LAST_BOOSTER_KEY='tacticalcards_last_booster'
 const BOOSTER_COOLDOWN_MS=24*60*60*1000
 
 function loadCollection(){
-  try{return JSON.parse(localStorage.getItem(COLLECTION_KEY)||'[]')}catch{return[]}
+  try{return (JSON.parse(localStorage.getItem(COLLECTION_KEY)||'[]')).map(migrateItemImages)}catch{return[]}
 }
 function saveCollection(cards){
   try{localStorage.setItem(COLLECTION_KEY,JSON.stringify(cards))}catch{}
@@ -2592,7 +2627,9 @@ function formatDuration(ms){
 function mergeById(localList,cloudList,deletedIds){
   const deleted=new Set(deletedIds||[])
   const map=new Map()
-  ;(cloudList||[]).forEach(item=>{if(!deleted.has(item.id))map.set(item.id,item)})
+  // cloudList bypasses loadDecks/loadCollection (and thus their image migration)
+  // when pulled straight from Firebase, so it's migrated here too.
+  ;(cloudList||[]).forEach(item=>{if(!deleted.has(item.id))map.set(item.id,migrateItemImages(item))})
   ;(localList||[]).forEach(item=>{
     if(deleted.has(item.id))return
     const existing=map.get(item.id)
