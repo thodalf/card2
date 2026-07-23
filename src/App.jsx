@@ -1,5 +1,5 @@
 import { useState, useEffect, useLayoutEffect, useRef } from 'react'
-import { Copy, Volume2, VolumeX, Home, BookOpen, Wifi, Play, Users, Check, X, Zap, Bot, Layers, Plus, Trash2, Star, UserCircle, LogIn, LogOut, Mail, Lock, RefreshCw, Swords, Gift, ArrowRightLeft, Sparkles, Store, Coins, Bell, UserPlus, Send, Flag } from 'lucide-react'
+import { Copy, Volume2, VolumeX, Home, BookOpen, Wifi, Play, Users, Check, CheckCheck, X, Zap, Bot, Layers, Plus, Trash2, Star, UserCircle, LogIn, LogOut, Mail, Lock, RefreshCw, Swords, Gift, ArrowRightLeft, Sparkles, Store, Coins, Bell, UserPlus, Send, Flag } from 'lucide-react'
 import {
   genRoomCode, createRoom, joinRoom, pushState, subscribeRoom, removeRoom,
   onAuthChange, registerWithEmail, loginWithEmail, loginWithGoogle, logout, completeRedirectLogin,
@@ -131,13 +131,15 @@ function cardImageGallery(ownedSkins){
 const ALL_MATCH_IMAGES=[...FREE_CARD_IMAGES,...SKIN_CATALOG.map(s=>`/images/card/${s.file}`),'/images/plateau.jpg',
   ...Object.values(PARALLAX_SKINS).flatMap(l=>[`/images/card/${l.bg}`,`/images/card/${l.fg}`])]
 // App-boot preload set: every match image (so the first match never pops in) plus the
-// two menu background variants (landscape/portrait) and the menu music track — the
-// one audio file guaranteed to play within seconds of the app opening. The four combat
-// SFX are decoded into AudioBuffers up front too (see preloadSfxBuffer) so the very
-// first attack/move/placement/kill of a match plays instantly instead of showing the
-// fetch+decode delay of a cold `playSfxBuffer` call.
+// two menu background variants (landscape/portrait) and the menu music tracks — both
+// menu.mp3 (plays first, guaranteed within seconds of the app opening) and menu2.mp3
+// (takes over once menu.mp3 finishes once, see startMusic) are preloaded so that
+// handoff has no fetch delay. The four combat SFX are decoded into AudioBuffers up
+// front too (see preloadSfxBuffer) so the very first attack/move/placement/kill of a
+// match plays instantly instead of showing the fetch+decode delay of a cold
+// `playSfxBuffer` call.
 const BOOT_IMAGES=['/images/menu.jpg','/images/menuvertical.jpg',...ALL_MATCH_IMAGES]
-const BOOT_AUDIO=['/musiques/menu.mp3']
+const BOOT_AUDIO=['/musiques/menu.mp3','/musiques/menu2.mp3']
 const BOOT_SFX=['/sounds/explosion.wav','/sounds/fight.wav','/sounds/placed.wav','/sounds/walk.wav']
 function preloadImage(src){
   return new Promise(resolve=>{
@@ -654,7 +656,18 @@ function startMusic(enabled, isMenu = false, outcome = null) {
     _playWithRetry(_audio)
   } else if (isMenu) {
     _audio.src = '/musiques/menu.mp3'
-    _audio.loop = true
+    _audio.loop = false
+    // menu2.mp3 only kicks in after menu.mp3's own first playthrough finishes,
+    // then loops on its own — menu.mp3 stays the track heard on every fresh
+    // app open, menu2 the one that takes over for however long the player
+    // lingers on the menu after that.
+    _audio.addEventListener('ended', () => {
+      if (_audio && _currentMode === 'menu') {
+        _audio.loop = true
+        _audio.src = '/musiques/menu2.mp3'
+        _playWithRetry(_audio)
+      }
+    })
     _playWithRetry(_audio)
   } else {
     _gameTrackIdx = _randomTrackIdx(-1)
@@ -894,6 +907,32 @@ function findGuaranteedKill(game,cp,sit){
       }
       const val=(aDies?0:1000)+def.total*2+(cardTier(def)==='strong'?200:0)
       if(val>bestVal){bestVal=val;best={ar,ac,dr,dc}}
+    }
+  }
+  return best
+}
+
+// Aggression trigger requested on top of the general scoreAttack heuristic: any
+// cardinal attack that touches an exposed enemy face of 2 or less is a standing
+// opportunity the AI should take rather than shelve behind placement/movement —
+// scoreAttack already rewards this (v===1/v===2 bonuses) but earlier priorities
+// (placement, the score>=35 gate below) could still pass it up. Still runs every
+// candidate through scoreAttack and skips anything that hits its hard suicide
+// rule (aDies&&!dDies → -99999), so this never throws a card away for nothing.
+function findWeakFaceAttack(game,cp,sit){
+  let best=null,bestS=-Infinity
+  for(let ar=0;ar<5;ar++)for(let ac=0;ac<5;ac++){
+    if(!game.board[ar][ac]||game.board[ar][ac].owner!==cp)continue
+    for(const[ddr,ddc]of[[-1,0],[1,0],[0,-1],[0,1]]){
+      const dr=ar+ddr,dc=ac+ddc
+      if(dr<0||dr>=5||dc<0||dc>=5)continue
+      const def=game.board[dr][dc]
+      if(!def||def.owner===cp)continue
+      const[,dk]=getContactKeys(ar,ac,dr,dc)
+      if(!dk.some(k=>def.values[k]<=2))continue
+      const s=scoreAttack(game,ar,ac,dr,dc,sit)
+      if(s<=-9999)continue
+      if(s>bestS){bestS=s;best={ar,ac,dr,dc}}
     }
   }
   return best
@@ -1194,6 +1233,13 @@ function computeAIAction(game){
     if(bestFlee)return{type:'move',...bestFlee}
   }
 
+  // Priority 3: aggression trigger — attack any exposed enemy face worth 2 or
+  // less right away, ahead of placement/movement (see findWeakFaceAttack).
+  if(al.attack>0){
+    const weak=findWeakFaceAttack(game,cp,sit)
+    if(weak)return{type:'attack',...weak}
+  }
+
   // Power cards — which one to even consider first shifts with the match state:
   // behind, preserving cards (recall) and setting up a swing (switch) come
   // first; ahead, consolidating the lead (block, buff) takes priority instead.
@@ -1301,7 +1347,15 @@ function soundForAIAction(action,g){
     const a=g.board[action.ar][action.ac],d=g.board[action.dr][action.dc]
     return(ak.some(k=>a?.values[k]===0)||dk.some(k=>d?.values[k]===0))?'destroy':'attack'
   }
-  return{place:'place',move:'move',power:'power',draw:'power',endTurn:null}[action.type]||null
+  // SFX_FILES keys placement sounds by tier ('place-weak'/'place-medium'/'place-strong'),
+  // same as the human path (handleAction uses 'place-'+cardTier(card)) — a bare 'place'
+  // isn't a real key, so snd() silently fell through to the (no-op for this type)
+  // procedural-tone branch and the AI's placements never made a sound.
+  if(action.type==='place'){
+    const card=g.players[2].hand[action.cardIdx]
+    return card?'place-'+cardTier(card):null
+  }
+  return{move:'move',power:'power',draw:'power',endTurn:null}[action.type]||null
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -2310,7 +2364,9 @@ function DeckEditor({deck,onBack,onRename,onRemoveCard,onUpdateCard,onSetDefault
   const atMaxCards=deck.cards.length>=DECK_MAX_CARDS
   const[zoomedCard,setZoomedCard]=useState(null)
   return(
-    <div className="bg-charta min-h-screen py-8 px-4 flex flex-col items-center overflow-y-auto">
+    <div className="relative min-h-screen">
+      <div className="bg-charta fixed inset-0" aria-hidden="true"/>
+      <div className="relative min-h-screen py-8 px-4 flex flex-col items-center overflow-y-auto">
       <CardZoomOverlay card={zoomedCard} onClose={()=>setZoomedCard(null)}/>
       <div className="max-w-lg w-full">
         <BackButton onClick={onBack} className="mb-4">Decks</BackButton>
@@ -2344,6 +2400,7 @@ function DeckEditor({deck,onBack,onRename,onRemoveCard,onUpdateCard,onSetDefault
             Ouvrir un booster pour ajouter des cartes
           </MedBtn>
         )}
+      </div>
       </div>
     </div>
   )
@@ -2455,7 +2512,9 @@ function DeckBuilderScreen({onBack,user,ownedSkins,coins,onPlay,onDeckBuilder,on
   )
 
   return(
-    <div className="bg-charta min-h-screen pt-8 pb-28 px-4 flex flex-col items-center overflow-y-auto">
+    <div className="relative min-h-screen">
+    <div className="bg-charta fixed inset-0" aria-hidden="true"/>
+    <div className="relative min-h-screen pt-8 pb-28 px-4 flex flex-col items-center overflow-y-auto">
       {showDeckTutorial&&<TutorialOverlay onClose={handleDeckTutorialClose} steps={DECK_TUTORIAL_STEPS} finalLabel="Compris !"/>}
       <CoinBadge coins={coins} onClick={onShop}/>
       <div className="max-w-lg w-full">
@@ -2492,6 +2551,7 @@ function DeckBuilderScreen({onBack,user,ownedSkins,coins,onPlay,onDeckBuilder,on
         <p className="text-slate-300 text-xs mt-4 text-center drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">Max {CARD_MAX_POINTS} pts/carte · Max {DECK_MAX_POINTS} pts/deck · Le deck par défaut est utilisé en partie Locale et Solo vs IA.</p>
       </div>
       <BottomNav onPlay={onPlay} onDeckBuilder={onDeckBuilder} onBooster={onBooster} onAccount={onAccount} onShop={onShop} onSocial={onSocial} unreadCount={unreadCount} user={user}/>
+    </div>
     </div>
   )
 }
@@ -3206,7 +3266,9 @@ function AccountScreen({onBack,user,stats,onProfileUpdated,onLegal,onDeleteAccou
   const total=stats?.gamesPlayed||0
   const{level,progress}=computeLevel(stats)
   return(
-    <div className="bg-charta min-h-screen py-8 pb-28 px-4 flex flex-col items-center overflow-y-auto">
+    <div className="relative min-h-screen">
+    <div className="bg-charta fixed inset-0" aria-hidden="true"/>
+    <div className="relative min-h-screen py-8 pb-28 px-4 flex flex-col items-center overflow-y-auto">
       <div className="max-w-sm w-full">
         <BackButton onClick={onBack} className="mb-6">Menu</BackButton>
         <h2 className="text-3xl font-black mb-5" style={{...CINZEL_DEC,background:'linear-gradient(to bottom,#ffe566,#c9a020)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',filter:'drop-shadow(0 1px 10px rgba(0,0,0,1))'}}>Mon Compte</h2>
@@ -3364,6 +3426,7 @@ function AccountScreen({onBack,user,stats,onProfileUpdated,onLegal,onDeleteAccou
         </div>
       </div>
       <BottomNav onPlay={onPlay} onDeckBuilder={onDeckBuilder} onBooster={onBooster} onAccount={onAccount} onShop={onShop} onSocial={onSocial} unreadCount={unreadCount} user={user}/>
+    </div>
     </div>
   )
 }
@@ -3711,26 +3774,33 @@ function NotificationBell({count,onClick}){
 function NotificationsPopin({notifications,onClose,onAcceptChallenge,onOpenBooster}){
   return(
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 backdrop-blur-sm px-4" onClick={onClose}>
-      <div className="rounded-2xl border border-amber-900/50 p-5 max-w-sm w-full flex flex-col gap-3 max-h-[80vh]" style={{background:'linear-gradient(160deg,rgba(24,16,7,0.97),rgba(10,7,3,0.97))'}} onClick={e=>e.stopPropagation()}>
-        <div className="flex items-center justify-between">
-          <h3 className="text-amber-200 font-black text-lg flex items-center gap-2 mx-auto" style={CINZEL}><Bell size={18}/> Notifications</h3>
+      <div className="rounded-2xl border border-amber-900/50 p-4 max-w-sm w-full flex flex-col gap-2 max-h-[80vh]" style={{background:'linear-gradient(160deg,rgba(24,16,7,0.97),rgba(10,7,3,0.97))'}} onClick={e=>e.stopPropagation()}>
+        <div className="flex items-center justify-between px-1 pb-2 border-b border-amber-900/30">
+          <h3 className="text-amber-200 font-black text-lg flex items-center gap-2" style={CINZEL}><Bell size={18}/> Notifications</h3>
           <button onClick={onClose} className="text-slate-300 hover:text-white shrink-0"><X size={18}/></button>
         </div>
-        <div className="overflow-y-auto flex flex-col gap-3">
+        <div className="overflow-y-auto flex flex-col gap-1.5 -mx-1 px-1">
           {notifications.length===0
-            ?<p className="text-slate-300 text-sm text-center py-2">Aucune notification pour l'instant.</p>
+            ?<p className="text-slate-300 text-sm text-center py-4">Aucune notification pour l'instant.</p>
             :notifications.map(n=>{
               const Icon=NOTIF_ICON[n.type]||Bell
               return(
-                <div key={n.id} className={`flex flex-col items-center text-center gap-1.5 pb-3 border-b border-amber-900/20 last:border-0 last:pb-0 ${n.read?'opacity-60':''}`}>
-                  <Icon size={18} className="text-amber-400"/>
-                  <p className="text-slate-100 text-sm leading-snug">{notifText(n)}</p>
-                  {n.type==='challenge'&&(
-                    <MedBtn onClick={()=>{onAcceptChallenge(n.code);onClose()}} color="#7cb87c" icon={<Swords size={12}/>} className="!px-2 !py-1.5 !text-xs mt-1">Accepter le défi</MedBtn>
-                  )}
-                  {n.type==='level_up'&&(
-                    <MedBtn onClick={()=>{onOpenBooster();onClose()}} color="#f59e0b" icon={<Gift size={12}/>} className="!px-2 !py-1.5 !text-xs mt-1">Ouvrir mes boosters</MedBtn>
-                  )}
+                <div key={n.id} className={`flex items-start gap-2.5 rounded-lg px-2.5 py-2.5 ${n.read?'':'bg-amber-900/25 border border-amber-700/50'}`}>
+                  <div className={`shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${n.read?'bg-black/30 text-slate-400':'bg-amber-500/25 text-amber-300'}`}>
+                    <Icon size={16}/>
+                  </div>
+                  <div className="flex-1 min-w-0 flex flex-col gap-1.5 pt-0.5">
+                    <p className={`text-sm leading-snug text-left ${n.read?'text-slate-300':'text-slate-50 font-semibold'}`}>{notifText(n)}</p>
+                    {n.type==='challenge'&&(
+                      <MedBtn onClick={()=>{onAcceptChallenge(n.code);onClose()}} color="#7cb87c" icon={<Swords size={12}/>} className="!px-2 !py-1.5 !text-xs self-start">Accepter le défi</MedBtn>
+                    )}
+                    {n.type==='level_up'&&(
+                      <MedBtn onClick={()=>{onOpenBooster();onClose()}} color="#f59e0b" icon={<Gift size={12}/>} className="!px-2 !py-1.5 !text-xs self-start">Ouvrir mes boosters</MedBtn>
+                    )}
+                  </div>
+                  <div className="shrink-0 pt-1.5" title={n.read?'Lu':'Non lu'}>
+                    {n.read?<CheckCheck size={15} className="text-slate-500"/>:<span className="block w-2.5 h-2.5 rounded-full bg-amber-400 shadow-[0_0_6px_rgba(251,191,36,0.7)]"/>}
+                  </div>
                 </div>
               )
             })}
