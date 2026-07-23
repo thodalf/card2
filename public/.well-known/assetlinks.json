@@ -3,7 +3,7 @@
     "relation": ["delegate_permission/common.handle_all_urls"],
     "target": {
       "namespace": "android_app",
-      "package_name": "com.chartalogica.twa",
+      "package_name": "com.linereve.chartalogica.twa",
       "sha256_cert_fingerprints": [
         "44:EB:25:31:0C:D2:BF:F4:11:14:00:B1:D3:BB:1F:DF:E5:44:51:9B:EF:6A:0C:4D:F1:B8:EF:5C:50:9D:5A:29"
       ]
