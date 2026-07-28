@@ -99,6 +99,12 @@ const SKIN_CATALOG = [
   // always renders on top of it.
   {id:'mage',         file:'mage.jpg',         name:'Mage',            tier:'strong', price:250},
   {id:'reine',        file:'reine.jpg',        name:'Reine',           tier:'strong', price:250},
+  // Same parallax treatment again — unlike the others above, the supplied
+  // source files came the other way round (magesolaire.png held the
+  // transparent character cutout, magesolairesansfond.png the opaque scene),
+  // so the `file`/`bg`/`fg` mapping below follows actual image content, not
+  // the filenames' "sansfond" naming.
+  {id:'magesolaire',  file:'magesolairesansfond.jpg', name:'Mage solaire', tier:'strong', price:250},
 ]
 // Keyed by the (possibly virtual, see elf_sylvestre above) filename a card would
 // otherwise show. When zoomed, the two layers animate with a differing amount of
@@ -109,6 +115,7 @@ const PARALLAX_SKINS={
   'elf_sylvestre.jpg':{bg:'fondforet.jpg',fg:'elfsansfond.webp'},
   'mage.jpg':{bg:'mage.jpg',fg:'magesansfond.webp'},
   'reine.jpg':{bg:'reine.jpg',fg:'reinesansfond.webp'},
+  'magesolairesansfond.jpg':{bg:'magesolairesansfond.jpg',fg:'magesolaire.webp'},
 }
 function pickCardImage(total,ownedSkins){
   const tier=total<=20?'weak':total<=28?'medium':'strong'
@@ -847,6 +854,15 @@ function scoreAttack(game,ar,ac,dr,dc,sit){
       else if(v===3)s+=20*aggr
       else if(v<=5)s+=7*aggr
     })
+    // Finish what's already been started — a card carrying any damage (a face
+    // below its original baseValues) is nearer to death than a fresh target
+    // that merely looks marginally softer this instant. Without this, a card
+    // built from a handful of very high-value faces (a small deck stacked
+    // with booster-tier cards, say 4 cards worth 200 points total instead of
+    // the usual 6-10) can make the AI's attacks look interchangeable turn to
+    // turn — spreading harmless chip damage across several immortal-looking
+    // targets instead of grinding down the one it already has a head start on.
+    if(def.baseValues&&Object.keys(def.values).some(kk=>def.values[kk]<def.baseValues[kk]))s+=45*aggr
   }
   // Penalise risk to attacker's own faces — divided by aggression so a losing AI
   // (aggr>1) discounts the risk and a winning one (aggr<1) is extra cautious.
@@ -855,6 +871,21 @@ function scoreAttack(game,ar,ac,dr,dc,sit){
     if(v===1)s-=45/aggr   // face becomes 0 = vulnerable next turn
     else if(v===2)s-=18/aggr
     else if(v===3)s-=6/aggr
+  })
+  // Losing-race check, pair by pair (ak[i] and dk[i] are the two faces
+  // actually touching at that contact point) — the flat buckets above only
+  // look at each face in isolation, so a card built almost entirely from
+  // high faces (a small deck concentrating the usual 200-point cap into a
+  // handful of booster-tier cards instead of spreading it over 6-10) reads as
+  // "no chip reward, no self-risk" and scores near zero: neither clearly good
+  // nor bad, so the AI attacks it anyway for lack of a reason not to, taking
+  // free mutual damage it can never actually win. If our face is notably
+  // weaker than the specific face it's trading against, that's a fight this
+  // card loses first if the exchange ever repeats — discourage it directly,
+  // scaled by how one-sided the gap is.
+  if(!dDies)ak.forEach((k,i)=>{
+    const gap=(def.values[dk[i]]??0)-(atk.values[k]??0)
+    if(gap>=3)s-=gap*gap*2/aggr
   })
   // One-ply look-ahead on top of the flat estimate above — the attacker survives
   // this exchange (aDies is false by this point), but does it hand the opponent
