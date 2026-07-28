@@ -21,8 +21,8 @@
     "path": "./android.keystore",
     "alias": "android"
   },
-  "appVersionName": "1.0.0",
-  "appVersionCode": 1,
+  "appVersionName": "1.0.1",
+  "appVersionCode": 2,
   "shortcuts": [],
   "generatorApp": "bubblewrap-cli",
   "webManifestUrl": "https://chartalogica.linereve.com/manifest.webmanifest",
@@ -40,7 +40,7 @@
   "isMetaQuest": false,
   "fullScopeUrl": "https://chartalogica.linereve.com/",
   "minSdkVersion": 21,
-  "orientation": "portrait",
+  "orientation": "default",
   "fingerprints": [
     { "name": "", "value": "44:EB:25:31:0C:D2:BF:F4:11:14:00:B1:D3:BB:1F:DF:E5:44:51:9B:EF:6A:0C:4D:F1:B8:EF:5C:50:9D:5A:29" }
   ]

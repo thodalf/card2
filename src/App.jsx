@@ -817,10 +817,13 @@ function scoreAttack(game,ar,ac,dr,dc,sit){
   const{aDies,dDies,ak,dk,atk,def}=analyzeAttack(game,ar,ac,dr,dc)
   const aggr=sit?.aggression??1
 
-  // Hard rules — never suicide for nothing
+  // Hard rules — never suicide for nothing. Losing a card is treated as close
+  // to worst-case (there's no way to un-lose it), so the "can't afford it"
+  // guard now kicks in a card earlier — at 3 remaining, not just 2 — before
+  // any mutual-kill trade is even considered.
   if(aDies&&!dDies) return -99999
   if(aDies&&dDies){
-    if((sit?.myCards??9)<=2) return -99999           // can't afford card loss right now
+    if((sit?.myCards??9)<=3) return -99999           // can't afford card loss right now
     const stillValuable=cardPts(atk)>20               // our card still carries a lot of points
     if(!stillValuable) return 200+def.total*2         // take the kill even though we lose our card
     const gain=def.total-atk.total
@@ -902,7 +905,7 @@ function findGuaranteedKill(game,cp,sit){
       const{aDies,dDies,atk,def}=analyzeAttack(game,ar,ac,dr,dc)
       if(!dDies)continue
       if(aDies){
-        if((sit?.myCards??9)<=2)continue                        // can't afford the card loss right now
+        if((sit?.myCards??9)<=3)continue                        // can't afford the card loss right now
         if(cardPts(atk)>20&&def.total-atk.total<10/aggr)continue // not worth trading our better card away
       }
       const val=(aDies?0:1000)+def.total*2+(cardTier(def)==='strong'?200:0)
@@ -1084,6 +1087,38 @@ function cardDangerScore(game,r,c,cp){
   }
   return d
 }
+// Can Rotation (the AI's single 'switch' power card for the whole match) fully
+// clear a currently lethal exposure (a 0-face pointed at an adjacent enemy) on
+// one of our own cards? Checked ahead of physically fleeing (computeAIAction's
+// flee priority) because, unlike a move, a power action costs nothing from the
+// action pool — if it fully neutralises the threat in place, that's strictly
+// better than spending a move to retreat, and preserving the card is what
+// matters here, not preserving a particular board position. Only returns a
+// target when the rotation removes EVERY lethal face at once (checked across
+// all adjacent enemies, since one 90° turn touches all 8 faces together) —
+// a partial fix isn't worth spending the match's only Rotation card on when
+// fleeing can still finish the job for free right after.
+function findDefensiveRotate(game,cp){
+  if(!(game.powerCardHand[cp]||[]).includes('switch'))return null
+  let best=null,bestScore=-Infinity
+  for(let r=0;r<5;r++)for(let c=0;c<5;c++){
+    const card=game.board[r][c]
+    if(!card||card.owner!==cp)continue
+    if(cardDangerScore(game,r,c,cp)<80)continue
+    const rotated=rotateValues(card.values)
+    let stillLethal=false
+    for(const[dr,dc]of[[-1,0],[1,0],[0,-1],[0,1]]){
+      const nr=r+dr,nc=c+dc;if(nr<0||nr>=5||nc<0||nc>=5)continue
+      const nb=game.board[nr][nc];if(!nb||nb.owner===cp)continue
+      const[_,ourFaces]=getContactKeys(nr,nc,r,c)
+      if(ourFaces.some(k=>rotated[k]===0)){stillLethal=true;break}
+    }
+    if(stillLethal)continue
+    const s=cardPts(card)  // prefer saving the most valuable endangered card if several qualify
+    if(s>bestScore){bestScore=s;best={r,c}}
+  }
+  return best
+}
 // How valuable would an empty cell be to the OPPONENT — used to pick which cell
 // a Barrage (block) most usefully denies, instead of a fixed column order.
 function cellDenialValue(game,cp,r,c){
@@ -1134,23 +1169,45 @@ function computePowerTarget(game,cp,type,sit){
       const card=game.board[r][c],rotated=rotateValues(card.values)
       let s=0
       if(card.owner!==cp){
-        // Rotate enemy: does it weaken their faces toward our allies?
+        // Rotate enemy: does it weaken their faces toward our allies? A face
+        // rotated down to exactly 0 is worth far more than the flat per-point
+        // delta below — it turns this card into a guaranteed kill on our next
+        // attack (immediately, if we still have an attack action this turn),
+        // which is the single highest-value thing Rotation can buy on offense.
         for(const[dr,dc]of[[-1,0],[1,0],[0,-1],[0,1]]){
           const nr=r+dr,nc=c+dc;if(nr<0||nr>=5||nc<0||nc>=5)continue
           if(!game.board[nr][nc]||game.board[nr][nc].owner!==cp)continue
           const[_,enemyFaces]=getContactKeys(nr,nc,r,c)
-          enemyFaces.forEach(k=>{s+=(card.values[k]??0)-(rotated[k]??0)})  // positive if rotation weakens them
+          enemyFaces.forEach(k=>{
+            const before=card.values[k]??0,after=rotated[k]??0
+            s+=before-after  // positive if rotation weakens them
+            if(after===0&&before>0)s+=200+(game.actionsLeft.attack>0?150:0)
+          })
         }
         s+=cardPts(card)*0.05
       } else {
-        // Rotate own: does it improve our faces toward enemies?
+        // Rotate own: does it improve our faces toward enemies — and, just as
+        // important, does it pull a face that's already exposed at 0 (one hit
+        // from death) back to safety? Losing a card is treated as close to
+        // worst-case elsewhere (see scoreAttack/findGuaranteedKill's myCards
+        // gate), so a real save here outweighs the usual small offensive gains
+        // this branch otherwise looks for.
         for(const[dr,dc]of[[-1,0],[1,0],[0,-1],[0,1]]){
           const nr=r+dr,nc=c+dc;if(nr<0||nr>=5||nc<0||nc>=5)continue
           if(!game.board[nr][nc]||game.board[nr][nc].owner===cp)continue
           const[ourFaces,theirFaces]=getContactKeys(r,c,nr,nc)
           theirFaces.forEach(k=>{const nb=game.board[nr][nc];if(nb.values[k]===0)s+=60;else if(nb.values[k]===1)s+=30})
-          // Penalise if rotation puts a 0 value facing an enemy
-          ourFaces.forEach(k=>{if(rotated[k]===0)s-=50})
+          // Penalise if rotation puts a 0 value facing an enemy; reward fixing
+          // one that's already exposed there (findDefensiveRotate already
+          // handles the case where a single rotation fully clears every
+          // lethal face at once — this covers the partial case, e.g. when
+          // another exposed face still forces the card to flee afterwards).
+          ourFaces.forEach(k=>{
+            const before=card.values[k],after=rotated[k]
+            if(after===0)s-=50
+            else if(before===0)s+=180+cardPts(card)*0.8   // imminent death on this face averted
+            else if(before===1&&after>=2)s+=50            // meaningfully de-risked
+          })
         }
         s-=15  // baseline: prefer targeting enemies
       }
@@ -1211,6 +1268,17 @@ function computeAIAction(game){
   if(al.attack>0){
     const kill=findGuaranteedKill(game,cp,sit)
     if(kill)return{type:'attack',...kill}
+  }
+
+  // Priority 1.5: a free, fully-resolving Rotation beats fleeing — it spends
+  // nothing from the action pool and keeps the card exactly where it is,
+  // whereas a move still costs one of the (limited) moves this turn. Only
+  // fires when it fully clears the lethal exposure (see findDefensiveRotate);
+  // anything less is left to the flee logic just below, which can also try
+  // simply repositioning out of danger for free.
+  {
+    const saveRot=findDefensiveRotate(game,cp)
+    if(saveRot)return{type:'power',powerType:'switch',...saveRot}
   }
 
   // Priority 2: retreat a card with a 0-face exposed toward an enemy (imminent kill),
@@ -3686,15 +3754,25 @@ function OnlineLobbyScreen({onBack,onGameStart,deck,ownedSkins,user,challengeTar
     </div>
   )
 }
-function GameOverScreen({winner,isAI,surrendered,onReplay,onMenu,coinsAwarded}){
+function GameOverScreen({winner,isAI,isOnline,myPlayer,myPseudo,opponentPseudo,surrendered,onReplay,onMenu,coinsAwarded}){
   const isDraw=winner==='draw'
   const loser=winner===1?2:1
-  const winLabel=isAI&&winner===2?'L\'IA':`Joueur ${winner}`
+  // Real pseudos only exist against an actual human identity: Solo vs IA always
+  // seats the human as player 1 (myPlayer isn't tracked in that mode — see
+  // startGame), Partie en Ligne seats can be either 1 or 2 so it's compared
+  // against myPlayer instead. Partie Locale is hotseat with no identity to
+  // attach to either seat, so it keeps the generic "Joueur 1/2" labels.
+  function label(p){
+    if(isAI)return p===1?(myPseudo||'Vous'):'L\'IA'
+    if(isOnline)return p===myPlayer?(myPseudo||'Vous'):(opponentPseudo||'Adversaire')
+    return `Joueur ${p}`
+  }
+  const winLabel=label(winner)
   const msg=isDraw
     ?'Les deux camps ont perdu leur dernière carte dans le même échange.'
     :surrendered
-      ?`Joueur ${loser} a capitulé.`
-      :isAI&&winner===2?'L\'IA a éliminé toutes vos cartes.':'L\'adversaire n\'a plus aucune carte.'
+      ?`${label(loser)} a capitulé.`
+      :isAI&&winner===2?'L\'IA a éliminé toutes vos cartes.':`${label(loser)} n'a plus aucune carte.`
   // In Solo mode the human is always P1 — treat an AI win as the somber outcome
   const defeat=!isDraw&&isAI&&winner===2
   return(
@@ -4270,7 +4348,7 @@ export default function App(){
       {screen==='online'   && <OnlineLobbyScreen onBack={()=>{setPendingChallenge(null);setPendingJoinCode(null);setScreen('menu')}} onGameStart={handleOnlineStart} deck={chosenDeck} ownedSkins={ownedSkins} user={user} challengeTarget={pendingChallenge} autoJoinCode={pendingJoinCode}/>}
       {screen==='loading'  && game && <LoadingScreen onDone={()=>setScreen('game')}/>}
       {screen==='game'     && game && <GameScreen game={game} soundEnabled={soundOn} myPlayer={myPlayer} isAI={gameMode==='ai'} onAction={handleAction} onEndTurn={handleEndTurn} onHome={closeGame} onQuit={handleQuitGame} onPowerAction={handlePowerAction} onSurrender={handleSurrender} lastAnim={lastAnim} syncError={roomCode?syncError:null} showTutorial={gameMode==='ai'&&showTutorial} onTutorialClose={handleTutorialClose} pseudo={user?.displayName} opponent={opponentRef.current}/>}
-      {screen==='gameover' && game && <GameOverScreen winner={game.winner} isAI={gameMode==='ai'} surrendered={!!game.surrendered} onReplay={()=>startGame(gameMode)} onMenu={()=>setScreen('menu')} coinsAwarded={gameOverCoinsAwarded}/>}
+      {screen==='gameover' && game && <GameOverScreen winner={game.winner} isAI={gameMode==='ai'} isOnline={gameMode==='online'} myPlayer={myPlayer} myPseudo={user?.displayName} opponentPseudo={opponentRef.current?.pseudo} surrendered={!!game.surrendered} onReplay={()=>startGame(gameMode)} onMenu={()=>setScreen('menu')} coinsAwarded={gameOverCoinsAwarded}/>}
     </>
   )
 }
