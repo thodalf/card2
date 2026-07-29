@@ -179,8 +179,8 @@ function genValues(total) {
 // weak/medium/strong cards, with per-tier ranges scaled to the deck's average
 // so the whole thing still sums to exactly DECK_MAX_POINTS regardless of how
 // many cards were rolled.
-function genDeckTotals() {
-  const n=rnd(6,DECK_MAX_CARDS)
+function genDeckTotals(forcedN) {
+  const n=forcedN||rnd(6,DECK_MAX_CARDS)
   const base=DECK_MAX_POINTS/n
   const weakCount=Math.round(n/3),strongCount=Math.round(n/3),medCount=n-weakCount-strongCount
   const tiers=[
@@ -196,8 +196,8 @@ function genDeckTotals() {
   fallback[fallback.length-1]+=DECK_MAX_POINTS-fallback.reduce((a,b)=>a+b,0)
   return fallback
 }
-function genDeck(owner,ownedSkins) {
-  return shuf(genDeckTotals()).map((total,i)=>{
+function genDeck(owner,ownedSkins,forcedN) {
+  return shuf(genDeckTotals(forcedN)).map((total,i)=>{
     const values=genValues(total)
     const imageUrl=pickCardImage(total,ownedSkins)
     return {id:`${owner}-${i}-${Date.now()}-${Math.random().toString(36).slice(2)}`,owner,total,values,baseValues:{...values},imageUrl}
@@ -454,6 +454,7 @@ const POWER_INFO = {
   recall: {name:'Rappel',       desc:'Retourner une carte alliée en main',                icon:'↩',border:'border-sky-500',    bg:'from-sky-950 to-sky-800',        glow:'shadow-[0_0_10px_rgba(14,165,233,0.35)]'},
   switch: {name:'Rotation',     desc:'Permuter les valeurs (rotation 90°)',               icon:'⟳',border:'border-amber-400',  bg:'from-amber-950 to-amber-800',    glow:'shadow-[0_0_10px_rgba(245,158,11,0.35)]'},
   block:  {name:'Barrage',      desc:'Bloquer définitivement un emplacement vide',        icon:'⊘',border:'border-rose-500',   bg:'from-rose-950 to-rose-900',      glow:'shadow-[0_0_10px_rgba(239,68,68,0.35)]'},
+  push:   {name:'Déplacement',  desc:'Pousser une carte adverse vers une case adjacente vide', icon:'↔',border:'border-fuchsia-500', bg:'from-fuchsia-950 to-fuchsia-800', glow:'shadow-[0_0_10px_rgba(217,70,239,0.35)]'},
 }
 const TERRAIN = [
   {gradient:'linear-gradient(135deg,#0d2b1a,#1a4a2f,#0f3520)', imageUrl:null, label:'Forêt'},
@@ -468,12 +469,21 @@ function genBoardTiles(){
 function rotateValues(v) {
   return {top:v.left,right:v.top,bottom:v.right,left:v.bottom,topLeft:v.bottomLeft,topRight:v.topLeft,bottomRight:v.topRight,bottomLeft:v.bottomRight}
 }
-function isValidPowerTarget(game,type,player,r,c) {
+// pushSource ({r,c} of the enemy card already picked) is only relevant for
+// 'push', which needs two clicks (pick the enemy card, then an adjacent empty
+// cell to shove it into) — every other power still resolves in one.
+function isValidPowerTarget(game,type,player,r,c,pushSource) {
   if(isCellBlocked(game,r,c)) return false
   const cell=game.board[r][c]
+  if(type==='push'){
+    if(!pushSource)return !!(cell&&cell.owner!==player)
+    if(cell)return false
+    const dr=Math.abs(r-pushSource.r),dc=Math.abs(c-pushSource.c)
+    return dr<=1&&dc<=1&&(dr+dc)>0
+  }
   switch(type){case 'buff':return !!(cell?.owner===player);case 'recall':return !!(cell?.owner===player);case 'switch':return !!cell;case 'block':return !cell;default:return false}
 }
-function applyPowerAction(game,type,r,c) {
+function applyPowerAction(game,type,r,c,tr,tc) {
   const cp=game.currentPlayer; const nb=game.board.map(row=>[...row])
   const hand=game.powerCardHand[cp]||[]
   if(!hand.includes(type))return game
@@ -482,22 +492,46 @@ function applyPowerAction(game,type,r,c) {
   if(type==='recall'){const card=nb[r][c];if(!card||card.owner!==cp)return game;nb[r][c]=null;return removeCard({...game,board:nb,players:{...game.players,[cp]:{...game.players[cp],hand:[...game.players[cp].hand,card]}}})}
   if(type==='switch'){const card=nb[r][c];if(!card)return game;nb[r][c]={...card,values:rotateValues(card.values)};return removeCard({...game,board:nb})}
   if(type==='block'){if(nb[r][c])return game;return removeCard({...game,blockedCells:[...(game.blockedCells||[]),[r,c]]})}
+  if(type==='push'){
+    const card=nb[r][c]
+    if(!card||card.owner===cp)return game
+    if(tr==null||tc==null||nb[tr][tc]||isCellBlocked(game,tr,tc))return game
+    const dr=Math.abs(tr-r),dc=Math.abs(tc-c)
+    if(!(dr<=1&&dc<=1&&(dr+dc)>0))return game
+    nb[tr][tc]=card;nb[r][c]=null
+    return removeCard({...game,board:nb})
+  }
   return game
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
 //  GAME STATE
 // ═══════════════════════════════════════════════════════════════════════════════
+// When the opponent brings a real (non-random) deck, size our fallback random
+// deck to roughly match its card count instead of the generic 6-10 spread —
+// fewer, larger cards concentrate the same DECK_MAX_POINTS budget the same way
+// a deck built from booster/alchemy pulls does, so a small, powerful opponent
+// deck doesn't automatically get to fight many much-weaker cards instead of a
+// comparably powerful few. Never drops below 5 cards regardless of how small
+// the opponent's deck is: genValues can't safely fit a card's total onto 8
+// faces capped at 9 each (72 max) once the per-card share climbs much past
+// that — spreading 200 points over fewer than 5 cards starts demanding face
+// values past what a card can actually hold.
+function adaptiveDeckCount(oppDeck){
+  const lo=Math.max(5,oppDeck.cards.length)
+  return rnd(lo,Math.min(DECK_MAX_CARDS,lo+2))
+}
 function newGame(p1Deck,p2Deck,ownedSkins) {
+  const p1Valid=isDeckValid(p1Deck),p2Valid=isDeckValid(p2Deck)
   return {
     board:Array(5).fill(null).map(()=>Array(5).fill(null)),
     players:{
-      1:{hand:isDeckValid(p1Deck)?deckToHandCards(p1Deck,1):genDeck(1,ownedSkins)},
-      2:{hand:isDeckValid(p2Deck)?deckToHandCards(p2Deck,2):genDeck(2,ownedSkins)},
+      1:{hand:p1Valid?deckToHandCards(p1Deck,1):genDeck(1,ownedSkins,p2Valid?adaptiveDeckCount(p2Deck):undefined)},
+      2:{hand:p2Valid?deckToHandCards(p2Deck,2):genDeck(2,ownedSkins,p1Valid?adaptiveDeckCount(p1Deck):undefined)},
     },
     currentPlayer:1, actionsLeft:{...FRESH_ACTIONS},
     winner:null, turn:1,
-    powerCardHand:{1:['block','block','switch'],2:['block','block','switch']}, blockedCells:[], boardTiles:genBoardTiles(),
+    powerCardHand:{1:['block','block','switch','push'],2:['block','block','switch','push']}, blockedCells:[], boardTiles:genBoardTiles(),
   }
 }
 const cardPts  = c => Object.values(c.values).reduce((a,b)=>a+b,0)
@@ -592,6 +626,7 @@ function snd(type,enabled){
     const tone=(freq,wt,dur,vol=0.25)=>{const o=c.createOscillator(),g=c.createGain();o.type=wt;o.connect(g);g.connect(c.destination);o.frequency.setValueAtTime(freq,t);g.gain.setValueAtTime(vol*_sfxVolume,t);g.gain.exponentialRampToValueAtTime(0.001,t+dur);o.start(t);o.stop(t+dur);return o}
     if(type==='power'){tone(660,'triangle',0.35,0.2).frequency.exponentialRampToValueAtTime(990,t+0.2);tone(880,'sine',0.2,0.12).frequency.exponentialRampToValueAtTime(1320,t+0.18)}
     if(type==='coin'){tone(1318.5,'sine',0.18,0.22);tone(1975.5,'triangle',0.22,0.15)}
+    if(type==='turn'){tone(440,'sine',0.3,0.18).frequency.exponentialRampToValueAtTime(660,t+0.22);tone(330,'sine',0.25,0.1)}
   }catch(e){}
 }
 
@@ -1268,6 +1303,32 @@ function computePowerTarget(game,cp,type,sit){
     // lowers it (freely lock in the advantage).
     return best&&bestS>20*aggr?{type:'power',powerType:'block',...best}:null
   }
+  if(type==='push'){
+    // Shove an enemy card into a worse spot than the one it chose for itself —
+    // most useful against a card that's been carefully tucked away safe (no
+    // exposed weak face toward any of our cards): relocating it can hand it a
+    // fresh exposure that was never there to attack in the first place. Also
+    // directly rewarded when it hands us (or preserves) a guaranteed kill this
+    // turn, since push is free and doesn't touch the attack action.
+    let best=null,bestS=-Infinity
+    for(let r=0;r<5;r++)for(let c=0;c<5;c++){
+      const card=game.board[r][c]
+      if(!card||card.owner===cp)continue
+      if(!isValidPowerTarget(game,'push',cp,r,c))continue
+      for(const[dr,dc]of[[-1,0],[1,0],[0,-1],[0,1],[-1,-1],[-1,1],[1,-1],[1,1]]){
+        const tr=r+dr,tc=c+dc
+        if(tr<0||tr>=5||tc<0||tc>=5)continue
+        if(!isValidPowerTarget(game,'push',cp,tr,tc,{r,c}))continue
+        const nb=game.board.map(row=>[...row])
+        nb[tr][tc]={...card};nb[r][c]=null
+        const simGame={...game,board:nb}
+        let s=cardDangerScore(simGame,tr,tc,card.owner)-cardDangerScore(game,r,c,card.owner)
+        if(findGuaranteedKill(simGame,cp,sit))s+=150
+        if(s>bestS){bestS=s;best={r,c,tr,tc}}
+      }
+    }
+    return best&&bestS>30/aggr?{type:'power',powerType:'push',...best}:null
+  }
   return null
 }
 
@@ -1340,12 +1401,12 @@ function computeAIAction(game){
   }
 
   // Power cards — which one to even consider first shifts with the match state:
-  // behind, preserving cards (recall) and setting up a swing (switch) come
+  // behind, preserving cards (recall) and setting up a swing (switch, push) come
   // first; ahead, consolidating the lead (block, buff) takes priority instead.
   if(powerCards.length>0){
-    const order=sit.posture==='losing'?['recall','switch','buff','block']
-      :sit.posture==='winning'?['block','buff','recall','switch']
-      :['recall','buff','switch','block']
+    const order=sit.posture==='losing'?['recall','switch','push','buff','block']
+      :sit.posture==='winning'?['block','buff','recall','switch','push']
+      :['recall','buff','switch','push','block']
     for(const type of order){
       if(!powerCards.includes(type))continue
       const pa=computePowerTarget(game,cp,type,sit)
@@ -1412,7 +1473,7 @@ function applyAIActionDirect(g,action){
   const cp=g.currentPlayer,al=g.actionsLeft
   switch(action.type){
     case 'endTurn':return{...g,board:clearPrevPos(g.board,cp),currentPlayer:1,actionsLeft:{...FRESH_ACTIONS},turn:g.turn+1}
-    case 'power':return applyPowerAction(g,action.powerType,action.r,action.c)
+    case 'power':return applyPowerAction(g,action.powerType,action.r,action.c,action.tr,action.tc)
     case 'attack':{
       const{ar,ac,dr,dc}=action
       if(al.attack<=0)return null
@@ -1565,13 +1626,15 @@ function CardFace({card,small=false,compact=false,zoom=false,draggable=false,onD
 // ═══════════════════════════════════════════════════════════════════════════════
 //  BOARD CELL
 // ═══════════════════════════════════════════════════════════════════════════════
-function Cell({r,c,card,currentPlayer,actionsLeft,myPlayer,onDragStart,onDrop,onCellClick,onZoom,animKey,ghost,violent,targeting,game,onBoardTouchStart,compact=false,flip=false}){
+function Cell({r,c,card,currentPlayer,actionsLeft,myPlayer,onDragStart,onDrop,onCellClick,onZoom,animKey,ghost,violent,targeting,pushSource,game,onBoardTouchStart,compact=false,flip=false}){
   const[over,setOver]=useState(false)
   const corner=isCorner(r,c),dynBlocked=isDynBlock(game,r,c),blocked=corner||dynBlocked
-  const validTarget=targeting?isValidPowerTarget(game,targeting,currentPlayer,r,c):false
+  const isPushSource=targeting==='push'&&pushSource&&pushSource.r===r&&pushSource.c===c
+  const validTarget=targeting?isValidPowerTarget(game,targeting,currentPlayer,r,c,pushSource):false
   let bg=blocked?'bg-slate-900/70':' bg-transparent'
   if(!blocked){
-    if(targeting){if(!validTarget)bg='opacity-40';if(validTarget&&!over)bg='ring-1 ring-yellow-500/50';if(validTarget&&over)bg='bg-yellow-400/20 ring-2 ring-yellow-400 shadow-[0_0_16px_rgba(234,179,8,0.55)]'}
+    if(isPushSource)bg='ring-2 ring-fuchsia-400 shadow-[0_0_16px_rgba(217,70,239,0.55)]'
+    else if(targeting){if(!validTarget)bg='opacity-40';if(validTarget&&!over)bg='ring-1 ring-yellow-500/50';if(validTarget&&over)bg='bg-yellow-400/20 ring-2 ring-yellow-400 shadow-[0_0_16px_rgba(234,179,8,0.55)]'}
     else if(over)bg='bg-yellow-400/15 ring-1 ring-yellow-400/40'
   }
   // In online play, only the locally-assigned player may drag a card, and only during their own turn
@@ -1621,20 +1684,23 @@ function PowerCardDisplay({type,onClick,isActive=false,animClass='',compact=fals
 // One compact power-card space per player (rendered inside that player's own
 // hand section, next to their regular hand) rather than a single shared bar
 // in the board area — each side manages its own power cards independently.
-function PowerBar({game,player,isMyTurn,targeting,onActivatePower,onCancelTargeting,compact=false}){
+function PowerBar({game,player,isMyTurn,targeting,pushSource,onActivatePower,onCancelTargeting,compact=false}){
   const hand=game.powerCardHand[player]||[]
   const isActingPlayer=game.currentPlayer===player
   const canActivate=isActingPlayer&&isMyTurn
   const isTargetingHere=!!targeting&&isActingPlayer
   const pad=compact?'px-1.5 py-1':'px-2.5 py-1.5'
   const gap=compact?'gap-1':'gap-1.5'
+  const targetingLabel=targeting==='push'
+    ?(pushSource?'Choisissez la case…':'Choisissez une carte adverse…')
+    :'Cible…'
   return(
     <div className={`flex items-center justify-center ${gap} bg-black/40 border border-amber-900/40 rounded-xl ${pad} ${compact?'min-h-[40px]':'min-h-[52px]'}`}>
       {isTargetingHere?(
         <div className={`flex items-center ${gap}`}>
           <PowerCardDisplay type={targeting} isActive compact/>
           <div className="flex flex-col items-start gap-0.5">
-            <span className="text-amber-300 text-[10px] font-bold animate-pulse leading-tight" style={CINZEL}>{POWER_INFO[targeting].icon} Cible…</span>
+            <span className="text-amber-300 text-[10px] font-bold animate-pulse leading-tight" style={CINZEL}>{POWER_INFO[targeting].icon} {targetingLabel}</span>
             <MedBtn onClick={onCancelTargeting} color="#a89484" icon={<X size={10}/>} className="!px-1.5 !py-0.5 !text-[10px]">Annuler</MedBtn>
           </div>
         </div>
@@ -1758,13 +1824,16 @@ function useElementWidth(deps){
 // ═══════════════════════════════════════════════════════════════════════════════
 //  GAME SCREEN
 // ═══════════════════════════════════════════════════════════════════════════════
-function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,onQuit,onPowerAction,onSurrender,lastAnim,syncError,showTutorial,onTutorialClose,pseudo,opponent}){
+function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,onQuit,onPowerAction,onSurrender,lastAnim,syncError,showTutorial,onTutorialClose,pseudo,opponent,canUndo,onUndo}){
   const[drag,setDrag]=useState(null)
   const[zoomedCard,setZoomedCard]=useState(null)
   const[anims,setAnims]=useState({})
   const[ghosts,setGhosts]=useState({})
   const[violentKeys,setViolentKeys]=useState({})
   const[targeting,setTargeting]=useState(null)
+  // Only relevant mid-way through a 'push' power: the enemy card already
+  // picked (step 1), waiting on an adjacent empty cell to shove it into (step 2).
+  const[pushSource,setPushSource]=useState(null)
   const[confirmSurrender,setConfirmSurrender]=useState(false)
   const[confirmQuit,setConfirmQuit]=useState(false)
   const[gameScale,setGameScale]=useState(1)
@@ -1813,6 +1882,19 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
   const canEndTurn=hasActedThisTurn(actionsLeft)
   const p1pts=playerPts(game,1),p2pts=playerPts(game,2)
 
+  // Chime whenever it becomes the local player's turn — in Solo/Online this
+  // only fires the instant currentPlayer switches TO the human's side (never
+  // for the AI's or the opponent's own turn); in local hotseat (myPlayer is
+  // null, so isMyTurn is always true) it fires on every currentPlayer switch,
+  // which is exactly the useful cue there since both sides share one device.
+  // Ref starts equal to the initial currentPlayer so the very first turn of a
+  // fresh match doesn't chime — only actual turn changes do.
+  const prevCurrentPlayerRef=useRef(currentPlayer)
+  useEffect(()=>{
+    if(currentPlayer!==prevCurrentPlayerRef.current&&isMyTurn&&!game.winner)snd('turn',soundEnabled)
+    prevCurrentPlayerRef.current=currentPlayer
+  },[currentPlayer])
+
   function triggerAnim(r,c,cls,dur=420){
     const key=`${r},${c}`;setAnims(p=>({...p,[key]:cls}));setTimeout(()=>setAnims(p=>{const n={...p};delete n[key];return n}),dur)
   }
@@ -1859,6 +1941,18 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
   }
   function handleCellClick(r,c){
     if(!targeting||!isMyTurn)return
+    if(targeting==='push'){
+      if(!pushSource){
+        if(!isValidPowerTarget(game,'push',currentPlayer,r,c))return
+        setPushSource({r,c})
+        return
+      }
+      if(!isValidPowerTarget(game,'push',currentPlayer,r,c,pushSource))return
+      onPowerAction('push',pushSource.r,pushSource.c,r,c)
+      triggerAnim(pushSource.r,pushSource.c,'anim-power',500);triggerAnim(r,c,'anim-power',500)
+      setTargeting(null);setPushSource(null);snd('power',soundEnabled)
+      return
+    }
     if(!isValidPowerTarget(game,targeting,currentPlayer,r,c))return
     onPowerAction(targeting,r,c);triggerAnim(r,c,'anim-power',500);setTargeting(null);snd('power',soundEnabled)
   }
@@ -1954,7 +2048,7 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
             {currentPlayer===player&&<span className="w-2 h-2 rounded-full bg-green-400 animate-pulse inline-block"/>}
             <span className={`${activeColor} text-xs font-bold drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]`} style={CINZEL}>{label} · {pts} pts</span>
           </div>
-          <PowerBar game={game} player={player} isMyTurn={isMyTurn} targeting={targeting} onActivatePower={type=>setTargeting(type)} onCancelTargeting={()=>setTargeting(null)} compact={compact}/>
+          <PowerBar game={game} player={player} isMyTurn={isMyTurn} targeting={targeting} pushSource={pushSource} onActivatePower={type=>{setTargeting(type);setPushSource(null)}} onCancelTargeting={()=>{setTargeting(null);setPushSource(null)}} compact={compact}/>
         </div>
         <div className={`game-hand-cards flex ${compact?'gap-1.5':'gap-3'} justify-start flex-nowrap overflow-x-auto scrollbar-hide max-w-full px-1 py-4`}>
           {(()=>{
@@ -2037,7 +2131,7 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
               <Cell key={`${r}-${c}`} r={r} c={c} card={board[r][c]} currentPlayer={currentPlayer} actionsLeft={actionsLeft} myPlayer={myPlayer}
                 onDragStart={handleDragStart} onDrop={handleDrop} onCellClick={handleCellClick} onZoom={setZoomedCard}
                 animKey={anims[`${r},${c}`]||''} ghost={ghosts[`${r},${c}`]} violent={!!violentKeys[`${r},${c}`]}
-                targeting={targeting} game={game} onBoardTouchStart={handleTouchStart} compact={compact} flip={flip}/>
+                targeting={targeting} pushSource={pushSource} game={game} onBoardTouchStart={handleTouchStart} compact={compact} flip={flip}/>
             )))}
           </div>
           <div className="flex items-center gap-3 flex-wrap justify-center">
@@ -2045,6 +2139,9 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
               Tour — {isAI&&currentPlayer===2?<span className="flex items-center gap-1.5"><Bot size={14} className="inline"/> IA réfléchit… <span className="animate-pulse">▪▪▪</span></span>:`Joueur ${currentPlayer}`}
               {!isAI&&myPlayer&&myPlayer!==currentPlayer&&<span className="text-slate-500 font-normal ml-2">(en attente…)</span>}
             </span>
+            {isMyTurn&&canUndo&&!targeting&&!(isAI&&currentPlayer===2)&&(
+              <MedBtn onClick={onUndo} color="#a89484" icon={<RefreshCw size={11}/>} className="!px-2 !py-1 !text-xs" title="Annuler votre dernière action">Annuler</MedBtn>
+            )}
             {isMyTurn&&!targeting&&!(isAI&&currentPlayer===2)&&(
               <MedBtn onClick={onEndTurn} disabled={!canEndTurn}
                 title={canEndTurn?undefined:'Effectuez au moins une action (pose, déplacement ou attaque) avant de terminer votre tour.'}
@@ -2256,7 +2353,7 @@ function RulesScreen({onBack,user,onPlay,onDeckBuilder,onBooster,onAccount,onSho
     ['🎲 Le plateau','On joue sur une grille de 5 cases sur 5. Les 4 coins sont bloqués : personne ne peut y poser de carte. Vous démarrez en haut du plateau, votre adversaire en bas.'],
     ['⚡ Pendant votre tour','À chaque tour, vous pouvez poser une carte depuis votre main dans votre camp, déplacer deux cartes déjà en jeu (les déplacements en diagonale sont autorisés), et attaquer une fois une carte adverse juste à côté de la vôtre (seulement en haut, en bas, à gauche ou à droite — pas en diagonale). Vos pouvoirs spéciaux sont gratuits et ne comptent pas dans ces actions.'],
     ['💥 Le combat','Quand vous attaquez une carte voisine, vos deux cartes s\'affrontent sur les faces qui se touchent : chacune y perd 1 point. Si un chiffre tombe sous zéro, la carte est détruite.'],
-    ['🃏 Les pouvoirs','En plus de vos cartes classiques, vous disposez de pouvoirs gratuits, à utiliser quand vous le souhaitez : vous commencez la partie avec 2 cartes Barrage (bloque définitivement une case vide du plateau) et 1 carte Rotation (fait tourner les chiffres d\'une carte).'],
+    ['🃏 Les pouvoirs','En plus de vos cartes classiques, vous disposez de pouvoirs gratuits, à utiliser quand vous le souhaitez : vous commencez la partie avec 2 cartes Barrage (bloque définitivement une case vide du plateau), 1 carte Rotation (fait tourner les chiffres d\'une carte) et 1 carte Déplacement (pousse une carte adverse vers une case adjacente vide).'],
     ['⚗️ L\'alchimie',`Sur la page Booster, sacrifiez des cartes de votre collection pour en améliorer une (${ALCHEMY_COST} pièces) : 2 communes + 1 peu commune pour tenter d'améliorer une carte peu commune, ou 2 communes + 2 peu communes + 1 rare pour une carte rare. Le résultat est garanti plus fort qu'avant (mais reste le plus souvent dans la même rareté), avec une chance non négligeable que la fusion échoue et détruise les cartes sacrifiées sans rien donner en retour.`],
     ['🤖 Face à l\'ordinateur','En mode Solo, votre adversaire est joué par une intelligence artificielle : elle pose, déplace, attaque et utilise ses pouvoirs toute seule.'],
     ['🏆 Comment gagner','Dès qu\'un joueur n\'a plus aucune carte, ni en main ni sur le plateau, la partie s\'arrête et son adversaire remporte la victoire.'],
@@ -3931,6 +4028,12 @@ export default function App(){
     return h==='cgu'||h==='privacy'?h:'menu'
   })
   const[game,setGame]=useState(null)
+  // Single-level undo: the game state right before the acting player's own
+  // last place/move/attack/power, so it can be reverted before they commit to
+  // ending their turn. Overwritten by each new action (only ever undoes the
+  // most recent one) and cleared on end-turn — never set by the AI's own
+  // actions, which apply directly and bypass handleAction/handlePowerAction.
+  const[undoSnapshot,setUndoSnapshot]=useState(null)
   const[soundOn,setSoundOn]=useState(loadSoundPref)
   const[musicVolume,setMusicVolumeState]=useState(loadMusicVolumePref)
   const[sfxVolume,setSfxVolumeState]=useState(loadSfxVolumePref)
@@ -4194,6 +4297,7 @@ export default function App(){
       }
     }
     if(cells){
+      setUndoSnapshot(game)
       setLastAnim({seq:nextAnimSeq(),cells,violent})
       g={...g,lastActionAnim:{cells,violent,sfx,seq:Date.now()+Math.random()}}
     }
@@ -4205,16 +4309,33 @@ export default function App(){
     }else{setGame(g);if(roomCode)syncOnline(g)}
   }
 
-  function handlePowerAction(type,r,c){
+  function handlePowerAction(type,r,c,tr,tc){
     if(!game)return
     if(myPlayer!=null&&myPlayer!==game.currentPlayer)return
     // Local anim/sound for the acting player is triggered client-side in GameScreen
     // (handleCellClick); this descriptor is only for syncing it to the opponent.
-    let g=applyPowerAction(game,type,r,c)
-    g={...g,lastActionAnim:{cells:[{r,c,ghost:null,anim:'anim-power',dur:500}],violent:false,sfx:'power',seq:Date.now()+Math.random()}}
+    let g=applyPowerAction(game,type,r,c,tr,tc)
+    if(g===game)return // rejected (invalid target/hand) — applyPowerAction returns the same reference unchanged
+    setUndoSnapshot(game)
+    const cells=type==='push'
+      ?[{r,c,ghost:null,anim:'anim-power',dur:500},{r:tr,c:tc,ghost:null,anim:'anim-power',dur:500}]
+      :[{r,c,ghost:null,anim:'anim-power',dur:500}]
+    g={...g,lastActionAnim:{cells,violent:false,sfx:'power',seq:Date.now()+Math.random()}}
     const winner=checkWin(g)
     if(winner){const f={...g,winner};setGame(f);if(roomCode)syncOnline(f);setTimeout(()=>setScreen('gameover'),650)}
     else{setGame(g);if(roomCode)syncOnline(g)}
+  }
+
+  // Reverts to the state saved just before the acting player's own last
+  // action (see handleAction/handlePowerAction) — a single level, cleared the
+  // moment a new action is taken or the turn ends, so it only ever undoes
+  // whatever was done most recently this turn, never reaching further back.
+  function handleUndo(){
+    if(!undoSnapshot)return
+    if(myPlayer!=null&&myPlayer!==undoSnapshot.currentPlayer)return
+    setGame(undoSnapshot)
+    if(roomCode)syncOnline(undoSnapshot)
+    setUndoSnapshot(null)
   }
 
   // Shared by the in-game "Capituler" button and the Menu-quit confirmation
@@ -4256,6 +4377,7 @@ export default function App(){
     const next=game.currentPlayer===1?2:1
     const g={...game,board:clearPrevPos(game.board,game.currentPlayer),currentPlayer:next,actionsLeft:{...FRESH_ACTIONS},turn:game.turn+1}
     setGame(g);if(roomCode)syncOnline(g)
+    setUndoSnapshot(null)
   }
 
   function startGame(mode,deck=chosenDeck){
@@ -4266,6 +4388,7 @@ export default function App(){
     // on the fresh board the instant the new GameScreen mounts, before anyone
     // has acted.
     setLastAnim(null)
+    setUndoSnapshot(null)
     setGameMode(mode);setRoomCode(null);setMyPlayer(mode==='ai'?1:null);setGame(newGame(p1Deck,p2Deck,ownedSkins));setScreen('loading')
     if(mode==='ai'&&!loadTutorialSeen())setShowTutorial(true)
   }
@@ -4305,6 +4428,7 @@ export default function App(){
 
   function handleOnlineStart(state,code,player,opponent){
     setLastAnim(null) // don't replay the previous match's death animation on the new board
+    setUndoSnapshot(null)
     setGameMode('online');setRoomCode(code);setMyPlayer(player);setGame(state);setScreen('loading');setSyncError(null)
     setPendingChallenge(null);setPendingJoinCode(null)
     opponentRef.current=opponent||null
@@ -4378,7 +4502,7 @@ export default function App(){
       {screen==='social'   && <SocialScreen onBack={()=>setScreen('menu')} user={user} friends={friends} friendRequests={friendRequests} onSendRequest={handleSendFriendRequest} onRespondRequest={handleRespondFriendRequest} onChallengeFriend={handleChallengeFriend} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onPlay={()=>setScreen('menu')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')}/>}
       {screen==='online'   && <OnlineLobbyScreen onBack={()=>{setPendingChallenge(null);setPendingJoinCode(null);setScreen('menu')}} onGameStart={handleOnlineStart} deck={chosenDeck} ownedSkins={ownedSkins} user={user} challengeTarget={pendingChallenge} autoJoinCode={pendingJoinCode}/>}
       {screen==='loading'  && game && <LoadingScreen onDone={()=>setScreen('game')}/>}
-      {screen==='game'     && game && <GameScreen game={game} soundEnabled={soundOn} myPlayer={myPlayer} isAI={gameMode==='ai'} onAction={handleAction} onEndTurn={handleEndTurn} onHome={closeGame} onQuit={handleQuitGame} onPowerAction={handlePowerAction} onSurrender={handleSurrender} lastAnim={lastAnim} syncError={roomCode?syncError:null} showTutorial={gameMode==='ai'&&showTutorial} onTutorialClose={handleTutorialClose} pseudo={user?.displayName} opponent={opponentRef.current}/>}
+      {screen==='game'     && game && <GameScreen game={game} soundEnabled={soundOn} myPlayer={myPlayer} isAI={gameMode==='ai'} onAction={handleAction} onEndTurn={handleEndTurn} onHome={closeGame} onQuit={handleQuitGame} onPowerAction={handlePowerAction} onSurrender={handleSurrender} lastAnim={lastAnim} syncError={roomCode?syncError:null} showTutorial={gameMode==='ai'&&showTutorial} onTutorialClose={handleTutorialClose} pseudo={user?.displayName} opponent={opponentRef.current} canUndo={!!undoSnapshot} onUndo={handleUndo}/>}
       {screen==='gameover' && game && <GameOverScreen winner={game.winner} isAI={gameMode==='ai'} isOnline={gameMode==='online'} myPlayer={myPlayer} myPseudo={user?.displayName} opponentPseudo={opponentRef.current?.pseudo} surrendered={!!game.surrendered} onReplay={()=>startGame(gameMode)} onMenu={()=>setScreen('menu')} coinsAwarded={gameOverCoinsAwarded}/>}
     </>
   )
