@@ -141,13 +141,13 @@ const ALL_MATCH_IMAGES=[...FREE_CARD_IMAGES,...SKIN_CATALOG.map(s=>`/images/card
 // two menu background variants (landscape/portrait) and the menu music tracks — both
 // menu.mp3 (plays first, guaranteed within seconds of the app opening) and menu2.mp3
 // (takes over once menu.mp3 finishes once, see startMusic) are preloaded so that
-// handoff has no fetch delay. The four combat SFX are decoded into AudioBuffers up
-// front too (see preloadSfxBuffer) so the very first attack/move/placement/kill of a
-// match plays instantly instead of showing the fetch+decode delay of a cold
-// `playSfxBuffer` call.
+// handoff has no fetch delay. The combat/UI SFX are decoded into AudioBuffers up
+// front too (see preloadSfxBuffer) so the very first attack/move/placement/kill/
+// power-card/turn-change of a match plays instantly instead of showing the
+// fetch+decode delay of a cold `playSfxBuffer` call.
 const BOOT_IMAGES=['/images/menu.jpg','/images/menuvertical.jpg',...ALL_MATCH_IMAGES]
 const BOOT_AUDIO=['/musiques/menu.mp3','/musiques/menu2.mp3']
-const BOOT_SFX=['/sounds/explosion.wav','/sounds/fight.wav','/sounds/placed.wav','/sounds/walk.wav']
+const BOOT_SFX=['/sounds/explosion.wav','/sounds/fight.wav','/sounds/placed.wav','/sounds/walk.wav','/sounds/barricade.wav','/sounds/horns.wav']
 function preloadImage(src){
   return new Promise(resolve=>{
     const img=new window.Image()
@@ -596,6 +596,7 @@ function setSfxVolume(v){_sfxVolume=Math.min(1,Math.max(0,v));saveSfxVolumePref(
 const SFX_FILES={
   'place-weak':'/sounds/placed.wav','place-medium':'/sounds/placed.wav','place-strong':'/sounds/placed.wav',
   move:'/sounds/walk.wav', attack:'/sounds/fight.wav', destroy:'/sounds/explosion.wav',
+  power:'/sounds/barricade.wav', turn:'/sounds/horns.wav',
 }
 const _sfxBufferCache={}
 function preloadSfxBuffer(file){
@@ -624,9 +625,7 @@ function snd(type,enabled){
   try{
     const c=getCtx(),t=c.currentTime
     const tone=(freq,wt,dur,vol=0.25)=>{const o=c.createOscillator(),g=c.createGain();o.type=wt;o.connect(g);g.connect(c.destination);o.frequency.setValueAtTime(freq,t);g.gain.setValueAtTime(vol*_sfxVolume,t);g.gain.exponentialRampToValueAtTime(0.001,t+dur);o.start(t);o.stop(t+dur);return o}
-    if(type==='power'){tone(660,'triangle',0.35,0.2).frequency.exponentialRampToValueAtTime(990,t+0.2);tone(880,'sine',0.2,0.12).frequency.exponentialRampToValueAtTime(1320,t+0.18)}
     if(type==='coin'){tone(1318.5,'sine',0.18,0.22);tone(1975.5,'triangle',0.22,0.15)}
-    if(type==='turn'){tone(440,'sine',0.3,0.18).frequency.exponentialRampToValueAtTime(660,t+0.22);tone(330,'sine',0.25,0.1)}
   }catch(e){}
 }
 
@@ -1070,8 +1069,21 @@ function findBestPlacement(game,cp,sit){
   return best
 }
 
+// Lowest total points among the opponent's cards currently on the board —
+// lets scoreMove gravitate toward whichever enemy card is objectively the
+// weakest instead of reacting only to whichever one happens to already be
+// adjacent, regardless of how tough it actually is.
+function weakestEnemyTotal(game,cp){
+  let min=Infinity
+  for(let r=0;r<5;r++)for(let c=0;c<5;c++){
+    const card=game.board[r][c]
+    if(card&&card.owner!==cp&&card.total<min)min=card.total
+  }
+  return min
+}
 function scoreMove(game,fr,fc,tr,tc,card,cp,sit){
   const aggr=sit?.aggression??1
+  const weakestTotal=weakestEnemyTotal(game,cp)
   let dangerBefore=0,dangerAfter=0,atkAfter=0
   // Danger at current position
   for(const[dr,dc]of[[-1,0],[1,0],[0,-1],[0,1]]){
@@ -1089,6 +1101,13 @@ function scoreMove(game,fr,fc,tr,tc,card,cp,sit){
     // Attack opportunity from target
     const[__,theirFaces]=getContactKeys(tr,tc,nr,nc)
     theirFaces.forEach(k=>{const v=nb.values[k];if(v===0)atkAfter+=130;else if(v===1)atkAfter+=70;else if(v===2)atkAfter+=35;else if(v<=4)atkAfter+=12})
+    // Analyze the actual neighboring card, not just this one face in isolation —
+    // moving next to the opponent's objectively weakest card (or one that's
+    // already taken damage) is worth more than an equally-exposed face on a
+    // card that's otherwise at full strength, since it converges repositioning
+    // onto the same finishable target instead of drifting between several.
+    if(nb.total<=weakestTotal)atkAfter+=40*aggr
+    if(nb.baseValues&&Object.keys(nb.values).some(kk=>nb.values[kk]<nb.baseValues[kk]))atkAfter+=30*aggr
   }
   // Escaping existing danger is always rewarded; remaining/new danger at the
   // destination is discounted when behind (aggr>1) and weighted extra when
@@ -1279,9 +1298,13 @@ function computePowerTarget(game,cp,type,sit){
       }
       if(s>bestS){bestS=s;best={r,c}}
     }
-    // Only one Rotation for the whole match — behind, a decent rotation is worth
-    // gambling on; ahead, hold out for a clearly excellent one.
-    return best&&bestS>25/aggr?{type:'power',powerType:'switch',...best}:null
+    // Only one Rotation for the whole match — spend it sparingly, on a target
+    // score that in practice only clears when the kill-setup bonus above
+    // fired (+200/+350) or a face-0 self-save landed (+180+) — a plain
+    // chip-weakening rotation (no face reaching 0) tops out well below this,
+    // so the AI holds onto Rotation instead of burning its only copy on a
+    // merely-decent tweak that doesn't actually secure a kill.
+    return best&&bestS>150/aggr?{type:'power',powerType:'switch',...best}:null
   }
   if(type==='block'){
     // Only block once the opponent has committed real board presence — one lone
@@ -1327,7 +1350,11 @@ function computePowerTarget(game,cp,type,sit){
         if(s>bestS){bestS=s;best={r,c,tr,tc}}
       }
     }
-    return best&&bestS>30/aggr?{type:'power',powerType:'push',...best}:null
+    // Déplacement is a single copy for the whole match too — reserve it for a
+    // push that either sets up a kill outright (+150 above) or drives the
+    // target into serious multi-face danger, not a minor shuffle that barely
+    // worsens its position.
+    return best&&bestS>70/aggr?{type:'power',powerType:'push',...best}:null
   }
   return null
 }
