@@ -143,11 +143,12 @@ const ALL_MATCH_IMAGES=[...FREE_CARD_IMAGES,...SKIN_CATALOG.map(s=>`/images/card
 // (takes over once menu.mp3 finishes once, see startMusic) are preloaded so that
 // handoff has no fetch delay. The combat/UI SFX are decoded into AudioBuffers up
 // front too (see preloadSfxBuffer) so the very first attack/move/placement/kill/
-// power-card/turn-change of a match plays instantly instead of showing the
-// fetch+decode delay of a cold `playSfxBuffer` call.
+// power-card of a match plays instantly instead of showing the fetch+decode delay
+// of a cold `playSfxBuffer` call — the turn-change chime is a procedural WebAudio
+// tone (see snd()) rather than a file, so it has no such delay to preload against.
 const BOOT_IMAGES=['/images/menu.jpg','/images/menuvertical.jpg',...ALL_MATCH_IMAGES]
 const BOOT_AUDIO=['/musiques/menu.mp3','/musiques/menu2.mp3']
-const BOOT_SFX=['/sounds/explosion.wav','/sounds/fight.wav','/sounds/placed.wav','/sounds/walk.wav','/sounds/barricade.wav','/sounds/horns.wav']
+const BOOT_SFX=['/sounds/explosion.wav','/sounds/fight.wav','/sounds/placed.wav','/sounds/walk.wav','/sounds/barricade.wav']
 function preloadImage(src){
   return new Promise(resolve=>{
     const img=new window.Image()
@@ -596,7 +597,7 @@ function setSfxVolume(v){_sfxVolume=Math.min(1,Math.max(0,v));saveSfxVolumePref(
 const SFX_FILES={
   'place-weak':'/sounds/placed.wav','place-medium':'/sounds/placed.wav','place-strong':'/sounds/placed.wav',
   move:'/sounds/walk.wav', attack:'/sounds/fight.wav', destroy:'/sounds/explosion.wav',
-  power:'/sounds/barricade.wav', turn:'/sounds/horns.wav',
+  power:'/sounds/barricade.wav',
 }
 const _sfxBufferCache={}
 function preloadSfxBuffer(file){
@@ -626,6 +627,8 @@ function snd(type,enabled){
     const c=getCtx(),t=c.currentTime
     const tone=(freq,wt,dur,vol=0.25)=>{const o=c.createOscillator(),g=c.createGain();o.type=wt;o.connect(g);g.connect(c.destination);o.frequency.setValueAtTime(freq,t);g.gain.setValueAtTime(vol*_sfxVolume,t);g.gain.exponentialRampToValueAtTime(0.001,t+dur);o.start(t);o.stop(t+dur);return o}
     if(type==='coin'){tone(1318.5,'sine',0.18,0.22);tone(1975.5,'triangle',0.22,0.15)}
+    // A plain, neutral notification tone — a single clean note, no fanfare.
+    if(type==='turn'){tone(523.25,'sine',0.3,0.24)}
   }catch(e){}
 }
 
