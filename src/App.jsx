@@ -1,5 +1,5 @@
 import { useState, useEffect, useLayoutEffect, useRef } from 'react'
-import { Copy, Volume2, VolumeX, Home, BookOpen, Wifi, Play, Users, Check, CheckCheck, X, Zap, Bot, Layers, Plus, Trash2, Star, UserCircle, LogIn, LogOut, Mail, Lock, RefreshCw, Swords, Gift, ArrowRightLeft, Sparkles, Store, Coins, Bell, UserPlus, Send, Flag } from 'lucide-react'
+import { Copy, Volume2, VolumeX, Home, BookOpen, Wifi, Play, Users, Check, CheckCheck, X, Zap, Bot, Layers, Plus, Trash2, Star, UserCircle, LogIn, LogOut, Mail, Lock, RefreshCw, Swords, Gift, ArrowRightLeft, Sparkles, Store, Coins, Bell, UserPlus, Send, Flag, Compass } from 'lucide-react'
 import {
   genRoomCode, createRoom, joinRoom, pushState, subscribeRoom, removeRoom,
   onAuthChange, registerWithEmail, loginWithEmail, loginWithGoogle, logout, completeRedirectLogin,
@@ -457,6 +457,38 @@ const POWER_INFO = {
   block:  {name:'Barrage',      desc:'Bloquer définitivement un emplacement vide',        icon:'⊘',border:'border-rose-500',   bg:'from-rose-950 to-rose-900',      glow:'shadow-[0_0_10px_rgba(239,68,68,0.35)]'},
   push:   {name:'Déplacement',  desc:'Pousser une carte adverse vers une case adjacente vide', icon:'↔',border:'border-fuchsia-500', bg:'from-fuchsia-950 to-fuchsia-800', glow:'shadow-[0_0_10px_rgba(217,70,239,0.35)]'},
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  ADVENTURE MODE — elemental cards/cells
+// ═══════════════════════════════════════════════════════════════════════════════
+// Mode Aventure only: every card gets a random element and a card can only be
+// PLACED (not moved) on a cell whose element matches, or that has none yet.
+// Cells start elementless; a player's per-turn element card covers a whole row
+// or column with one element, opening it up for matching cards (and closing it
+// to mismatched ones) for any FUTURE placement — cards already sitting there
+// are never affected retroactively.
+const ELEMENTS=['eau','feu','terre','air']
+const ELEMENT_INFO={
+  eau:  {label:'Eau',   icon:'💧', color:'#38bdf8', ring:'ring-sky-400',    tint:'bg-sky-500/20'},
+  feu:  {label:'Feu',   icon:'🔥', color:'#f97316', ring:'ring-orange-500', tint:'bg-orange-500/20'},
+  terre:{label:'Terre', icon:'🪨', color:'#a16207', ring:'ring-amber-700',  tint:'bg-amber-800/20'},
+  air:  {label:'Air',   icon:'🌬️', color:'#a3e635', ring:'ring-lime-400',   tint:'bg-lime-400/20'},
+}
+const randomElement=()=>ELEMENTS[rnd(0,ELEMENTS.length-1)]
+// A card can only be PLACED (not moved) where the cell's element matches, or
+// the cell has none yet — irrelevant outside Aventure mode, where cells never
+// carry a cellElements grid at all.
+function elementAllowsPlacement(game,r,c,cardElement){
+  const cellEl=game.cellElements?.[r]?.[c]
+  return !cellEl||cellEl===cardElement
+}
+function applyElementAction(game,axis,index){
+  if(!game.elementCard)return game
+  const cellElements=game.cellElements.map(row=>[...row])
+  if(axis==='row')for(let c=0;c<5;c++)cellElements[index][c]=game.elementCard
+  else for(let r=0;r<5;r++)cellElements[r][index]=game.elementCard
+  return{...game,cellElements,elementCard:null}
+}
 const TERRAIN = [
   {gradient:'linear-gradient(135deg,#0d2b1a,#1a4a2f,#0f3520)', imageUrl:null, label:'Forêt'},
   {gradient:'linear-gradient(135deg,#2a2824,#433d36,#2d2820)', imageUrl:null, label:'Roche'},
@@ -509,30 +541,38 @@ function applyPowerAction(game,type,r,c,tr,tc) {
 //  GAME STATE
 // ═══════════════════════════════════════════════════════════════════════════════
 // When the opponent brings a real (non-random) deck, size our fallback random
-// deck to roughly match its card count instead of the generic 6-10 spread —
-// fewer, larger cards concentrate the same DECK_MAX_POINTS budget the same way
-// a deck built from booster/alchemy pulls does, so a small, powerful opponent
-// deck doesn't automatically get to fight many much-weaker cards instead of a
-// comparably powerful few. Never drops below 5 cards regardless of how small
-// the opponent's deck is: genValues can't safely fit a card's total onto 8
-// faces capped at 9 each (72 max) once the per-card share climbs much past
-// that — spreading 200 points over fewer than 5 cards starts demanding face
-// values past what a card can actually hold.
+// deck to match its card count exactly or with one extra card — not the
+// generic 6-10 spread — so fewer, larger cards concentrate the same
+// DECK_MAX_POINTS budget the same way a deck built from booster/alchemy pulls
+// does, and a small, powerful opponent deck doesn't automatically get to fight
+// many much-weaker cards instead of a comparably powerful few. Never drops
+// below 5 cards regardless of how small the opponent's deck is: genValues
+// can't safely fit a card's total onto 8 faces capped at 9 each (72 max) once
+// the per-card share climbs much past that — spreading 200 points over fewer
+// than 5 cards starts demanding face values past what a card can actually hold.
 function adaptiveDeckCount(oppDeck){
   const lo=Math.max(5,oppDeck.cards.length)
-  return rnd(lo,Math.min(DECK_MAX_CARDS,lo+2))
+  return rnd(lo,Math.min(DECK_MAX_CARDS,lo+1))
 }
-function newGame(p1Deck,p2Deck,ownedSkins) {
+function newGame(p1Deck,p2Deck,ownedSkins,adventureMode) {
   const p1Valid=isDeckValid(p1Deck),p2Valid=isDeckValid(p2Deck)
+  const hand1=p1Valid?deckToHandCards(p1Deck,1):genDeck(1,ownedSkins,p2Valid?adaptiveDeckCount(p2Deck):undefined)
+  const hand2=p2Valid?deckToHandCards(p2Deck,2):genDeck(2,ownedSkins,p1Valid?adaptiveDeckCount(p1Deck):undefined)
+  // Elements are assigned only for this match, on top of whatever deck was
+  // chosen — the Deck Builder/collection cards themselves never carry one, so
+  // this mode doesn't touch anything outside its own matches.
   return {
     board:Array(5).fill(null).map(()=>Array(5).fill(null)),
     players:{
-      1:{hand:p1Valid?deckToHandCards(p1Deck,1):genDeck(1,ownedSkins,p2Valid?adaptiveDeckCount(p2Deck):undefined)},
-      2:{hand:p2Valid?deckToHandCards(p2Deck,2):genDeck(2,ownedSkins,p1Valid?adaptiveDeckCount(p1Deck):undefined)},
+      1:{hand:adventureMode?hand1.map(c=>({...c,element:randomElement()})):hand1},
+      2:{hand:adventureMode?hand2.map(c=>({...c,element:randomElement()})):hand2},
     },
     currentPlayer:1, actionsLeft:{...FRESH_ACTIONS},
     winner:null, turn:1,
     powerCardHand:{1:['block','block','switch','push'],2:['block','block','switch','push']}, blockedCells:[], boardTiles:genBoardTiles(),
+    adventureMode:!!adventureMode,
+    cellElements:adventureMode?Array(5).fill(null).map(()=>Array(5).fill(null)):null,
+    elementCard:adventureMode?randomElement():null,
   }
 }
 const cardPts  = c => Object.values(c.values).reduce((a,b)=>a+b,0)
@@ -1065,7 +1105,9 @@ function findBestPlacement(game,cp,sit){
   for(const r of P2_ROWS)for(let c=0;c<5;c++){
     if(isCellBlocked(game,r,c)||game.board[r][c])continue
     for(let i=0;i<game.players[cp].hand.length;i++){
-      const s=scorePlacement(game,game.players[cp].hand[i],r,c,sit)
+      const card=game.players[cp].hand[i]
+      if(game.adventureMode&&!elementAllowsPlacement(game,r,c,card.element))continue
+      const s=scorePlacement(game,card,r,c,sit)
       if(s>bestS){bestS=s;best={cardIdx:i,r,c}}
     }
   }
@@ -1362,6 +1404,38 @@ function computePowerTarget(game,cp,type,sit){
   return null
 }
 
+// Mode Aventure only: decide whether/how to spend the AI's free per-turn
+// element card. Only considers covering a currently-elementless cell within
+// its own placement zone (never touches an already-covered one — that could
+// undo a previous helpful assignment), weighing how many hand cards share the
+// received element against how many don't. A modest net-benefit threshold
+// keeps this from being spent reflexively every turn regardless of whether it
+// actually opens anything up.
+function computeElementAction(game,cp){
+  if(!game.adventureMode||!game.elementCard)return null
+  const hand=game.players[cp].hand
+  if(!hand.length)return null
+  const element=game.elementCard
+  const ownRows=cp===1?P1_ROWS:P2_ROWS
+  const matching=hand.filter(c=>c.element===element).length
+  const mismatched=hand.length-matching
+  let best=null,bestS=-Infinity
+  for(const axis of ['row','col']){
+    for(let index=0;index<5;index++){
+      let s=0
+      for(let i=0;i<5;i++){
+        const r=axis==='row'?index:i,c=axis==='row'?i:index
+        if(!ownRows.includes(r))continue
+        if(isCellBlocked(game,r,c)||game.board[r][c])continue
+        if(game.cellElements[r][c])continue
+        s+=matching*20-mismatched*5
+      }
+      if(s>bestS){bestS=s;best={axis,index}}
+    }
+  }
+  return best&&bestS>15?{type:'element',...best}:null
+}
+
 function computeAIAction(game){
   const cp=2,al=game.actionsLeft,powerCards=game.powerCardHand[cp]||[]
   const sit=getSituation(game,cp)
@@ -1444,6 +1518,14 @@ function computeAIAction(game){
     }
   }
 
+  // Mode Aventure only: spend the free per-turn element card before deciding
+  // where to place — covering a cell this turn can open it up for the very
+  // placement chosen right after, on the same tick's re-evaluation.
+  {
+    const el=computeElementAction(game,cp)
+    if(el)return el
+  }
+
   // Place a card
   if(al.placement>0&&game.players[cp].hand.length>0){
     const p=findBestPlacement(game,cp,sit)
@@ -1502,8 +1584,9 @@ function applyAIActionDirect(g,action){
   if(!g||!action)return null
   const cp=g.currentPlayer,al=g.actionsLeft
   switch(action.type){
-    case 'endTurn':return{...g,board:clearPrevPos(g.board,cp),currentPlayer:1,actionsLeft:{...FRESH_ACTIONS},turn:g.turn+1}
+    case 'endTurn':return{...g,board:clearPrevPos(g.board,cp),currentPlayer:1,actionsLeft:{...FRESH_ACTIONS},turn:g.turn+1,...(g.adventureMode?{elementCard:randomElement()}:{})}
     case 'power':return applyPowerAction(g,action.powerType,action.r,action.c,action.tr,action.tc)
+    case 'element':return applyElementAction(g,action.axis,action.index)
     case 'attack':{
       const{ar,ac,dr,dc}=action
       if(al.attack<=0)return null
@@ -1516,6 +1599,7 @@ function applyAIActionDirect(g,action){
       const{cardIdx,r,c}=action
       if(al.placement<=0||!inZone(r,cp)||isCellBlocked(g,r,c)||g.board[r][c])return null
       const hand=[...g.players[cp].hand];const card=hand[cardIdx];if(!card)return null
+      if(g.adventureMode&&!elementAllowsPlacement(g,r,c,card.element))return null
       hand.splice(cardIdx,1);const nb=g.board.map(row=>[...row]);nb[r][c]=card
       return{...g,board:nb,players:{...g.players,[cp]:{...g.players[cp],hand}},actionsLeft:{...al,placement:al.placement-1}}
     }
@@ -1545,7 +1629,7 @@ function soundForAIAction(action,g){
     const card=g.players[2].hand[action.cardIdx]
     return card?'place-'+cardTier(card):null
   }
-  return{move:'move',power:'power',draw:'power',endTurn:null}[action.type]||null
+  return{move:'move',power:'power',element:'power',draw:'power',endTurn:null}[action.type]||null
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1648,6 +1732,7 @@ function CardFace({card,small=false,compact=false,zoom=false,draggable=false,onD
         )))}
       </div>
       {isParallax&&<CardImageLayer imageUrl={card.imageUrl} zoom={zoom} layer="fg" className="absolute inset-0 w-full h-full object-cover pointer-events-none" tilt={tilt} interacting={interacting}/>}
+      {card.element&&<span className={`absolute top-0.5 right-1 leading-none select-none ${zoom?'text-2xl top-2 right-3':'text-[11px]'}`} title={ELEMENT_INFO[card.element].label} style={{filter:'drop-shadow(0 1px 2px rgba(0,0,0,0.9))'}}>{ELEMENT_INFO[card.element].icon}</span>}
       <div className={`absolute bottom-0.5 right-1 ${zoom?'text-sm bottom-2 right-3':'text-[9px]'} font-bold opacity-50 ${card.owner===1?'text-blue-200':'text-red-200'}`}>{card.total}</div>
     </div>
   )
@@ -1656,12 +1741,16 @@ function CardFace({card,small=false,compact=false,zoom=false,draggable=false,onD
 // ═══════════════════════════════════════════════════════════════════════════════
 //  BOARD CELL
 // ═══════════════════════════════════════════════════════════════════════════════
-function Cell({r,c,card,currentPlayer,actionsLeft,myPlayer,onDragStart,onDrop,onCellClick,onZoom,animKey,ghost,violent,targeting,pushSource,game,onBoardTouchStart,compact=false,flip=false}){
+function Cell({r,c,card,currentPlayer,actionsLeft,myPlayer,onDragStart,onDrop,onCellClick,onZoom,animKey,ghost,violent,targeting,pushSource,elementAxis,game,onBoardTouchStart,compact=false,flip=false}){
   const[over,setOver]=useState(false)
   const corner=isCorner(r,c),dynBlocked=isDynBlock(game,r,c),blocked=corner||dynBlocked
   const isPushSource=targeting==='push'&&pushSource&&pushSource.r===r&&pushSource.c===c
-  const validTarget=targeting?isValidPowerTarget(game,targeting,currentPlayer,r,c,pushSource):false
-  let bg=blocked?'bg-slate-900/70':' bg-transparent'
+  const validTarget=targeting==='element'
+    ?(!!elementAxis&&!blocked)
+    :targeting?isValidPowerTarget(game,targeting,currentPlayer,r,c,pushSource):false
+  const cellElement=game.cellElements?.[r]?.[c]
+  const elementInfo=cellElement?ELEMENT_INFO[cellElement]:null
+  let bg=blocked?'bg-slate-900/70':(elementInfo?elementInfo.tint:' bg-transparent')
   if(!blocked){
     if(isPushSource)bg='ring-2 ring-fuchsia-400 shadow-[0_0_16px_rgba(217,70,239,0.55)]'
     else if(targeting){if(!validTarget)bg='opacity-40';if(validTarget&&!over)bg='ring-1 ring-yellow-500/50';if(validTarget&&over)bg='bg-yellow-400/20 ring-2 ring-yellow-400 shadow-[0_0_16px_rgba(234,179,8,0.55)]'}
@@ -1683,6 +1772,7 @@ function Cell({r,c,card,currentPlayer,actionsLeft,myPlayer,onDragStart,onDrop,on
       onClick={targeting&&validTarget?()=>onCellClick(r,c):undefined}>
       {corner&&<span className="text-slate-600/60 text-base select-none">✕</span>}
       {dynBlocked&&<span className="text-rose-700/70 text-3xl select-none" title="Bloqué">⊘</span>}
+      {elementInfo&&<span className="absolute top-0.5 left-0.5 text-[10px] leading-none select-none z-10" title={elementInfo.label} style={{filter:'drop-shadow(0 1px 1px rgba(0,0,0,0.9))'}}>{elementInfo.icon}</span>}
       {!blocked&&ghost&&<CardFace card={ghost.card} small compact={compact} animClass={ghost.anim} flip={flip}/>}
       {!blocked&&!ghost&&card&&<CardFace card={card} small compact={compact} draggable={canDrag} onDragStart={e=>onDragStart(e,'board',r,c)} onTouchStart={canDrag?e=>onBoardTouchStart(e,'board',r,c):undefined} onClick={!targeting?e=>{e.stopPropagation();onZoom(card)}:undefined} animClass={animKey} isTarget={targeting&&validTarget&&!!card} flip={flip}/>}
       {violent&&<div className="absolute inset-0 anim-kill-flash pointer-events-none"/>}
@@ -1718,7 +1808,8 @@ function PowerBar({game,player,isMyTurn,targeting,pushSource,onActivatePower,onC
   const hand=game.powerCardHand[player]||[]
   const isActingPlayer=game.currentPlayer===player
   const canActivate=isActingPlayer&&isMyTurn
-  const isTargetingHere=!!targeting&&isActingPlayer
+  // 'element' targeting belongs to the separate ElementCardBar widget, not this one.
+  const isTargetingHere=!!targeting&&targeting!=='element'&&isActingPlayer
   const pad=compact?'px-1.5 py-1':'px-2.5 py-1.5'
   const gap=compact?'gap-1':'gap-1.5'
   const targetingLabel=targeting==='push'
@@ -1742,6 +1833,53 @@ function PowerBar({game,player,isMyTurn,targeting,pushSource,onActivatePower,onC
           ))}
           {hand.length===0&&<span className="text-slate-500 text-[10px]" style={CINZEL}>Aucune carte pouvoir</span>}
         </div>
+      )}
+    </div>
+  )
+}
+
+// Mode Aventure only: the free per-turn element card. Two-step like Déplacement
+// (see PowerBar) but the first step is choosing an axis via buttons instead of
+// clicking an enemy card — once picked, any board cell click resolves it (see
+// GameScreen's handleCellClick).
+function ElementCardBar({game,player,isMyTurn,targeting,elementAxis,onActivate,onPickAxis,onCancel,compact=false}){
+  if(!game.adventureMode)return null
+  const isActingPlayer=game.currentPlayer===player
+  const canActivate=isActingPlayer&&isMyTurn&&!!game.elementCard
+  const isTargetingHere=targeting==='element'&&isActingPlayer
+  const info=game.elementCard?ELEMENT_INFO[game.elementCard]:null
+  const pad=compact?'px-1.5 py-1':'px-2.5 py-1.5'
+  const gap=compact?'gap-1':'gap-1.5'
+  return(
+    <div className={`flex items-center justify-center ${gap} bg-black/40 border border-amber-900/40 rounded-xl ${pad} ${compact?'min-h-[40px]':'min-h-[52px]'}`}>
+      {isTargetingHere?(
+        <div className={`flex items-center ${gap}`}>
+          <span className="text-2xl leading-none">{info?.icon}</span>
+          {!elementAxis?(
+            <div className="flex flex-col items-start gap-1">
+              <span className="text-amber-300 text-[10px] font-bold leading-tight" style={CINZEL}>Ligne ou colonne ?</span>
+              <div className="flex items-center gap-1">
+                <MedBtn onClick={()=>onPickAxis('row')} color="#34d399" className="!px-2 !py-1 !text-[10px]">Ligne</MedBtn>
+                <MedBtn onClick={()=>onPickAxis('col')} color="#34d399" className="!px-2 !py-1 !text-[10px]">Colonne</MedBtn>
+                <MedBtn onClick={onCancel} color="#a89484" icon={<X size={10}/>} className="!px-1.5 !py-0.5 !text-[10px]"/>
+              </div>
+            </div>
+          ):(
+            <div className="flex flex-col items-start gap-0.5">
+              <span className="text-amber-300 text-[10px] font-bold animate-pulse leading-tight" style={CINZEL}>Choisissez une case…</span>
+              <MedBtn onClick={onCancel} color="#a89484" icon={<X size={10}/>} className="!px-1.5 !py-0.5 !text-[10px]">Annuler</MedBtn>
+            </div>
+          )}
+        </div>
+      ):info?(
+        <div onClick={canActivate?onActivate:undefined}
+          className={`${compact?'w-[48px] h-[40px]':'w-[76px] h-[52px]'} rounded-xl border-2 flex flex-col items-center justify-center gap-0.5 select-none transition-all duration-200 ${canActivate?'cursor-pointer hover:scale-110 hover:brightness-110 active:scale-95':'opacity-60'}`}
+          style={{borderColor:info.color,background:`linear-gradient(160deg, ${info.color}33, ${info.color}11)`}}>
+          <span className={compact?'text-base leading-none':'text-2xl leading-none'}>{info.icon}</span>
+          <span className={`${compact?'text-[7px]':'text-[9px]'} font-bold text-slate-200 leading-tight`}>{info.label}</span>
+        </div>
+      ):(
+        <span className="text-slate-500 text-[10px]" style={CINZEL}>—</span>
       )}
     </div>
   )
@@ -1854,7 +1992,7 @@ function useElementWidth(deps){
 // ═══════════════════════════════════════════════════════════════════════════════
 //  GAME SCREEN
 // ═══════════════════════════════════════════════════════════════════════════════
-function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,onQuit,onPowerAction,onSurrender,lastAnim,syncError,showTutorial,onTutorialClose,pseudo,opponent,canUndo,onUndo}){
+function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,onQuit,onPowerAction,onElementAction,onSurrender,lastAnim,syncError,showTutorial,onTutorialClose,pseudo,opponent,canUndo,onUndo}){
   const[drag,setDrag]=useState(null)
   const[zoomedCard,setZoomedCard]=useState(null)
   const[anims,setAnims]=useState({})
@@ -1864,6 +2002,9 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
   // Only relevant mid-way through a 'push' power: the enemy card already
   // picked (step 1), waiting on an adjacent empty cell to shove it into (step 2).
   const[pushSource,setPushSource]=useState(null)
+  // Mode Aventure only: 'row'|'col' once picked from the element-card widget,
+  // waiting on any cell click in that row/column to resolve it.
+  const[elementAxis,setElementAxis]=useState(null)
   const[confirmSurrender,setConfirmSurrender]=useState(false)
   const[confirmQuit,setConfirmQuit]=useState(false)
   const[gameScale,setGameScale]=useState(1)
@@ -1971,6 +2112,17 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
   }
   function handleCellClick(r,c){
     if(!targeting||!isMyTurn)return
+    if(targeting==='element'){
+      if(!elementAxis)return // pick Ligne/Colonne from the widget first
+      const idx=elementAxis==='row'?r:c
+      onElementAction(elementAxis,idx)
+      for(let i=0;i<5;i++){
+        const rr=elementAxis==='row'?idx:i,cc=elementAxis==='row'?i:idx
+        triggerAnim(rr,cc,'anim-power',500)
+      }
+      setTargeting(null);setElementAxis(null);snd('power',soundEnabled)
+      return
+    }
     if(targeting==='push'){
       if(!pushSource){
         if(!isValidPowerTarget(game,'push',currentPlayer,r,c))return
@@ -2078,7 +2230,8 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
             {currentPlayer===player&&<span className="w-2 h-2 rounded-full bg-green-400 animate-pulse inline-block"/>}
             <span className={`${activeColor} text-xs font-bold drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]`} style={CINZEL}>{label} · {pts} pts</span>
           </div>
-          <PowerBar game={game} player={player} isMyTurn={isMyTurn} targeting={targeting} pushSource={pushSource} onActivatePower={type=>{setTargeting(type);setPushSource(null)}} onCancelTargeting={()=>{setTargeting(null);setPushSource(null)}} compact={compact}/>
+          <PowerBar game={game} player={player} isMyTurn={isMyTurn} targeting={targeting} pushSource={pushSource} onActivatePower={type=>{setTargeting(type);setPushSource(null);setElementAxis(null)}} onCancelTargeting={()=>{setTargeting(null);setPushSource(null);setElementAxis(null)}} compact={compact}/>
+          <ElementCardBar game={game} player={player} isMyTurn={isMyTurn} targeting={targeting} elementAxis={elementAxis} onActivate={()=>{setTargeting('element');setPushSource(null);setElementAxis(null)}} onPickAxis={axis=>setElementAxis(axis)} onCancel={()=>{setTargeting(null);setElementAxis(null)}} compact={compact}/>
         </div>
         <div className={`game-hand-cards flex ${compact?'gap-1.5':'gap-3'} justify-start flex-nowrap overflow-x-auto scrollbar-hide max-w-full px-1 py-4`}>
           {(()=>{
@@ -2161,7 +2314,7 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
               <Cell key={`${r}-${c}`} r={r} c={c} card={board[r][c]} currentPlayer={currentPlayer} actionsLeft={actionsLeft} myPlayer={myPlayer}
                 onDragStart={handleDragStart} onDrop={handleDrop} onCellClick={handleCellClick} onZoom={setZoomedCard}
                 animKey={anims[`${r},${c}`]||''} ghost={ghosts[`${r},${c}`]} violent={!!violentKeys[`${r},${c}`]}
-                targeting={targeting} pushSource={pushSource} game={game} onBoardTouchStart={handleTouchStart} compact={compact} flip={flip}/>
+                targeting={targeting} pushSource={pushSource} elementAxis={elementAxis} game={game} onBoardTouchStart={handleTouchStart} compact={compact} flip={flip}/>
             )))}
           </div>
           <div className="flex items-center gap-3 flex-wrap justify-center">
@@ -2333,7 +2486,7 @@ function CoinBadge({coins,onClick}){
   )
 }
 
-function MenuScreen({onLocal,onAI,onOnline,onPlay,onDeckBuilder,onAccount,onBooster,onShop,onSocial,unreadCount,user,coins}){
+function MenuScreen({onLocal,onAI,onAdventure,onOnline,onPlay,onDeckBuilder,onAccount,onBooster,onShop,onSocial,unreadCount,user,coins}){
   return(
     <div className="bg-charta menu-screen relative flex flex-col items-center gap-4 px-4 overflow-hidden">
 
@@ -2366,6 +2519,7 @@ function MenuScreen({onLocal,onAI,onOnline,onPlay,onDeckBuilder,onAccount,onBoos
         <div className="flex flex-col gap-3 w-full max-w-[17rem] sm:w-64">
           <MenuBtn onClick={onAI}     icon={<Bot   size={16}/>} color="#a78bfa" delay="0.05s">Solo vs IA</MenuBtn>
           <MenuBtn onClick={onLocal}  icon={<Users size={16}/>} color="#60a5fa" delay="0.10s">Partie Locale</MenuBtn>
+          <MenuBtn onClick={onAdventure} icon={<Compass size={16}/>} color="#34d399" delay="0.13s">Aventure</MenuBtn>
           {user
             ?<MenuBtn onClick={onOnline} icon={<Wifi size={16}/>} color="#c084fc" delay="0.15s">Partie en Ligne</MenuBtn>
             :<MenuBtn onClick={onAccount} icon={<Lock size={16}/>} color="#64748b" delay="0.15s">Partie en Ligne</MenuBtn>
@@ -2386,6 +2540,7 @@ function RulesScreen({onBack,user,onPlay,onDeckBuilder,onBooster,onAccount,onSho
     ['🃏 Les pouvoirs','En plus de vos cartes classiques, vous disposez de pouvoirs gratuits, à utiliser quand vous le souhaitez : vous commencez la partie avec 2 cartes Barrage (bloque définitivement une case vide du plateau), 1 carte Rotation (fait tourner les chiffres d\'une carte) et 1 carte Déplacement (pousse une carte adverse vers une case adjacente vide).'],
     ['⚗️ L\'alchimie',`Sur la page Booster, sacrifiez des cartes de votre collection pour en améliorer une (${ALCHEMY_COST} pièces) : 2 communes + 1 peu commune pour tenter d'améliorer une carte peu commune, ou 2 communes + 2 peu communes + 1 rare pour une carte rare. Le résultat est garanti plus fort qu'avant (mais reste le plus souvent dans la même rareté), avec une chance non négligeable que la fusion échoue et détruise les cartes sacrifiées sans rien donner en retour.`],
     ['🤖 Face à l\'ordinateur','En mode Solo, votre adversaire est joué par une intelligence artificielle : elle pose, déplace, attaque et utilise ses pouvoirs toute seule.'],
+    ['🧭 Mode Aventure','Un mode Solo vs IA à règles modifiées : chaque carte reçoit un élément aléatoire (Eau, Feu, Terre ou Air), affiché dans son coin. Une carte ne peut être posée que sur une case vide d\'élément ou déjà marquée du même élément — une case dont l\'élément ne correspond pas reste interdite à la pose (mais pas au déplacement). Chaque tour, vous recevez une carte élément gratuite : choisissez une ligne ou une colonne entière du plateau, elle en sera marquée pour toutes les poses futures.'],
     ['🏆 Comment gagner','Dès qu\'un joueur n\'a plus aucune carte, ni en main ni sur le plateau, la partie s\'arrête et son adversaire remporte la victoire.'],
   ]
   return(
@@ -3371,6 +3526,7 @@ const DECKSELECT_SUBTITLE={
   ai:"Vous affronterez l'IA avec ce deck (l'IA joue avec un deck aléatoire).",
   local:'Ce deck sera utilisé par les deux joueurs de cette partie locale.',
   online:'Deck utilisé pour la partie que vous hébergez.',
+  adventure:"Vous affronterez l'IA avec ce deck — en mode Aventure, chaque carte reçoit un élément (eau/feu/terre/air) et ne peut être posée que sur une case assortie ou vide d'élément.",
 }
 function DeckSelectScreen({mode,onBack,onSelect}){
   const[decks]=useState(()=>loadDecks().filter(isDeckValid))
@@ -4199,8 +4355,8 @@ export default function App(){
   useEffect(()=>{
     if(screen==='gameover'&&game?.winner&&!statsRecordedRef.current){
       statsRecordedRef.current=true
-      if(user&&game.winner!=='draw'&&(gameMode==='ai'||gameMode==='online')){
-        const iWon=gameMode==='ai'?game.winner===1:game.winner===myPlayer
+      if(user&&game.winner!=='draw'&&(gameMode==='ai'||gameMode==='adventure'||gameMode==='online')){
+        const iWon=gameMode==='online'?game.winner===myPlayer:game.winner===1
         recordGameResult(user.uid,iWon).catch(()=>{})
         // Online and AI wins carry a coin reward — local hotseat practice matches
         // don't (no single "you" to reward when two people share the screen).
@@ -4231,8 +4387,8 @@ export default function App(){
       // Only AI/online have a clear "did I win" perspective — local hotseat
       // matches have two real players sharing the screen, so no personal outcome.
       if(game?.winner==='draw')startMusic(soundOn,false,'defeat')
-      else if(game?.winner&&(gameMode==='ai'||gameMode==='online')){
-        const iWon=gameMode==='ai'?game.winner===1:game.winner===myPlayer
+      else if(game?.winner&&(gameMode==='ai'||gameMode==='adventure'||gameMode==='online')){
+        const iWon=gameMode==='online'?game.winner===myPlayer:game.winner===1
         startMusic(soundOn,false,iWon?'victory':'defeat')
       }else stopMusic()
     }
@@ -4243,7 +4399,7 @@ export default function App(){
 
   // ── AI loop ──────────────────────────────────────────────────
   useEffect(()=>{
-    if(gameMode!=='ai'||screen!=='game')return
+    if((gameMode!=='ai'&&gameMode!=='adventure')||screen!=='game')return
     const g=gameRef.current
     if(!g||g.currentPlayer!==2||g.winner)return
     if(aiTimerRef.current)clearTimeout(aiTimerRef.current)
@@ -4302,6 +4458,7 @@ export default function App(){
       if(al.placement<=0||drag.player!==cp)return
       if(isCellBlocked(g,targetR,targetC)||!inZone(targetR,cp)||g.board[targetR][targetC])return
       const hand=[...g.players[cp].hand];const card=hand[drag.handIdx];if(!card)return
+      if(g.adventureMode&&!elementAllowsPlacement(g,targetR,targetC,card.element))return
       hand.splice(drag.handIdx,1);const nb=g.board.map(r=>[...r]);nb[targetR][targetC]=card
       g={...g,board:nb,players:{...g.players,[cp]:{...g.players[cp],hand}},actionsLeft:{...al,placement:al.placement-1}}
       sfx='place-'+cardTier(card);snd(sfx,soundOn);cells=[{r:targetR,c:targetC,ghost:null,anim:'anim-place',dur:350}]
@@ -4356,6 +4513,25 @@ export default function App(){
     else{setGame(g);if(roomCode)syncOnline(g)}
   }
 
+  // Mode Aventure only: covers a whole row/column with the current free
+  // per-turn element card. Free like the power actions above — doesn't touch
+  // actionsLeft — and, like them, only ever affects FUTURE placements in
+  // those cells, never a card already sitting there.
+  function handleElementAction(axis,index){
+    if(!game||!game.adventureMode)return
+    if(myPlayer!=null&&myPlayer!==game.currentPlayer)return
+    const g=applyElementAction(game,axis,index)
+    if(g===game)return
+    setUndoSnapshot(game)
+    const cells=[]
+    for(let i=0;i<5;i++){
+      const r=axis==='row'?index:i,c=axis==='row'?i:index
+      cells.push({r,c,ghost:null,anim:'anim-power',dur:500})
+    }
+    const withAnim={...g,lastActionAnim:{cells,violent:false,sfx:'power',seq:Date.now()+Math.random()}}
+    setGame(withAnim);if(roomCode)syncOnline(withAnim)
+  }
+
   // Reverts to the state saved just before the acting player's own last
   // action (see handleAction/handlePowerAction) — a single level, cleared the
   // moment a new action is taken or the turn ends, so it only ever undoes
@@ -4393,7 +4569,7 @@ export default function App(){
   function handleQuitGame(){
     if(game&&!game.winner){
       surrenderGame(myPlayer??game.currentPlayer)
-      if(user&&(gameMode==='ai'||gameMode==='online'))recordGameResult(user.uid,false).catch(()=>{})
+      if(user&&(gameMode==='ai'||gameMode==='adventure'||gameMode==='online'))recordGameResult(user.uid,false).catch(()=>{})
       if(user&&gameMode==='online'){
         pushNotification(user.uid,{type:'match_result',result:'loss',opponentUid:opponentRef.current?.uid||null,opponentPseudo:opponentRef.current?.pseudo||'Adversaire'}).catch(()=>{})
       }
@@ -4405,7 +4581,8 @@ export default function App(){
     if(!game||!hasActedThisTurn(game.actionsLeft))return
     if(myPlayer!=null&&myPlayer!==game.currentPlayer)return
     const next=game.currentPlayer===1?2:1
-    const g={...game,board:clearPrevPos(game.board,game.currentPlayer),currentPlayer:next,actionsLeft:{...FRESH_ACTIONS},turn:game.turn+1}
+    const g={...game,board:clearPrevPos(game.board,game.currentPlayer),currentPlayer:next,actionsLeft:{...FRESH_ACTIONS},turn:game.turn+1,
+      ...(game.adventureMode?{elementCard:randomElement()}:{})}
     setGame(g);if(roomCode)syncOnline(g)
     setUndoSnapshot(null)
   }
@@ -4419,8 +4596,10 @@ export default function App(){
     // has acted.
     setLastAnim(null)
     setUndoSnapshot(null)
-    setGameMode(mode);setRoomCode(null);setMyPlayer(mode==='ai'?1:null);setGame(newGame(p1Deck,p2Deck,ownedSkins));setScreen('loading')
-    if(mode==='ai'&&!loadTutorialSeen())setShowTutorial(true)
+    // Aventure is always solo vs the AI, same as 'ai' — it just also turns on
+    // the elemental placement rules inside newGame.
+    setGameMode(mode);setRoomCode(null);setMyPlayer(mode==='ai'||mode==='adventure'?1:null);setGame(newGame(p1Deck,p2Deck,ownedSkins,mode==='adventure'));setScreen('loading')
+    if((mode==='ai'||mode==='adventure')&&!loadTutorialSeen())setShowTutorial(true)
   }
   function handleTutorialClose(){saveTutorialSeen();setShowTutorial(false)}
 
@@ -4518,7 +4697,7 @@ export default function App(){
       <SoundToggle enabled={soundOn} onToggle={()=>setSoundOn(v=>!v)}/>
       {screen!=='game'&&<NotificationBell count={unreadCount} onClick={openNotifPopin}/>}
       {notifPopinOpen&&<NotificationsPopin notifications={notifications} onClose={()=>setNotifPopinOpen(false)} onAcceptChallenge={handleAcceptChallenge} onOpenBooster={()=>{setNotifPopinOpen(false);setScreen('booster')}}/>}
-      {screen==='menu'     && <MenuScreen onAI={()=>goToDeckSelect('ai')} onLocal={()=>goToDeckSelect('local')} onOnline={()=>{setPendingChallenge(null);setPendingJoinCode(null);goToDeckSelect('online')}} onPlay={()=>setScreen('menu')} onDeckBuilder={()=>setScreen('deckbuilder')} onAccount={()=>setScreen('account')} onBooster={()=>setScreen('booster')} onShop={()=>setScreen('shop')} onSocial={()=>setScreen('social')} unreadCount={unreadCount} user={user} coins={coins}/>}
+      {screen==='menu'     && <MenuScreen onAI={()=>goToDeckSelect('ai')} onLocal={()=>goToDeckSelect('local')} onAdventure={()=>goToDeckSelect('adventure')} onOnline={()=>{setPendingChallenge(null);setPendingJoinCode(null);goToDeckSelect('online')}} onPlay={()=>setScreen('menu')} onDeckBuilder={()=>setScreen('deckbuilder')} onAccount={()=>setScreen('account')} onBooster={()=>setScreen('booster')} onShop={()=>setScreen('shop')} onSocial={()=>setScreen('social')} unreadCount={unreadCount} user={user} coins={coins}/>}
       {screen==='rules'    && <RulesScreen onBack={()=>setScreen('menu')} user={user} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onPlay={()=>setScreen('menu')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')} onSocial={()=>setScreen('social')} unreadCount={unreadCount}/>}
       {screen==='deckbuilder' && <DeckBuilderScreen onBack={()=>setScreen('menu')} user={user} ownedSkins={ownedSkins} coins={coins} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onPlay={()=>setScreen('menu')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')} onSocial={()=>setScreen('social')} unreadCount={unreadCount}/>}
       {screen==='booster'  && <BoosterScreen onBack={()=>setScreen('menu')} user={user} ownedSkins={ownedSkins} coins={coins} onEarnCoins={earnCoins} onSellCard={sellCard} onSpendCoins={spendCoins} freeBoosters={freeBoosters} onUseFreeBooster={()=>setFreeBoosters(c=>Math.max(0,c-1))} soundEnabled={soundOn} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onPlay={()=>setScreen('menu')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')} onSocial={()=>setScreen('social')} unreadCount={unreadCount}/>}
@@ -4532,8 +4711,8 @@ export default function App(){
       {screen==='social'   && <SocialScreen onBack={()=>setScreen('menu')} user={user} friends={friends} friendRequests={friendRequests} onSendRequest={handleSendFriendRequest} onRespondRequest={handleRespondFriendRequest} onChallengeFriend={handleChallengeFriend} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onPlay={()=>setScreen('menu')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')}/>}
       {screen==='online'   && <OnlineLobbyScreen onBack={()=>{setPendingChallenge(null);setPendingJoinCode(null);setScreen('menu')}} onGameStart={handleOnlineStart} deck={chosenDeck} ownedSkins={ownedSkins} user={user} challengeTarget={pendingChallenge} autoJoinCode={pendingJoinCode}/>}
       {screen==='loading'  && game && <LoadingScreen onDone={()=>setScreen('game')}/>}
-      {screen==='game'     && game && <GameScreen game={game} soundEnabled={soundOn} myPlayer={myPlayer} isAI={gameMode==='ai'} onAction={handleAction} onEndTurn={handleEndTurn} onHome={closeGame} onQuit={handleQuitGame} onPowerAction={handlePowerAction} onSurrender={handleSurrender} lastAnim={lastAnim} syncError={roomCode?syncError:null} showTutorial={gameMode==='ai'&&showTutorial} onTutorialClose={handleTutorialClose} pseudo={user?.displayName} opponent={opponentRef.current} canUndo={!!undoSnapshot} onUndo={handleUndo}/>}
-      {screen==='gameover' && game && <GameOverScreen winner={game.winner} isAI={gameMode==='ai'} isOnline={gameMode==='online'} myPlayer={myPlayer} myPseudo={user?.displayName} opponentPseudo={opponentRef.current?.pseudo} surrendered={!!game.surrendered} onReplay={()=>startGame(gameMode)} onMenu={()=>setScreen('menu')} coinsAwarded={gameOverCoinsAwarded}/>}
+      {screen==='game'     && game && <GameScreen game={game} soundEnabled={soundOn} myPlayer={myPlayer} isAI={gameMode==='ai'||gameMode==='adventure'} onAction={handleAction} onEndTurn={handleEndTurn} onHome={closeGame} onQuit={handleQuitGame} onPowerAction={handlePowerAction} onElementAction={handleElementAction} onSurrender={handleSurrender} lastAnim={lastAnim} syncError={roomCode?syncError:null} showTutorial={gameMode==='ai'&&showTutorial} onTutorialClose={handleTutorialClose} pseudo={user?.displayName} opponent={opponentRef.current} canUndo={!!undoSnapshot} onUndo={handleUndo}/>}
+      {screen==='gameover' && game && <GameOverScreen winner={game.winner} isAI={gameMode==='ai'||gameMode==='adventure'} isOnline={gameMode==='online'} myPlayer={myPlayer} myPseudo={user?.displayName} opponentPseudo={opponentRef.current?.pseudo} surrendered={!!game.surrendered} onReplay={()=>startGame(gameMode)} onMenu={()=>setScreen('menu')} coinsAwarded={gameOverCoinsAwarded}/>}
     </>
   )
 }
