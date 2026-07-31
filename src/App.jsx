@@ -1,5 +1,5 @@
 import { useState, useEffect, useLayoutEffect, useRef } from 'react'
-import { Copy, Volume2, VolumeX, Home, BookOpen, Wifi, Play, Users, Check, CheckCheck, X, Zap, Bot, Layers, Plus, Trash2, Star, UserCircle, LogIn, LogOut, Mail, Lock, RefreshCw, Swords, Gift, ArrowRightLeft, Sparkles, Store, Coins, Bell, UserPlus, Send, Flag, Compass } from 'lucide-react'
+import { Copy, Volume2, VolumeX, Home, BookOpen, Wifi, Play, Users, Check, CheckCheck, X, Zap, Bot, Layers, Plus, Trash2, Star, UserCircle, LogIn, LogOut, Mail, Lock, RefreshCw, Swords, Gift, ArrowRightLeft, Sparkles, Store, Coins, Bell, UserPlus, Send, Flag, Compass, ArrowDown, ArrowRight } from 'lucide-react'
 import {
   genRoomCode, createRoom, joinRoom, pushState, subscribeRoom, removeRoom,
   onAuthChange, registerWithEmail, loginWithEmail, loginWithGoogle, logout, completeRedirectLogin,
@@ -475,10 +475,10 @@ const ELEMENT_INFO={
   air:  {label:'Air',   icon:'🌬️', color:'#a3e635', ring:'ring-lime-400',   tint:'bg-lime-400/20'},
 }
 const randomElement=()=>ELEMENTS[rnd(0,ELEMENTS.length-1)]
-// A card can only be PLACED (not moved) where the cell's element matches, or
-// the cell has none yet — irrelevant outside Aventure mode, where cells never
-// carry a cellElements grid at all.
-function elementAllowsPlacement(game,r,c,cardElement){
+// A card can only occupy a cell (via placement OR movement) whose element
+// matches its own, or that has none yet — irrelevant outside Aventure mode,
+// where cells never carry a cellElements grid at all.
+function elementAllows(game,r,c,cardElement){
   const cellEl=game.cellElements?.[r]?.[c]
   return !cellEl||cellEl===cardElement
 }
@@ -1106,7 +1106,7 @@ function findBestPlacement(game,cp,sit){
     if(isCellBlocked(game,r,c)||game.board[r][c])continue
     for(let i=0;i<game.players[cp].hand.length;i++){
       const card=game.players[cp].hand[i]
-      if(game.adventureMode&&!elementAllowsPlacement(game,r,c,card.element))continue
+      if(game.adventureMode&&!elementAllows(game,r,c,card.element))continue
       const s=scorePlacement(game,card,r,c,sit)
       if(s>bestS){bestS=s;best={cardIdx:i,r,c}}
     }
@@ -1198,6 +1198,7 @@ function findBestMove(game,cp,sit){
       if(tr<0||tr>=5||tc<0||tc>=5)continue
       if(isCellBlocked(game,tr,tc)||game.board[tr][tc])continue
       if(isBannedBacktrack(card,tr,tc))continue  // would just undo the last move
+      if(game.adventureMode&&!elementAllows(game,tr,tc,card.element))continue
       const s=scoreMove(game,fr,fc,tr,tc,card,cp,sit)
       if(s>bestS){bestS=s;best={fr,fc,tr,tc}}
     }
@@ -1490,6 +1491,7 @@ function computeAIAction(game){
         if(tr<0||tr>=5||tc<0||tc>=5)continue
         if(isCellBlocked(game,tr,tc)||game.board[tr][tc])continue
         if(isBannedBacktrack(card,tr,tc))continue
+        if(game.adventureMode&&!elementAllows(game,tr,tc,card.element))continue
         const s=d+scoreMove(game,fr,fc,tr,tc,card,cp,sit)
         if(s>bestFleeS){bestFleeS=s;bestFlee={fr,fc,tr,tc}}
       }
@@ -1563,6 +1565,7 @@ function computeAIAction(game){
         const tr=fr+ddr,tc=fc+ddc
         if(tr<0||tr>=5||tc<0||tc>=5)continue
         if(isBannedBacktrack(card,tr,tc))continue
+        if(game.adventureMode&&!elementAllows(game,tr,tc,card.element))continue
         if(!isCellBlocked(game,tr,tc)&&!game.board[tr][tc])return{type:'move',fr,fc,tr,tc}
       }
     }
@@ -1599,7 +1602,7 @@ function applyAIActionDirect(g,action){
       const{cardIdx,r,c}=action
       if(al.placement<=0||!inZone(r,cp)||isCellBlocked(g,r,c)||g.board[r][c])return null
       const hand=[...g.players[cp].hand];const card=hand[cardIdx];if(!card)return null
-      if(g.adventureMode&&!elementAllowsPlacement(g,r,c,card.element))return null
+      if(g.adventureMode&&!elementAllows(g,r,c,card.element))return null
       hand.splice(cardIdx,1);const nb=g.board.map(row=>[...row]);nb[r][c]=card
       return{...g,board:nb,players:{...g.players,[cp]:{...g.players[cp],hand}},actionsLeft:{...al,placement:al.placement-1}}
     }
@@ -1608,6 +1611,7 @@ function applyAIActionDirect(g,action){
       if(al.moves<=0||isCellBlocked(g,tr,tc)||!isAdjacent(fr,fc,tr,tc)||g.board[tr][tc])return null
       const card=g.board[fr][fc];if(!card||card.owner!==cp)return null
       if(isBannedBacktrack(card,tr,tc))return null
+      if(g.adventureMode&&!elementAllows(g,tr,tc,card.element))return null
       const nb=g.board.map(row=>[...row]);nb[tr][tc]={...card,prevPos:{r:fr,c:fc}};nb[fr][fc]=null
       return{...g,board:nb,actionsLeft:{...al,moves:al.moves-1}}
     }
@@ -1707,8 +1711,13 @@ function CardFace({card,small=false,compact=false,zoom=false,draggable=false,onD
   // the value grid instead of stacking both beneath it, so the foreground
   // character visually stands in front of the numbers instead of hiding behind them.
   const isParallax=zoom&&!!PARALLAX_SKINS[card.imageUrl?.split('/').pop()]
+  // Mode Aventure: the card's element shows as a colored inset outline rather
+  // than an icon badge — a separate box-model layer from border/box-shadow,
+  // so it never fights with the owner-color border or the isTarget ring below.
+  const elementOutline=card.element?{outline:`${zoom?4:3}px solid ${ELEMENT_INFO[card.element].color}`,outlineOffset:zoom?'-4px':'-3px'}:undefined
   return(
     <div draggable={draggable} onDragStart={draggable?onDragStart:undefined} onTouchStart={onTouchStart} onClick={onClick}
+      style={elementOutline} title={card.element?ELEMENT_INFO[card.element].label:undefined}
       className={`${sz} border-2 ${theme.border} ${hasImg?playerGlow:theme.glow} rounded-xl bg-gradient-to-br ${hasImg?'':theme.bg} relative select-none overflow-hidden transition-all duration-200
         ${draggable?`cursor-grab active:cursor-grabbing active:scale-95 hover:scale-125 hover:z-20 hover:brightness-110 hover:-translate-y-1 ${hoverGlow}`:''}
         ${onClick&&!draggable?'cursor-zoom-in':''}
@@ -1732,7 +1741,6 @@ function CardFace({card,small=false,compact=false,zoom=false,draggable=false,onD
         )))}
       </div>
       {isParallax&&<CardImageLayer imageUrl={card.imageUrl} zoom={zoom} layer="fg" className="absolute inset-0 w-full h-full object-cover pointer-events-none" tilt={tilt} interacting={interacting}/>}
-      {card.element&&<span className={`absolute top-0.5 right-1 leading-none select-none ${zoom?'text-2xl top-2 right-3':'text-[11px]'}`} title={ELEMENT_INFO[card.element].label} style={{filter:'drop-shadow(0 1px 2px rgba(0,0,0,0.9))'}}>{ELEMENT_INFO[card.element].icon}</span>}
       <div className={`absolute bottom-0.5 right-1 ${zoom?'text-sm bottom-2 right-3':'text-[9px]'} font-bold opacity-50 ${card.owner===1?'text-blue-200':'text-red-200'}`}>{card.total}</div>
     </div>
   )
@@ -1741,15 +1749,14 @@ function CardFace({card,small=false,compact=false,zoom=false,draggable=false,onD
 // ═══════════════════════════════════════════════════════════════════════════════
 //  BOARD CELL
 // ═══════════════════════════════════════════════════════════════════════════════
-function Cell({r,c,card,currentPlayer,actionsLeft,myPlayer,onDragStart,onDrop,onCellClick,onZoom,animKey,ghost,violent,targeting,pushSource,elementAxis,game,onBoardTouchStart,compact=false,flip=false}){
+function Cell({r,c,card,currentPlayer,actionsLeft,myPlayer,onDragStart,onDrop,onCellClick,onZoom,animKey,ghost,violent,targeting,pushSource,game,onBoardTouchStart,compact=false,flip=false}){
   const[over,setOver]=useState(false)
   const corner=isCorner(r,c),dynBlocked=isDynBlock(game,r,c),blocked=corner||dynBlocked
   const isPushSource=targeting==='push'&&pushSource&&pushSource.r===r&&pushSource.c===c
-  const validTarget=targeting==='element'
-    ?(!!elementAxis&&!blocked)
-    :targeting?isValidPowerTarget(game,targeting,currentPlayer,r,c,pushSource):false
+  const validTarget=targeting?isValidPowerTarget(game,targeting,currentPlayer,r,c,pushSource):false
   const cellElement=game.cellElements?.[r]?.[c]
   const elementInfo=cellElement?ELEMENT_INFO[cellElement]:null
+  const elementOutline=elementInfo&&!blocked?{outline:`3px solid ${elementInfo.color}`,outlineOffset:'-3px'}:undefined
   let bg=blocked?'bg-slate-900/70':(elementInfo?elementInfo.tint:' bg-transparent')
   if(!blocked){
     if(isPushSource)bg='ring-2 ring-fuchsia-400 shadow-[0_0_16px_rgba(217,70,239,0.55)]'
@@ -1762,7 +1769,8 @@ function Cell({r,c,card,currentPlayer,actionsLeft,myPlayer,onDragStart,onDrop,on
   const borderColor=blocked?'border-slate-700/30':P1_ROWS.includes(r)?'border-blue-500/70':P2_ROWS.includes(r)?'border-red-500/70':'border-slate-300/50'
   const cellSz=compact?'w-[68px] h-[68px]':'w-[90px] h-[90px]'
   return(
-    <div data-cell={`${r},${c}`}
+    <div data-cell={`${r},${c}`} title={elementInfo?elementInfo.label:undefined}
+      style={elementOutline}
       className={`${cellSz} rounded-xl border-2 ${borderColor} ${bg} flex items-center justify-center relative transition-all duration-100 overflow-hidden ${targeting&&validTarget?'cursor-pointer':''} ${violent?'anim-kill-shake':''}`}
       onDragOver={!blocked&&!targeting?e=>{e.preventDefault();setOver(true)}:undefined}
       onDragLeave={!blocked&&!targeting?()=>setOver(false):undefined}
@@ -1772,7 +1780,6 @@ function Cell({r,c,card,currentPlayer,actionsLeft,myPlayer,onDragStart,onDrop,on
       onClick={targeting&&validTarget?()=>onCellClick(r,c):undefined}>
       {corner&&<span className="text-slate-600/60 text-base select-none">✕</span>}
       {dynBlocked&&<span className="text-rose-700/70 text-3xl select-none" title="Bloqué">⊘</span>}
-      {elementInfo&&<span className="absolute top-0.5 left-0.5 text-[10px] leading-none select-none z-10" title={elementInfo.label} style={{filter:'drop-shadow(0 1px 1px rgba(0,0,0,0.9))'}}>{elementInfo.icon}</span>}
       {!blocked&&ghost&&<CardFace card={ghost.card} small compact={compact} animClass={ghost.anim} flip={flip}/>}
       {!blocked&&!ghost&&card&&<CardFace card={card} small compact={compact} draggable={canDrag} onDragStart={e=>onDragStart(e,'board',r,c)} onTouchStart={canDrag?e=>onBoardTouchStart(e,'board',r,c):undefined} onClick={!targeting?e=>{e.stopPropagation();onZoom(card)}:undefined} animClass={animKey} isTarget={targeting&&validTarget&&!!card} flip={flip}/>}
       {violent&&<div className="absolute inset-0 anim-kill-flash pointer-events-none"/>}
@@ -1842,7 +1849,7 @@ function PowerBar({game,player,isMyTurn,targeting,pushSource,onActivatePower,onC
 // (see PowerBar) but the first step is choosing an axis via buttons instead of
 // clicking an enemy card — once picked, any board cell click resolves it (see
 // GameScreen's handleCellClick).
-function ElementCardBar({game,player,isMyTurn,targeting,elementAxis,onActivate,onPickAxis,onCancel,compact=false}){
+function ElementCardBar({game,player,isMyTurn,targeting,onActivate,onCancel,compact=false}){
   if(!game.adventureMode)return null
   const isActingPlayer=game.currentPlayer===player
   const canActivate=isActingPlayer&&isMyTurn&&!!game.elementCard
@@ -1855,21 +1862,10 @@ function ElementCardBar({game,player,isMyTurn,targeting,elementAxis,onActivate,o
       {isTargetingHere?(
         <div className={`flex items-center ${gap}`}>
           <span className="text-2xl leading-none">{info?.icon}</span>
-          {!elementAxis?(
-            <div className="flex flex-col items-start gap-1">
-              <span className="text-amber-300 text-[10px] font-bold leading-tight" style={CINZEL}>Ligne ou colonne ?</span>
-              <div className="flex items-center gap-1">
-                <MedBtn onClick={()=>onPickAxis('row')} color="#34d399" className="!px-2 !py-1 !text-[10px]">Ligne</MedBtn>
-                <MedBtn onClick={()=>onPickAxis('col')} color="#34d399" className="!px-2 !py-1 !text-[10px]">Colonne</MedBtn>
-                <MedBtn onClick={onCancel} color="#a89484" icon={<X size={10}/>} className="!px-1.5 !py-0.5 !text-[10px]"/>
-              </div>
-            </div>
-          ):(
-            <div className="flex flex-col items-start gap-0.5">
-              <span className="text-amber-300 text-[10px] font-bold animate-pulse leading-tight" style={CINZEL}>Choisissez une case…</span>
-              <MedBtn onClick={onCancel} color="#a89484" icon={<X size={10}/>} className="!px-1.5 !py-0.5 !text-[10px]">Annuler</MedBtn>
-            </div>
-          )}
+          <div className="flex flex-col items-start gap-0.5">
+            <span className="text-amber-300 text-[10px] font-bold animate-pulse leading-tight" style={CINZEL}>Choisissez une flèche…</span>
+            <MedBtn onClick={onCancel} color="#a89484" icon={<X size={10}/>} className="!px-1.5 !py-0.5 !text-[10px]">Annuler</MedBtn>
+          </div>
         </div>
       ):info?(
         <div onClick={canActivate?onActivate:undefined}
@@ -2002,9 +1998,6 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
   // Only relevant mid-way through a 'push' power: the enemy card already
   // picked (step 1), waiting on an adjacent empty cell to shove it into (step 2).
   const[pushSource,setPushSource]=useState(null)
-  // Mode Aventure only: 'row'|'col' once picked from the element-card widget,
-  // waiting on any cell click in that row/column to resolve it.
-  const[elementAxis,setElementAxis]=useState(null)
   const[confirmSurrender,setConfirmSurrender]=useState(false)
   const[confirmQuit,setConfirmQuit]=useState(false)
   const[gameScale,setGameScale]=useState(1)
@@ -2110,19 +2103,17 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
     onAction({drag,targetR:r,targetC:c})
     setDrag(null)
   }
+  function handleElementArrow(axis,idx){
+    if(targeting!=='element'||!isMyTurn)return
+    onElementAction(axis,idx)
+    for(let i=0;i<5;i++){
+      const rr=axis==='row'?idx:i,cc=axis==='row'?i:idx
+      triggerAnim(rr,cc,'anim-power',500)
+    }
+    setTargeting(null);snd('power',soundEnabled)
+  }
   function handleCellClick(r,c){
     if(!targeting||!isMyTurn)return
-    if(targeting==='element'){
-      if(!elementAxis)return // pick Ligne/Colonne from the widget first
-      const idx=elementAxis==='row'?r:c
-      onElementAction(elementAxis,idx)
-      for(let i=0;i<5;i++){
-        const rr=elementAxis==='row'?idx:i,cc=elementAxis==='row'?i:idx
-        triggerAnim(rr,cc,'anim-power',500)
-      }
-      setTargeting(null);setElementAxis(null);snd('power',soundEnabled)
-      return
-    }
     if(targeting==='push'){
       if(!pushSource){
         if(!isValidPowerTarget(game,'push',currentPlayer,r,c))return
@@ -2230,8 +2221,8 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
             {currentPlayer===player&&<span className="w-2 h-2 rounded-full bg-green-400 animate-pulse inline-block"/>}
             <span className={`${activeColor} text-xs font-bold drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]`} style={CINZEL}>{label} · {pts} pts</span>
           </div>
-          <PowerBar game={game} player={player} isMyTurn={isMyTurn} targeting={targeting} pushSource={pushSource} onActivatePower={type=>{setTargeting(type);setPushSource(null);setElementAxis(null)}} onCancelTargeting={()=>{setTargeting(null);setPushSource(null);setElementAxis(null)}} compact={compact}/>
-          <ElementCardBar game={game} player={player} isMyTurn={isMyTurn} targeting={targeting} elementAxis={elementAxis} onActivate={()=>{setTargeting('element');setPushSource(null);setElementAxis(null)}} onPickAxis={axis=>setElementAxis(axis)} onCancel={()=>{setTargeting(null);setElementAxis(null)}} compact={compact}/>
+          <PowerBar game={game} player={player} isMyTurn={isMyTurn} targeting={targeting} pushSource={pushSource} onActivatePower={type=>{setTargeting(type);setPushSource(null)}} onCancelTargeting={()=>{setTargeting(null);setPushSource(null)}} compact={compact}/>
+          <ElementCardBar game={game} player={player} isMyTurn={isMyTurn} targeting={targeting} onActivate={()=>{setTargeting('element');setPushSource(null)}} onCancel={()=>setTargeting(null)} compact={compact}/>
         </div>
         <div className={`game-hand-cards flex ${compact?'gap-1.5':'gap-3'} justify-start flex-nowrap overflow-x-auto scrollbar-hide max-w-full px-1 py-4`}>
           {(()=>{
@@ -2308,15 +2299,48 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
             <span className={badge('Dépl',actionsLeft.moves,'yellow')} style={CINZEL}>Dépl {actionsLeft.moves}</span>
             <span className={badge('Att',actionsLeft.attack,'red')} style={CINZEL}>Att {actionsLeft.attack}</span>
           </div>
-          <div ref={boardRef} className={`grid grid-cols-5 ${compact?'gap-1 p-1.5':'gap-1.5 p-2.5'} rounded-2xl border transition-all ${targeting?'border-purple-600/60 shadow-[0_0_20px_rgba(147,51,234,0.2)]':'border-amber-900/40'}`}
-            style={{backgroundImage:'url(/images/plateau.jpg)',backgroundSize:'cover',backgroundPosition:'center'}}>
-            {(flip?[4,3,2,1,0]:[0,1,2,3,4]).map(r=>(flip?[4,3,2,1,0]:[0,1,2,3,4]).map(c=>(
-              <Cell key={`${r}-${c}`} r={r} c={c} card={board[r][c]} currentPlayer={currentPlayer} actionsLeft={actionsLeft} myPlayer={myPlayer}
-                onDragStart={handleDragStart} onDrop={handleDrop} onCellClick={handleCellClick} onZoom={setZoomedCard}
-                animKey={anims[`${r},${c}`]||''} ghost={ghosts[`${r},${c}`]} violent={!!violentKeys[`${r},${c}`]}
-                targeting={targeting} pushSource={pushSource} elementAxis={elementAxis} game={game} onBoardTouchStart={handleTouchStart} compact={compact} flip={flip}/>
-            )))}
-          </div>
+          {(()=>{
+            const order=flip?[4,3,2,1,0]:[0,1,2,3,4]
+            const showArrows=targeting==='element'
+            const gapCls=compact?'gap-1':'gap-1.5'
+            const arrowThick=compact?18:24
+            const cellPx=compact?68:90
+            const arrowBtn='flex items-center justify-center rounded-md bg-purple-600/70 hover:bg-purple-500 active:scale-90 transition-all text-white shrink-0'
+            return(
+              <div className="grid" style={{gridTemplateColumns:`${showArrows?arrowThick:0}px auto`,gridTemplateRows:`${showArrows?arrowThick:0}px auto`}}>
+                <div/>
+                {showArrows?(
+                  <div className={`flex ${gapCls} ${compact?'px-1.5':'px-2.5'}`}>
+                    {order.map(c=>(
+                      <button key={c} onClick={()=>handleElementArrow('col',c)} title="Couvrir cette colonne"
+                        className={arrowBtn} style={{width:cellPx,height:arrowThick}}>
+                        <ArrowDown size={compact?12:16}/>
+                      </button>
+                    ))}
+                  </div>
+                ):<div/>}
+                {showArrows?(
+                  <div className={`flex flex-col ${gapCls} ${compact?'py-1.5':'py-2.5'}`}>
+                    {order.map(r=>(
+                      <button key={r} onClick={()=>handleElementArrow('row',r)} title="Couvrir cette ligne"
+                        className={arrowBtn} style={{width:arrowThick,height:cellPx}}>
+                        <ArrowRight size={compact?12:16}/>
+                      </button>
+                    ))}
+                  </div>
+                ):<div/>}
+                <div ref={boardRef} className={`grid grid-cols-5 ${compact?'gap-1 p-1.5':'gap-1.5 p-2.5'} rounded-2xl border transition-all ${targeting?'border-purple-600/60 shadow-[0_0_20px_rgba(147,51,234,0.2)]':'border-amber-900/40'}`}
+                  style={{backgroundImage:'url(/images/plateau.jpg)',backgroundSize:'cover',backgroundPosition:'center'}}>
+                  {order.map(r=>order.map(c=>(
+                    <Cell key={`${r}-${c}`} r={r} c={c} card={board[r][c]} currentPlayer={currentPlayer} actionsLeft={actionsLeft} myPlayer={myPlayer}
+                      onDragStart={handleDragStart} onDrop={handleDrop} onCellClick={handleCellClick} onZoom={setZoomedCard}
+                      animKey={anims[`${r},${c}`]||''} ghost={ghosts[`${r},${c}`]} violent={!!violentKeys[`${r},${c}`]}
+                      targeting={targeting} pushSource={pushSource} game={game} onBoardTouchStart={handleTouchStart} compact={compact} flip={flip}/>
+                  )))}
+                </div>
+              </div>
+            )
+          })()}
           <div className="flex items-center gap-3 flex-wrap justify-center">
             <span className={`text-sm font-bold drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)] ${currentPlayer===1?'text-blue-400':'text-red-400'}`} style={CINZEL}>
               Tour — {isAI&&currentPlayer===2?<span className="flex items-center gap-1.5"><Bot size={14} className="inline"/> IA réfléchit… <span className="animate-pulse">▪▪▪</span></span>:`Joueur ${currentPlayer}`}
@@ -4458,7 +4482,7 @@ export default function App(){
       if(al.placement<=0||drag.player!==cp)return
       if(isCellBlocked(g,targetR,targetC)||!inZone(targetR,cp)||g.board[targetR][targetC])return
       const hand=[...g.players[cp].hand];const card=hand[drag.handIdx];if(!card)return
-      if(g.adventureMode&&!elementAllowsPlacement(g,targetR,targetC,card.element))return
+      if(g.adventureMode&&!elementAllows(g,targetR,targetC,card.element))return
       hand.splice(drag.handIdx,1);const nb=g.board.map(r=>[...r]);nb[targetR][targetC]=card
       g={...g,board:nb,players:{...g.players,[cp]:{...g.players[cp],hand}},actionsLeft:{...al,placement:al.placement-1}}
       sfx='place-'+cardTier(card);snd(sfx,soundOn);cells=[{r:targetR,c:targetC,ghost:null,anim:'anim-place',dur:350}]
@@ -4479,6 +4503,7 @@ export default function App(){
       }else{
         if(al.moves<=0||isCellBlocked(g,targetR,targetC)||!isAdjacent(fr,fc,targetR,targetC))return
         if(isBannedBacktrack(moving,targetR,targetC))return
+        if(g.adventureMode&&!elementAllows(g,targetR,targetC,moving.element))return
         const nb=g.board.map(r=>[...r]);nb[targetR][targetC]={...moving,prevPos:{r:fr,c:fc}};nb[fr][fc]=null
         g={...g,board:nb,actionsLeft:{...al,moves:al.moves-1}};sfx='move';snd(sfx,soundOn);cells=[{r:targetR,c:targetC,ghost:null,anim:'anim-move',dur:220}]
       }
