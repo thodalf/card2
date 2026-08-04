@@ -4658,7 +4658,7 @@ export default function App(){
   }
   function handleMarkAllNotifsRead(){
     const unreadIds=notifications.filter(n=>!n.read).map(n=>n.id)
-    if(user&&unreadIds.length)markAllNotificationsRead(user.uid,unreadIds).catch(()=>{})
+    if(user&&unreadIds.length)markAllNotificationsRead(user.uid,unreadIds).catch(e=>console.warn('markAllNotificationsRead failed',e))
   }
   // Opening the popin is the read receipt — same "whole-batch" model the
   // notifications list used when it lived inside the Amis page.

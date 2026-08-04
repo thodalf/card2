@@ -67,13 +67,18 @@
     // stranger's mailbox, can't spoof who a notification is "from" (fromUid/
     // byUid must match the actual writer), and — since a 'challenge'
     // notification carries a "join this room" action — can only be sent to
-    // an existing friend, not blasted at arbitrary strangers.
+    // an existing friend, not blasted at arbitrary strangers. Those sender-
+    // identity/friendship checks only apply on creation (data doesn't exist
+    // yet) — an update that leaves fromUid/byUid/type unchanged (e.g. the
+    // owner flipping read:true) skips them, since re-checking "is the owner
+    // friends with themselves" against auth.uid on every read-receipt write
+    // would otherwise permanently fail.
     "notifications": {
       "$uid": {
         ".read": "auth != null && auth.uid === $uid",
         "$pushId": {
           ".write": "auth != null && (!data.exists() || auth.uid === $uid || newData.val() === null)",
-          ".validate": "newData.val() === null || (newData.hasChildren(['type','at']) && newData.child('at').isNumber() && newData.child('type').val().matches(/^(friend_request|friend_accept|challenge|match_result|level_up)$/) && (!newData.hasChild('fromUid') || newData.child('fromUid').val() === auth.uid || newData.child('fromUid').val() === data.child('fromUid').val()) && (!newData.hasChild('byUid') || newData.child('byUid').val() === auth.uid || newData.child('byUid').val() === data.child('byUid').val()) && (!newData.hasChild('fromPseudo') || newData.child('fromPseudo').val().length <= 12) && (!newData.hasChild('byPseudo') || newData.child('byPseudo').val().length <= 12) && (!newData.hasChild('code') || newData.child('code').val().matches(/^[A-HJ-NP-Z2-9]{6}$/)) && (newData.child('type').val() !== 'challenge' || root.child('friends').child($uid).child(auth.uid).exists()))"
+          ".validate": "newData.val() === null || (newData.hasChildren(['type','at']) && newData.child('at').isNumber() && newData.child('type').val().matches(/^(friend_request|friend_accept|challenge|match_result|level_up)$/) && (!newData.hasChild('fromUid') || newData.child('fromUid').val() === auth.uid || newData.child('fromUid').val() === data.child('fromUid').val()) && (!newData.hasChild('byUid') || newData.child('byUid').val() === auth.uid || newData.child('byUid').val() === data.child('byUid').val()) && (!newData.hasChild('fromPseudo') || newData.child('fromPseudo').val().length <= 12) && (!newData.hasChild('byPseudo') || newData.child('byPseudo').val().length <= 12) && (!newData.hasChild('code') || newData.child('code').val().matches(/^[A-HJ-NP-Z2-9]{6}$/)) && (newData.child('type').val() !== 'challenge' || data.exists() || root.child('friends').child($uid).child(auth.uid).exists()))"
         }
       }
     },
