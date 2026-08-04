@@ -2184,9 +2184,11 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
     }
     document.addEventListener('touchmove',onMove,{passive:false})
     document.addEventListener('touchend',onEnd)
+    document.addEventListener('touchcancel',onEnd)
     return()=>{
       document.removeEventListener('touchmove',onMove)
       document.removeEventListener('touchend',onEnd)
+      document.removeEventListener('touchcancel',onEnd)
     }
   },[])
   // Tailwind can't statically see classes built from a template string like
@@ -4000,7 +4002,8 @@ function OnlineLobbyScreen({onBack,onGameStart,deck,ownedSkins,user,challengeTar
     setError('');const c=(codeOverride??inputCode).trim().toUpperCase()
     if(c.length!==6){setError('Code invalide.');return}
     try{
-      const state=await joinRoom(c,user?.uid,user?.displayName)
+      const guestHand=isDeckValid(deck)?deckToHandCards(deck,2):null
+      const state=await joinRoom(c,user?.uid,user?.displayName,guestHand)
       if(!state){setError('Partie introuvable.');return}
       setCode(c);setWaiting(true)
       unsubRef.current=subscribeRoom(c,data=>{
@@ -4035,7 +4038,8 @@ function OnlineLobbyScreen({onBack,onGameStart,deck,ownedSkins,user,challengeTar
           if(mmUnsubRef.current){mmUnsubRef.current();mmUnsubRef.current=null}
           mmIdRef.current=null
           clearMatchResult(myId).catch(()=>{})
-          const joined=await joinRoom(result.code,user?.uid,user?.displayName)
+          const guestHand=isDeckValid(deck)?deckToHandCards(deck,2):null
+          const joined=await joinRoom(result.code,user?.uid,user?.displayName,guestHand)
           const opponent=joined?.hostUid?{uid:joined.hostUid,pseudo:joined.hostPseudo}:null
           onGameStart(joined?.state??initialGame,result.code,2,opponent)
         })
@@ -4681,6 +4685,7 @@ export default function App(){
         if(remoteAnim.sfx)snd(remoteAnim.sfx,soundOnRef.current)
       }
       setGame(incoming)
+      if(incoming.winner)setTimeout(()=>setScreen('gameover'),650)
     },e=>{console.warn(e);setSyncError(e?.message||'Connexion perdue avec la partie en ligne')})
   }
 

@@ -330,13 +330,23 @@ export async function createRoom(code, state, hostUid, hostPseudo) {
 
 // Returns { state, hostUid, hostPseudo } (not just the game state) so the
 // joiner immediately knows who they're playing, without a second round-trip.
-export async function joinRoom(code, guestUid, guestPseudo) {
+// guestHand (pre-built by the caller from the guest's own chosen deck, since
+// deck-to-hand conversion is game logic that lives in App.jsx, not here)
+// overrides player 2's hand — the host's createRoom() always seeds it with a
+// random deck because the host has no way to know the guest's deck ahead of
+// time, so this is the guest's one chance to swap in the deck they actually
+// picked before the game state is considered final.
+export async function joinRoom(code, guestUid, guestPseudo, guestHand) {
   if (!db) throw new Error('Firebase not configured')
   const snap = await get(ref(db, `rooms/${code}`))
   if (!snap.exists()) return null
   const data = snap.val()
-  await update(ref(db, `rooms/${code}`), { player2Joined: true, ...(guestUid ? { guestUid, guestPseudo: guestPseudo || null } : {}) })
-  return { state: deserializeState(data.state), hostUid: data.hostUid || null, hostPseudo: data.hostPseudo || null }
+  const state = deserializeState(data.state)
+  if (guestHand && state) state.players[2] = { ...state.players[2], hand: guestHand }
+  const updates = { player2Joined: true, ...(guestUid ? { guestUid, guestPseudo: guestPseudo || null } : {}) }
+  if (guestHand && state) updates.state = serializeState(state)
+  await update(ref(db, `rooms/${code}`), updates)
+  return { state, hostUid: data.hostUid || null, hostPseudo: data.hostPseudo || null }
 }
 
 export async function pushState(code, state) {
