@@ -13,6 +13,7 @@ import {
   subscribeFriends, subscribeFriendRequests,
   pushNotification, subscribeNotifications, markNotificationRead, markAllNotificationsRead,
 } from './firebase.js'
+import { initPush, teardownPush } from './push.js'
 
 // Nukes any service-worker cache so a stale PWA build can't keep serving old code.
 // A plain reload() alone unreliably picked up the fresh version on the very first
@@ -3719,7 +3720,7 @@ function AccountScreen({onBack,user,stats,onProfileUpdated,onLegal,onDeleteAccou
               <div><div className="text-xl font-black text-emerald-400">{stats?.wins||0}</div><div className="text-[10px] text-slate-400 uppercase tracking-wide">Victoires</div></div>
               <div><div className="text-xl font-black text-red-400">{stats?.losses||0}</div><div className="text-[10px] text-slate-400 uppercase tracking-wide">Défaites</div></div>
             </div>
-            <MedBtn onClick={()=>logout()} color="#ef4444" icon={<LogOut size={14}/>} className="w-full">Se déconnecter</MedBtn>
+            <MedBtn onClick={()=>{teardownPush(user.uid).catch(()=>{});logout()}} color="#ef4444" icon={<LogOut size={14}/>} className="w-full">Se déconnecter</MedBtn>
           </div>
         ):null}
         {user&&(
@@ -4377,6 +4378,7 @@ export default function App(){
     const unsubFriends=subscribeFriends(user.uid,setFriends)
     const unsubRequests=subscribeFriendRequests(user.uid,setFriendRequests)
     const unsubNotifs=subscribeNotifications(user.uid,setNotifications)
+    initPush(user.uid,{onChallengeTap:handleAcceptChallenge}).catch(()=>{})
     return()=>{unsubFriends();unsubRequests();unsubNotifs()}
   },[user?.uid])
   // Record win/loss once a match tied to a real opponent (AI or online) ends

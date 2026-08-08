@@ -1,0 +1,91 @@
+apply plugin: 'com.android.application'
+
+// Reads android/keystore.properties (gitignored, not present in this repo) for
+// the release signing config. That file must supply the SAME keystore already
+// used to sign the published com.linereve.chartalogica.twa listing on the Play
+// Store (see keystore.properties.example) — a different key produces a build
+// Google treats as a different app, breaking the update path for existing
+// installs. Falls back to unsigned (debug-only use) if the file is absent.
+def keystorePropertiesFile = rootProject.file('keystore.properties')
+def keystoreProperties = new Properties()
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+}
+
+android {
+    namespace = "com.linereve.chartalogica.twa"
+    compileSdk = rootProject.ext.compileSdkVersion
+    defaultConfig {
+        applicationId "com.linereve.chartalogica.twa"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        // The Bubblewrap/TWA build this replaces last published versionCode 2
+        // ("1.0.1", see the now-removed twa-manifest.json) — bump past it so
+        // Play Console accepts this as an update. Verify against the actual
+        // last-published versionCode on Play Console before the first upload.
+        versionCode 9
+        versionName "1.0.9"
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        aaptOptions {
+             // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
+             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
+            ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+        }
+    }
+    signingConfigs {
+        release {
+            if (keystorePropertiesFile.exists()) {
+                storeFile file(keystoreProperties['storeFile'])
+                storePassword keystoreProperties['storePassword']
+                keyAlias keystoreProperties['keyAlias']
+                keyPassword keystoreProperties['keyPassword']
+                // Older bubblewrap/keytool keystores are often legacy JKS, not
+                // the JDK's modern PKCS12 default — a type mismatch here is
+                // what throws "DerInputStream.getLength... tag type 35" (a
+                // DER/ASN.1 parser choking on JKS's non-DER binary format).
+                // Set storeType=JKS in keystore.properties if PKCS12 fails.
+                if (keystoreProperties['storeType']) {
+                    storeType keystoreProperties['storeType']
+                }
+            }
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            if (keystorePropertiesFile.exists()) {
+                signingConfig signingConfigs.release
+            }
+        }
+    }
+}
+
+repositories {
+    flatDir{
+        dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
+    }
+}
+
+dependencies {
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
+    implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+    implementation project(':capacitor-android')
+    testImplementation "junit:junit:$junitVersion"
+    androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
+    androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
+    implementation project(':capacitor-cordova-android-plugins')
+}
+
+apply from: 'capacitor.build.gradle'
+
+try {
+    def servicesJSON = file('google-services.json')
+    if (servicesJSON.text) {
+        apply plugin: 'com.google.gms.google-services'
+    }
+} catch(Exception e) {
+    logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
+}

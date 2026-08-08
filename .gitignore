@@ -17,3 +17,19 @@ yarn-error.log*
 .env*.local
 *.keystore
 *.jks
+keystore.properties
+google-services.json
+GoogleService-Info.plist
+
+# Capacitor native build output (source under android/, ios/ is tracked).
+android/app/build/
+android/.gradle/
+android/local.properties
+android/captures/
+ios/App/Pods/
+ios/App/build/
+ios/App/DerivedData/
+
+# Cloud Functions
+functions/node_modules/
+

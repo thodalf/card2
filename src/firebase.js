@@ -576,3 +576,17 @@ export async function markAllNotificationsRead(uid, ids) {
   ids.forEach(id => { updates[`notifications/${uid}/${id}/read`] = true })
   await update(ref(db), updates)
 }
+
+// ─── Push notification device tokens ──────────────────────────────
+// `fcmTokens/{uid}/{token}: true` — a user can have several tokens (one per
+// device). A Cloud Function trigger on `notifications/{uid}` reads this map
+// to fan out an FCM push alongside the in-app mailbox write; see functions/index.js.
+export async function registerPushToken(uid, token) {
+  if (!db || !uid || !token) return
+  await set(ref(db, `fcmTokens/${uid}/${token}`), true)
+}
+
+export async function removePushToken(uid, token) {
+  if (!db || !uid || !token) return
+  await remove(ref(db, `fcmTokens/${uid}/${token}`))
+}

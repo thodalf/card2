@@ -83,6 +83,20 @@
       }
     },
 
+    // ── Push notification device tokens (fcmTokens/{uid}/{token}: true) — one
+    // entry per registered device, owner-only. Read by the sendPushOnNotification
+    // Cloud Function via the Admin SDK, which bypasses these rules entirely;
+    // this only governs the client's own register/unregister writes.
+    "fcmTokens": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        "$token": {
+          ".write": "auth != null && auth.uid === $uid",
+          ".validate": "newData.val() === true || newData.val() === null"
+        }
+      }
+    },
+
     // ── Online match rooms and matchmaking queue. Deliberately NOT uid-gated:
     // anonymous (logged-out) online play is a supported feature, and a room
     // is a shared secret (the 6-character code) rather than an owned

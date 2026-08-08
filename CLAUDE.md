@@ -5,18 +5,29 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```
-npm run dev       # Vite dev server
-npm run build     # production build to dist/
-npm run preview   # preview the production build locally
+npm run dev         # Vite dev server
+npm run build       # production build to dist/
+npm run preview     # preview the production build locally
+npm run cap:sync    # vite build + npx cap sync (copies dist/ into android/, ios/)
+npm run cap:android # cap:sync + opens the native project in Android Studio
+npm run cap:ios     # cap:sync + opens the native project in Xcode (macOS only)
 ```
 
-There is no lint or test script configured — `package.json` only defines `dev`, `build`, `preview`.
+There is no lint or test script configured beyond the ones above.
 
 Firebase is optional at runtime: `src/firebase.js` wraps all calls in `if (!db)`/`if (!auth)` guards, so the app degrades gracefully (local-only, no auth) when `VITE_FIREBASE_*` env vars are absent. Required vars (see `.env.local`, gitignored — was previously committed with placeholder values only, now untracked; production values live in Netlify's env var settings): `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_DATABASE_URL`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_STORAGE_BUCKET`, `VITE_FIREBASE_MESSAGING_SENDER_ID`, `VITE_FIREBASE_APP_ID`.
+
+A native Android/iOS build additionally needs (none of these are used by the Netlify web build, so none are committed): `android/app/google-services.json` and `android/keystore.properties` (from `android/keystore.properties.example`) for Android; `ios/App/App/GoogleService-Info.plist` for iOS; a real `projectId` in `.firebaserc` and an Apple APNs auth key uploaded to Firebase Console for iOS push specifically.
 
 Deploy target is Netlify (`netlify.toml`): builds with `npm run build`, publishes `dist`, SPA fallback redirect to `/index.html`.
 
 `database.rules.json` is the recommended Firebase Realtime Database security ruleset (not auto-deployed — paste into Firebase Console → Realtime Database → Rules, or deploy via the Firebase CLI). It's the actual access-control enforcement layer: everything in `firebase.js` assumes these rules (or equivalent) are live, since client code alone can't stop a direct SDK/REST call from bypassing app-level checks.
+
+### Native apps (Capacitor) and push notifications
+
+Android and iOS are packaged with **Capacitor** (`capacitor.config.json`, `android/`, `ios/`), replacing the previous Bubblewrap/TWA setup — Capacitor bundles `dist/` into the native binary at build time (not a live URL wrapper like the old TWA), so a content-only change reaches native users only after `npm run cap:sync` + a new store build/submission, unlike the instant-deploy web/PWA build on Netlify. The Android `applicationId` (`com.linereve.chartalogica.twa`) and signing keystore are carried over unchanged from the previously-published TWA listing so Play Store treats new uploads as updates, not a new app — see `android/keystore.properties.example`.
+
+Push notifications piggyback on the existing in-app mailbox rather than replacing it: every `pushNotification(uid, payload)` call in `src/firebase.js`/`src/App.jsx` still writes to `notifications/{uid}` as before, and a Firebase Cloud Function (`functions/index.js`, `sendPushOnNotification`) triggers on that same write to additionally fan out an FCM push to every token in `fcmTokens/{uid}` (registered by `src/push.js`'s `initPush()`, called once a user logs in). `src/push.js` is a no-op on web/PWA (`Capacitor.isNativePlatform()` guards every call), so browser users keep the unchanged in-app bell/dropdown. Cloud Functions require their own deploy (`firebase deploy --only functions`, needs the Blaze billing plan and a real `projectId` in `.firebaserc`) — this is the one place in the project where RTDB writes now do trigger server-side code, an exception to the "no server functions available in RTDB" limitation noted below for the game/matchmaking logic.
 
 ## Architecture
 
