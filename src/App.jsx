@@ -12,8 +12,14 @@ import {
   claimUsername, getUidByPseudo, sendFriendRequest, respondFriendRequest, sanitizePseudoInput, PSEUDO_MAX_LEN,
   subscribeFriends, subscribeFriendRequests,
   pushNotification, subscribeNotifications, markNotificationRead, markAllNotificationsRead,
+  loadFriendCollection, sendTradeOffer, respondTradeOffer, cancelTradeOffer, subscribeTradeOffers, subscribeTradeOffersSent,
 } from './firebase.js'
 import { initPush, teardownPush } from './push.js'
+import { Capacitor } from '@capacitor/core'
+import { App as CapacitorApp } from '@capacitor/app'
+import { StatusBar } from '@capacitor/status-bar'
+import { Haptics, ImpactStyle } from '@capacitor/haptics'
+import { KeepAwake } from '@capacitor-community/keep-awake'
 
 // Nukes any service-worker cache so a stale PWA build can't keep serving old code.
 // A plain reload() alone unreliably picked up the fresh version on the very first
@@ -213,6 +219,11 @@ const DECKS_KEY='tacticalcards_decks'
 const DECK_MAX_POINTS=200
 const CARD_MAX_POINTS=40
 const DECK_MAX_CARDS=10
+// One slot per deck for a fully player-defined card (values + skin), capped
+// well below CARD_MAX_POINTS — a deliberately weaker cap than the removed
+// free-form custom-card flow (see isDeckValid), just enough to help complete
+// a deck rather than replace booster-sourced cards.
+const CUSTOM_SLOT_MAX_POINTS=30
 const FACE_KEYS=['topLeft','top','topRight','left','right','bottomLeft','bottom','bottomRight']
 
 // Card/background art was re-encoded from PNG to JPEG/WebP (see the image
@@ -318,9 +329,22 @@ function isDeckValid(deck){
   if(deck.cards.length>DECK_MAX_CARDS)return false
   // Booster-sourced cards (c.rarity set) are exempt from the per-card cap — that's
   // the whole point of a rare pull. The deck total cap still keeps things balanced.
-  if(deck.cards.some(c=>!c.rarity&&customCardPts(c)>CARD_MAX_POINTS))return false
+  // Legacy free-form custom cards (no rarity, no isCustomSlot — predate the
+  // single-capped-slot reintroduction below) keep the older, looser cap.
+  if(deck.cards.some(c=>!c.rarity&&!c.isCustomSlot&&customCardPts(c)>CARD_MAX_POINTS))return false
+  const customSlotCards=deck.cards.filter(c=>c.isCustomSlot)
+  if(customSlotCards.length>1)return false
+  if(customSlotCards.some(c=>customCardPts(c)>CUSTOM_SLOT_MAX_POINTS))return false
   if(deckTotalPts(deck)>DECK_MAX_POINTS)return false
   return true
+}
+// One player-defined card per deck — values start at 1 on every face (8 pts,
+// well under the 30-pt cap) and the skin defaults to the first available
+// portrait; isCustomSlot marks it so isDeckValid/CardEditor apply the tighter
+// cap instead of the legacy free-form CARD_MAX_POINTS.
+function newCustomCard(ownedSkins){
+  const values=Object.fromEntries(FACE_KEYS.map(k=>[k,1]))
+  return{id:`cc-${Date.now()}-${Math.random().toString(36).slice(2)}`,values,total:8,imageUrl:cardImageGallery(ownedSkins)[0]||DEFAULT_CARD_IMAGE,isCustomSlot:true}
 }
 function invertValues180(v){
   return {top:v.bottom,bottom:v.top,left:v.right,right:v.left,topLeft:v.bottomRight,bottomRight:v.topLeft,topRight:v.bottomLeft,bottomLeft:v.topRight}
@@ -672,6 +696,14 @@ function snd(type,enabled){
     if(type==='turn'){tone(523.25,'sine',0.3,0.24)}
   }catch(e){}
 }
+// Native-only tactile feedback alongside the existing sfx cue — mirrors
+// whatever board action already triggered snd(sfx,...), for both the human
+// player's own actions and the AI's, same as sound already does for both.
+function haptic(sfx){
+  if(!Capacitor.isNativePlatform()||!sfx)return
+  const style=sfx==='destroy'?ImpactStyle.Heavy:sfx==='attack'?ImpactStyle.Medium:ImpactStyle.Light
+  Haptics.impact({style}).catch(()=>{})
+}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 //  MUSIC — procedural ambient loop (A natural minor, arpeggiated)
@@ -771,6 +803,22 @@ function stopMusic() {
   _audio = null
   _currentMode = null
 }
+
+// Backgrounding the app (native appStateChange / web visibilitychange) pauses
+// in place rather than going through stopMusic()+startMusic(), which would
+// lose the current track and playback position for no reason — this is a
+// temporary interruption, not a mode change.
+function pauseMusicForBackground() {
+  if (_audio && !_audio.paused) _audio.pause()
+}
+function resumeMusicFromBackground() {
+  if (_audio && _audio.paused) _playWithRetry(_audio)
+}
+// The shared SFX AudioContext has no explicit suspend/resume anywhere else —
+// some native WebViews leave it in a stuck 'suspended' state after a
+// background/foreground cycle otherwise, silently swallowing snd() calls.
+function suspendAudioCtx() { if (_ctx && _ctx.state === 'running') _ctx.suspend().catch(() => {}) }
+function resumeAudioCtx() { if (_ctx && _ctx.state === 'suspended') _ctx.resume().catch(() => {}) }
 
 // ═══════════════════════════════════════════════════════════════════════════════
 //  DRAG GHOST — larger card preview while dragging
@@ -2020,6 +2068,28 @@ function GameScreen({game,soundEnabled,myPlayer,isAI,onAction,onEndTurn,onHome,o
   useEffect(()=>{localGameRef.current=game},[game])
   useEffect(()=>{myPlayerRef_.current=myPlayer},[myPlayer])
   useEffect(()=>{targetingRef_.current=targeting},[targeting])
+  // Keep the screen from auto-locking during a match's think-time gaps —
+  // GameScreen is only mounted while screen==='game', so mount/unmount here
+  // exactly tracks entering/leaving a match.
+  useEffect(()=>{
+    if(!Capacitor.isNativePlatform())return
+    KeepAwake.keepAwake().catch(()=>{})
+    return()=>{KeepAwake.allowSleep().catch(()=>{})}
+  },[])
+  // Native hardware/gesture back button while a match is on screen — the
+  // App-level listener (see App component) deliberately skips 'game' so this
+  // one owns it instead, reusing the existing cancel-targeting/confirm-quit
+  // UI rather than exiting or navigating away with no warning mid-match.
+  useEffect(()=>{
+    if(!Capacitor.isNativePlatform())return
+    const subP=CapacitorApp.addListener('backButton',()=>{
+      if(targeting){setTargeting(null);setPushSource(null);return}
+      if(confirmSurrender){setConfirmSurrender(false);return}
+      if(confirmQuit){setConfirmQuit(false);return}
+      setConfirmQuit(true)
+    })
+    return()=>{subP.then(h=>h.remove())}
+  },[targeting,confirmSurrender,confirmQuit])
   useEffect(()=>{
     const update=()=>{
       const w=window.innerWidth
@@ -2696,7 +2766,8 @@ function LegalScreen({type,onBack,user,onPlay,onDeckBuilder,onBooster,onAccount,
 // ═══════════════════════════════════════════════════════════════════════════════
 function CardEditor({card,onUpdate,onRemove,otherDecks,onMoveCard,onZoom,ownedSkins}){
   const isBooster=!!card.rarity
-  const pts=customCardPts(card),over=!isBooster&&pts>CARD_MAX_POINTS
+  const maxPoints=card.isCustomSlot?CUSTOM_SLOT_MAX_POINTS:CARD_MAX_POINTS
+  const pts=customCardPts(card),over=!isBooster&&pts>maxPoints
   const rarityTheme=isBooster?RARITY_THEME[card.rarity]:null
   function setVal(key,v){
     const n=Math.max(0,Math.min(9,Number(v)||0))
@@ -2724,7 +2795,8 @@ function CardEditor({card,onUpdate,onRemove,otherDecks,onMoveCard,onZoom,ownedSk
         </div>
         <div className="flex-1 flex flex-col gap-2 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className={`text-sm font-bold ${over?'text-red-400':'text-amber-300'}`}>{pts} / {CARD_MAX_POINTS} pts</span>
+            <span className={`text-sm font-bold ${over?'text-red-400':'text-amber-300'}`}>{pts} / {maxPoints} pts</span>
+            {card.isCustomSlot&&<span className="text-[10px] font-bold px-1.5 py-0.5 rounded text-amber-300" style={{background:'rgba(0,0,0,0.4)'}}>Carte personnalisée</span>}
             {over&&<span className="text-red-400 text-xs">Trop élevée !</span>}
             {isBooster&&<span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{color:rarityTheme.color,background:'rgba(0,0,0,0.4)'}}>{rarityTheme.label}</span>}
           </div>
@@ -2767,9 +2839,10 @@ function CardEditor({card,onUpdate,onRemove,otherDecks,onMoveCard,onZoom,ownedSk
     </div>
   )
 }
-function DeckEditor({deck,onBack,onRename,onRemoveCard,onUpdateCard,onSetDefault,otherDecks,onMoveCard,ownedSkins,onGoToBooster}){
+function DeckEditor({deck,onBack,onRename,onRemoveCard,onUpdateCard,onSetDefault,otherDecks,onMoveCard,ownedSkins,onGoToBooster,onAddCustomCard}){
   const total=deckTotalPts(deck),overTotal=total>DECK_MAX_POINTS,valid=isDeckValid(deck)
   const atMaxCards=deck.cards.length>=DECK_MAX_CARDS
+  const hasCustomSlot=deck.cards.some(c=>c.isCustomSlot)
   const[zoomedCard,setZoomedCard]=useState(null)
   return(
     <div className="relative min-h-screen">
@@ -2804,9 +2877,16 @@ function DeckEditor({deck,onBack,onRename,onRemoveCard,onUpdateCard,onSetDefault
           {deck.cards.length===0&&<p className="text-slate-300 text-sm text-center py-6 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">Aucune carte. Ouvrez un booster pour en obtenir, puis assignez-les ici.</p>}
         </div>
         {!atMaxCards&&(
-          <MedBtn onClick={onGoToBooster} color="#34d399" icon={<Gift size={16}/>} className="w-full">
-            Ouvrir un booster pour ajouter des cartes
-          </MedBtn>
+          <div className="flex flex-col gap-2">
+            <MedBtn onClick={onGoToBooster} color="#34d399" icon={<Gift size={16}/>} className="w-full">
+              Ouvrir un booster pour ajouter des cartes
+            </MedBtn>
+            {!hasCustomSlot&&(
+              <MedBtn onClick={onAddCustomCard} color="#c9a020" icon={<Plus size={16}/>} className="w-full">
+                Ajouter une carte personnalisée (max {CUSTOM_SLOT_MAX_POINTS} pts)
+              </MedBtn>
+            )}
+          </div>
         )}
       </div>
       </div>
@@ -2887,7 +2967,20 @@ function DeckBuilderScreen({onBack,user,ownedSkins,coins,onPlay,onDeckBuilder,on
       setDeletedCollectionIds(ids=>ids.filter(x=>x!==cardId))
     }
   }
-  function updateCard(id,cardId,patch){setDecks(p=>p.map(d=>d.id===id?{...d,cards:d.cards.map(c=>c.id===cardId?{...c,...patch}:c),updatedAt:Date.now()}:d))}
+  // Gameplay (cardTier/cardPts) reads card.total, not a live sum of values, so
+  // a non-booster card's total must be kept in sync whenever its values change
+  // — otherwise its combat tier silently drifts from what the deck builder shows.
+  function updateCard(id,cardId,patch){
+    setDecks(p=>p.map(d=>d.id===id?{...d,cards:d.cards.map(c=>{
+      if(c.id!==cardId)return c
+      const next={...c,...patch}
+      if(patch.values&&!c.rarity)next.total=customCardPts(next)
+      return next
+    }),updatedAt:Date.now()}:d))
+  }
+  function addCustomCard(id){
+    setDecks(p=>p.map(d=>d.id===id&&d.cards.length<DECK_MAX_CARDS&&!d.cards.some(c=>c.isCustomSlot)?{...d,cards:[...d.cards,newCustomCard(ownedSkins)],updatedAt:Date.now()}:d))
+  }
   function moveCardToDeck(fromId,cardId,toId){
     setDecks(p=>{
       const from=p.find(d=>d.id===fromId);const card=from?.cards.find(c=>c.id===cardId)
@@ -2916,7 +3009,7 @@ function DeckBuilderScreen({onBack,user,ownedSkins,coins,onPlay,onDeckBuilder,on
       onRemoveCard={cid=>removeCard(editing.id,cid)}
       onUpdateCard={(cid,patch)=>updateCard(editing.id,cid,patch)} onSetDefault={()=>setDefault(editing.id)}
       otherDecks={decks.filter(d=>d.id!==editing.id).map(d=>({id:d.id,name:d.name,cardCount:d.cards.length}))}
-      onMoveCard={(cardId,toId)=>moveCardToDeck(editing.id,cardId,toId)} ownedSkins={ownedSkins} onGoToBooster={onBooster}/>
+      onMoveCard={(cardId,toId)=>moveCardToDeck(editing.id,cardId,toId)} ownedSkins={ownedSkins} onGoToBooster={onBooster} onAddCustomCard={()=>addCustomCard(editing.id)}/>
   )
 
   return(
@@ -3282,7 +3375,7 @@ function BoosterScreen({onBack,user,ownedSkins,coins,onEarnCoins,onSellCard,onSp
       <div className="bg-charta fixed inset-0 -z-10"/>
       <div className="min-h-screen pt-14 pb-28 px-4 flex flex-col items-center overflow-y-auto">
       {/* Fixed back button */}
-      <BackButton onClick={onBack} compact className="fixed top-3 left-3 z-20">Menu</BackButton>
+      <BackButton onClick={onBack} compact className="fixed top-[calc(0.75rem+env(safe-area-inset-top,0px))] left-3 z-20">Menu</BackButton>
       <CoinBadge coins={coins} onClick={onShop}/>
 
       <CardZoomOverlay card={zoomedCard} onClose={()=>setZoomedCard(null)}/>
@@ -3493,7 +3586,7 @@ function ShopScreen({onBack,coins,ownedSkins,onBuySkin,onPlay,onDeckBuilder,onBo
     <div className="min-h-screen relative">
       <div className="bg-charta fixed inset-0 -z-10"/>
       <div className="min-h-screen pt-14 pb-28 px-4 flex flex-col items-center overflow-y-auto">
-        <BackButton onClick={onBack} compact className="fixed top-3 left-3 z-20">Menu</BackButton>
+        <BackButton onClick={onBack} compact className="fixed top-[calc(0.75rem+env(safe-area-inset-top,0px))] left-3 z-20">Menu</BackButton>
         <CoinBadge coins={coins}/>
         <CardZoomOverlay card={zoomedSkin} onClose={()=>setZoomedSkin(null)} renderCard={(s,t)=>(
           <div className="w-[88vw] h-[88vw] max-w-[420px] max-h-[420px] rounded-2xl overflow-hidden border-4 relative"
@@ -3842,20 +3935,117 @@ function AccountScreen({onBack,user,stats,onProfileUpdated,onLegal,onDeleteAccou
 // ═══════════════════════════════════════════════════════════════════════════════
 //  SOCIAL SCREEN — friends, friend requests, notifications
 // ═══════════════════════════════════════════════════════════════════════════════
-const NOTIF_ICON={friend_request:UserPlus,friend_accept:Check,challenge:Swords,match_result:Bell,level_up:Star}
+const NOTIF_ICON={friend_request:UserPlus,friend_accept:Check,challenge:Swords,match_result:Bell,level_up:Star,trade_offer:ArrowRightLeft,trade_accepted:Check,trade_declined:X}
+const TRADE_STATUS_LABEL={pending:'en attente',accepted:'acceptée',declined:'refusée',cancelled:'annulée',completed:'terminée',failed:'échouée'}
 function notifText(n){
   if(n.type==='friend_request')return `${n.fromPseudo} vous a envoyé une demande d'ami.`
   if(n.type==='friend_accept')return `${n.byPseudo} a accepté votre demande d'ami.`
   if(n.type==='challenge')return `${n.fromPseudo} vous défie en duel !`
   if(n.type==='match_result')return n.result==='draw'?`Partie nulle contre ${n.opponentPseudo}.`:n.result==='win'?`Victoire contre ${n.opponentPseudo} !`:`Défaite contre ${n.opponentPseudo}.`
   if(n.type==='level_up')return `Niveau ${n.level} atteint ! +${n.boosters} booster${n.boosters>1?'s':''} gratuit${n.boosters>1?'s':''} et ${n.coins} pièces.`
+  if(n.type==='trade_offer')return `${n.fromPseudo} vous propose un échange.`
+  if(n.type==='trade_accepted')return 'Votre échange a été accepté.'
+  if(n.type==='trade_declined')return 'Votre échange a été refusé.'
   return ''
 }
-function SocialScreen({onBack,user,friends,friendRequests,onSendRequest,onRespondRequest,onChallengeFriend,onPlay,onDeckBuilder,onBooster,onAccount,onShop}){
+// Overlay for proposing a trade to a friend — cards and/or coins on each
+// side. The friend's own collection is fetched on open via loadFriendCollection
+// (allowed read-only for friends, see database.rules.json); coins are never
+// exposed cross-account, so the "vous demandez" gold input has no visible
+// balance cap — resolveTrade (functions/index.js) enforces affordability
+// server-side regardless of what the proposer guesses here.
+function TradeSideSection({title,cards,selected,onToggle,coins,onCoinsChange,maxCoins,loading,error}){
+  return(
+    <div className="rounded-xl p-3 border border-amber-900/40" style={{background:'rgba(8,5,2,0.6)'}}>
+      <h4 className="text-amber-300 text-xs font-bold mb-2" style={CINZEL}>{title}</h4>
+      {loading&&<p className="text-slate-400 text-xs mb-2">Chargement…</p>}
+      {error&&<p className="text-red-400 text-xs mb-2">{error}</p>}
+      {cards&&(cards.length===0
+        ?<p className="text-slate-500 text-xs mb-2">Aucune carte disponible.</p>
+        :(
+          <div className="flex flex-wrap gap-1.5 mb-2 max-h-40 overflow-y-auto">
+            {cards.map(c=>{
+              const isSel=selected.has(c.id)
+              return(
+                <button key={c.id} onClick={()=>onToggle(c.id)}
+                  className={`relative rounded-lg border-2 transition-all duration-150 ${isSel?'border-amber-400 scale-95':'border-transparent hover:border-amber-700'}`}>
+                  <BoosterCardFace card={c} size="small"/>
+                  {isSel&&<span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-amber-400 text-black text-[10px] font-bold flex items-center justify-center">✓</span>}
+                </button>
+              )
+            })}
+          </div>
+        ))}
+      <label className="flex items-center gap-2 text-xs text-slate-300">
+        <Coins size={13} className="text-amber-400"/>
+        <input type="number" min={0} max={maxCoins} value={coins}
+          onChange={e=>onCoinsChange(Math.max(0,Number(e.target.value)||0))}
+          className="w-20 bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-200 outline-none focus:border-amber-500"/>
+        pièces
+      </label>
+    </div>
+  )
+}
+function TradeOfferModal({friend,myCollection,myCoins,onClose,onSubmit}){
+  const[friendCollection,setFriendCollection]=useState(null)
+  const[loadError,setLoadError]=useState('')
+  const[offerIds,setOfferIds]=useState(()=>new Set())
+  const[requestIds,setRequestIds]=useState(()=>new Set())
+  const[offerCoins,setOfferCoins]=useState(0)
+  const[requestCoins,setRequestCoins]=useState(0)
+  const[sending,setSending]=useState(false)
+  const[error,setError]=useState('')
+
+  useEffect(()=>{
+    loadFriendCollection(friend.uid).then(setFriendCollection)
+      .catch(()=>setLoadError("Impossible de charger la collection de votre ami."))
+  },[friend.uid])
+
+  function toggle(setSet,id){setSet(prev=>{const next=new Set(prev);next.has(id)?next.delete(id):next.add(id);return next})}
+  const empty=offerIds.size===0&&requestIds.size===0&&offerCoins<=0&&requestCoins<=0
+
+  async function handleSubmit(){
+    setSending(true);setError('')
+    try{
+      await onSubmit(Array.from(offerIds),offerCoins,Array.from(requestIds),requestCoins)
+      onClose()
+    }catch(e){setError(e.message||"Échec de l'envoi.");setSending(false)}
+  }
+
+  return(
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 backdrop-blur-sm px-4" onClick={onClose}>
+      <div className="rounded-2xl border border-amber-900/50 p-4 max-w-sm w-full flex flex-col gap-3 max-h-[85vh]" style={{background:'linear-gradient(160deg,rgba(24,16,7,0.97),rgba(10,7,3,0.97))'}} onClick={e=>e.stopPropagation()}>
+        <div className="flex items-center justify-between px-1 pb-2 border-b border-amber-900/30">
+          <h3 className="text-amber-200 font-black text-base flex items-center gap-2" style={CINZEL}><ArrowRightLeft size={16}/> Échange avec {friend.pseudo}</h3>
+          <button onClick={onClose} className="text-slate-300 hover:text-white shrink-0"><X size={18}/></button>
+        </div>
+        <div className="overflow-y-auto flex flex-col gap-3 -mx-1 px-1">
+          <TradeSideSection title="Vous offrez" cards={myCollection} selected={offerIds} onToggle={id=>toggle(setOfferIds,id)}
+            coins={offerCoins} onCoinsChange={setOfferCoins} maxCoins={myCoins}/>
+          <TradeSideSection title={`Vous demandez à ${friend.pseudo}`} cards={friendCollection} loading={friendCollection===null&&!loadError} error={loadError}
+            selected={requestIds} onToggle={id=>toggle(setRequestIds,id)} coins={requestCoins} onCoinsChange={setRequestCoins}/>
+        </div>
+        {error&&<p className="text-red-400 text-xs">{error}</p>}
+        <div className="flex gap-2">
+          <MedBtn onClick={onClose} color="#a89484" className="flex-1 justify-center">Annuler</MedBtn>
+          <MedBtn onClick={handleSubmit} disabled={sending||empty} color="#7cb87c" icon={<Send size={14}/>} className="flex-1 justify-center">
+            {sending?'Envoi…':'Proposer'}
+          </MedBtn>
+        </div>
+      </div>
+    </div>
+  )
+}
+function SocialScreen({onBack,user,friends,friendRequests,onSendRequest,onRespondRequest,onChallengeFriend,onPlay,onDeckBuilder,onBooster,onAccount,onShop,coins,tradeOffersSent,onSendTradeOffer,onCancelTradeOffer}){
   const[pseudoInput,setPseudoInput]=useState('')
   const[sendError,setSendError]=useState('')
   const[sendOk,setSendOk]=useState('')
   const[sending,setSending]=useState(false)
+  const[tradingWith,setTradingWith]=useState(null)
+  // Local snapshot only (not cloud-merged like DeckBuilder/BoosterScreen) —
+  // just needs a reasonably current list to pick cards to offer; resolveTrade
+  // (functions/index.js) re-validates real ownership server-side regardless.
+  const[collection]=useState(()=>loadCollection())
 
   if(!user)return(
     <div className="bg-charta min-h-screen flex flex-col items-center justify-center gap-5 px-4">
@@ -3921,15 +4111,38 @@ function SocialScreen({onBack,user,friends,friendRequests,onSendRequest,onRespon
                 {friends.map(f=>(
                   <div key={f.uid} className="flex items-center justify-between gap-2">
                     <span className="text-slate-200 text-sm truncate">{f.pseudo}</span>
-                    <MedBtn onClick={()=>onChallengeFriend(f.uid,f.pseudo)} color="#7cb87c" icon={<Swords size={12}/>} className="!px-2 !py-1.5 !text-xs shrink-0">Défier</MedBtn>
+                    <div className="flex gap-1.5 shrink-0">
+                      <MedBtn onClick={()=>onChallengeFriend(f.uid,f.pseudo)} color="#7cb87c" icon={<Swords size={12}/>} className="!px-2 !py-1.5 !text-xs">Défier</MedBtn>
+                      <MedBtn onClick={()=>setTradingWith(f)} color="#c9a020" icon={<ArrowRightLeft size={12}/>} className="!px-2 !py-1.5 !text-xs">Échanger</MedBtn>
+                    </div>
                   </div>
                 ))}
               </div>
             )}
         </div>
 
+        {tradeOffersSent&&tradeOffersSent.length>0&&(
+          <div className={sectionCls} style={sectionStyle}>
+            <h3 className="text-amber-300 font-bold mb-2" style={CINZEL}>Échanges en cours</h3>
+            <div className="flex flex-col gap-2">
+              {tradeOffersSent.map(t=>(
+                <div key={t.id} className="flex items-center justify-between gap-2">
+                  <span className="text-slate-200 text-sm truncate">{t.toPseudo} — {TRADE_STATUS_LABEL[t.status]||t.status}</span>
+                  {t.status==='pending'&&(
+                    <MedBtn onClick={()=>onCancelTradeOffer(t.id,t.toUid)} color="#ef4444" icon={<X size={12}/>} className="!px-2 !py-1.5 !text-xs shrink-0">Annuler</MedBtn>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         <BottomNav onPlay={onPlay} onDeckBuilder={onDeckBuilder} onBooster={onBooster} onAccount={onAccount} onShop={onShop} onSocial={()=>{}} unreadCount={0} user={user}/>
       </div>
+      {tradingWith&&(
+        <TradeOfferModal friend={tradingWith} myCollection={collection} myCoins={coins} onClose={()=>setTradingWith(null)}
+          onSubmit={(offerIds,offerCoins,requestIds,requestCoins)=>onSendTradeOffer(tradingWith,offerIds,offerCoins,requestIds,requestCoins)}/>
+      )}
     </div>
   )
 }
@@ -4167,7 +4380,7 @@ function SoundToggle({enabled,onToggle}){
   return(
     <button onClick={onToggle} title={enabled?'Couper le son':'Activer le son'}
       className="wood-btn fixed top-3 right-3 z-50 w-10 h-10 rounded-full flex items-center justify-center transition-all duration-200 hover:scale-110 active:scale-90"
-      style={{color:enabled?'#e8c766':'#7a6a52'}}>
+      style={{color:enabled?'#e8c766':'#7a6a52',top:'calc(0.75rem + env(safe-area-inset-top, 0px))'}}>
       {enabled?<Volume2 size={18}/>:<VolumeX size={18}/>}
     </button>
   )
@@ -4180,7 +4393,7 @@ function NotificationBell({count,onClick}){
   return(
     <button onClick={onClick} title="Notifications"
       className="wood-btn fixed top-3 right-16 z-50 w-10 h-10 rounded-full flex items-center justify-center transition-all duration-200 hover:scale-110 active:scale-90"
-      style={{color:count>0?'#e8c766':'#7a6a52'}}>
+      style={{color:count>0?'#e8c766':'#7a6a52',top:'calc(0.75rem + env(safe-area-inset-top, 0px))'}}>
       <Bell size={18}/>
       {count>0&&(
         <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-red-600 text-white text-[10px] font-bold flex items-center justify-center border-2 border-slate-900">
@@ -4192,7 +4405,7 @@ function NotificationBell({count,onClick}){
 }
 // Global popin listing notifications — lives outside the "Amis" page so it's
 // reachable (via NotificationBell) from anywhere except an active match.
-function NotificationsPopin({notifications,onClose,onAcceptChallenge,onOpenBooster}){
+function NotificationsPopin({notifications,onClose,onAcceptChallenge,onOpenBooster,onNavigate,onRespondTrade}){
   return(
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 backdrop-blur-sm px-4" onClick={onClose}>
       <div className="rounded-2xl border border-amber-900/50 p-4 max-w-sm w-full flex flex-col gap-2 max-h-[80vh]" style={{background:'linear-gradient(160deg,rgba(24,16,7,0.97),rgba(10,7,3,0.97))'}} onClick={e=>e.stopPropagation()}>
@@ -4205,8 +4418,14 @@ function NotificationsPopin({notifications,onClose,onAcceptChallenge,onOpenBoost
             ?<p className="text-slate-300 text-sm text-center py-4">Aucune notification pour l'instant.</p>
             :notifications.map(n=>{
               const Icon=NOTIF_ICON[n.type]||Bell
+              // challenge/level_up/trade_offer keep their own dedicated action
+              // button below instead — a bare row tap there would be a second,
+              // less visible way to accept a challenge/trade, which risks
+              // committing to one by accident.
+              const navigable=n.type==='friend_request'||n.type==='friend_accept'||n.type==='match_result'||n.type==='trade_accepted'||n.type==='trade_declined'
               return(
-                <div key={n.id} className={`flex items-start gap-2.5 rounded-lg px-2.5 py-2.5 ${n.read?'':'bg-amber-900/25 border border-amber-700/50'}`}>
+                <div key={n.id} onClick={navigable?()=>{onNavigate(n.type);onClose()}:undefined}
+                  className={`flex items-start gap-2.5 rounded-lg px-2.5 py-2.5 ${navigable?'cursor-pointer hover:bg-black/20':''} ${n.read?'':'bg-amber-900/25 border border-amber-700/50'}`}>
                   <div className={`shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${n.read?'bg-black/30 text-slate-400':'bg-amber-500/25 text-amber-300'}`}>
                     <Icon size={16}/>
                   </div>
@@ -4216,7 +4435,13 @@ function NotificationsPopin({notifications,onClose,onAcceptChallenge,onOpenBoost
                       <MedBtn onClick={()=>{onAcceptChallenge(n.code);onClose()}} color="#7cb87c" icon={<Swords size={12}/>} className="!px-2 !py-1.5 !text-xs self-start">Accepter le défi</MedBtn>
                     )}
                     {n.type==='level_up'&&(
-                      <MedBtn onClick={()=>{onOpenBooster();onClose()}} color="#f59e0b" icon={<Gift size={12}/>} className="!px-2 !py-1.5 !text-xs self-start">Ouvrir mes boosters</MedBtn>
+                      <MedBtn onClick={onOpenBooster} color="#f59e0b" icon={<Gift size={12}/>} className="!px-2 !py-1.5 !text-xs self-start">Ouvrir mes boosters</MedBtn>
+                    )}
+                    {n.type==='trade_offer'&&(
+                      <div className="flex gap-1.5">
+                        <MedBtn onClick={()=>{onRespondTrade(n.tradeId,true);onClose()}} color="#34d399" icon={<Check size={12}/>} className="!px-2 !py-1.5 !text-xs self-start">Accepter</MedBtn>
+                        <MedBtn onClick={()=>{onRespondTrade(n.tradeId,false);onClose()}} color="#ef4444" icon={<X size={12}/>} className="!px-2 !py-1.5 !text-xs self-start">Refuser</MedBtn>
+                      </div>
                     )}
                   </div>
                   <div className="shrink-0 pt-1.5" title={n.read?'Lu':'Non lu'}>
@@ -4269,6 +4494,7 @@ export default function App(){
   const[friends,setFriends]=useState([])
   const[friendRequests,setFriendRequests]=useState([])
   const[notifications,setNotifications]=useState([])
+  const[tradeOffersSent,setTradeOffersSent]=useState([])
   const[pendingChallenge,setPendingChallenge]=useState(null) // {uid,pseudo} — "Défier" was clicked, going through deck-select
   const[pendingJoinCode,setPendingJoinCode]=useState(null) // a challenge notification was accepted, going through deck-select
   const[notifPopinOpen,setNotifPopinOpen]=useState(false)
@@ -4282,6 +4508,7 @@ export default function App(){
   const prevLevelRef=useRef(null)
   const animSeqRef=useRef(0)
   const remoteAnimSeqRef=useRef(null) // last opponent lastActionAnim.seq already played, online mode
+  const backPressRef=useRef(0) // last hardware-back timestamp on the menu screen, for double-press-to-exit
   const opponentRef=useRef(null) // {uid,pseudo} of the current online opponent, when known
   const coinsUpdatedAtRef=useRef(loadCoinsUpdatedAt())
   const economyCloudReadyRef=useRef(false)
@@ -4361,6 +4588,33 @@ export default function App(){
   // see firebase.js) that just navigated back into the app — onAuthChange above
   // already updates `user` once Firebase processes it, this just surfaces errors.
   useEffect(()=>{completeRedirectLogin().catch(()=>{})},[])
+  // Native only: hide the system status bar once at boot for a chrome-free,
+  // fullscreen game feel — a no-op on web/PWA (StatusBar has no web implementation).
+  useEffect(()=>{
+    if(Capacitor.isNativePlatform())StatusBar.hide().catch(()=>{})
+  },[])
+  // Native Android hardware/gesture back button — with no listener at all,
+  // Capacitor's default is to exit the app immediately from any screen. This
+  // mirrors whatever the visible screen's own onBack prop already does (see
+  // the screen switch below), except on 'menu' (double-press-to-exit, the
+  // standard Android convention) and 'game' (left to GameScreen's own
+  // listener below, which can reuse its local confirm-quit dialog).
+  useEffect(()=>{
+    if(!Capacitor.isNativePlatform())return
+    const subP=CapacitorApp.addListener('backButton',()=>{
+      if(screen==='game')return
+      if(screen==='menu'){
+        const now=Date.now()
+        if(now-backPressRef.current<2000){CapacitorApp.exitApp();return}
+        backPressRef.current=now
+        return
+      }
+      if(screen==='cgu'||screen==='privacy'){setScreen(user?'account':'menu');return}
+      if(screen==='online'){setPendingChallenge(null);setPendingJoinCode(null);setScreen('menu');return}
+      setScreen('menu')
+    })
+    return()=>{subP.then(h=>h.remove())}
+  },[screen,user])
   useEffect(()=>{
     if(!user){setStats(null);return}
     return subscribeStats(user.uid,setStats)
@@ -4374,12 +4628,13 @@ export default function App(){
   },[user?.uid])
   // ── Social — friends, pending requests, notifications ───────────
   useEffect(()=>{
-    if(!user){setFriends([]);setFriendRequests([]);setNotifications([]);return}
+    if(!user){setFriends([]);setFriendRequests([]);setNotifications([]);setTradeOffersSent([]);return}
     const unsubFriends=subscribeFriends(user.uid,setFriends)
     const unsubRequests=subscribeFriendRequests(user.uid,setFriendRequests)
     const unsubNotifs=subscribeNotifications(user.uid,setNotifications)
+    const unsubTradesSent=subscribeTradeOffersSent(user.uid,setTradeOffersSent)
     initPush(user.uid,{onChallengeTap:handleAcceptChallenge}).catch(()=>{})
-    return()=>{unsubFriends();unsubRequests();unsubNotifs()}
+    return()=>{unsubFriends();unsubRequests();unsubNotifs();unsubTradesSent()}
   },[user?.uid])
   // Record win/loss once a match tied to a real opponent (AI or online) ends
   useEffect(()=>{
@@ -4426,6 +4681,21 @@ export default function App(){
     else stopMusic()
   },[screen,soundOn,gameMode,myPlayer,game?.winner])
   useEffect(()=>()=>stopMusic(),[])
+  // Backgrounding the app (native appStateChange, or the tab losing focus on
+  // web/PWA) pauses music and suspends the SFX AudioContext instead of
+  // leaving them running silently in the background — see pauseMusicForBackground
+  // et al. above, which preserve exact playback position rather than restarting.
+  useEffect(()=>{
+    const onHidden=()=>{pauseMusicForBackground();suspendAudioCtx()}
+    const onVisible=()=>{resumeMusicFromBackground();resumeAudioCtx()}
+    if(Capacitor.isNativePlatform()){
+      const subP=CapacitorApp.addListener('appStateChange',({isActive})=>{isActive?onVisible():onHidden()})
+      return()=>{subP.then(h=>h.remove())}
+    }
+    const onVisChange=()=>{document.hidden?onHidden():onVisible()}
+    document.addEventListener('visibilitychange',onVisChange)
+    return()=>document.removeEventListener('visibilitychange',onVisChange)
+  },[])
 
   // ── AI loop ──────────────────────────────────────────────────
   useEffect(()=>{
@@ -4465,7 +4735,7 @@ export default function App(){
         setGame(prev=>({...prev,currentPlayer:1,actionsLeft:{...FRESH_ACTIONS},turn:(prev?.turn||1)+1}))
         return
       }
-      if(sfx)snd(sfx,soundOnRef.current)
+      if(sfx){snd(sfx,soundOnRef.current);haptic(sfx)}
       if(cells)setLastAnim({seq:nextAnimSeq(),cells,violent})
       const winner=checkWin(newState)
       if(winner){setGame({...newState,winner});setTimeout(()=>setScreen('gameover'),700)}
@@ -4518,6 +4788,7 @@ export default function App(){
       setUndoSnapshot(game)
       setLastAnim({seq:nextAnimSeq(),cells,violent})
       g={...g,lastActionAnim:{cells,violent,sfx,seq:Date.now()+Math.random()}}
+      haptic(sfx)
     }
     const winner=checkWin(g)
     if(winner){
@@ -4658,13 +4929,29 @@ export default function App(){
   async function handleRespondFriendRequest(fromUid,fromPseudo,accept){
     await respondFriendRequest(user.uid,user.displayName,fromUid,fromPseudo,accept)
   }
+  async function handleSendTradeOffer(friend,offerCardIds,offerCoins,requestCardIds,requestCoins){
+    if(!user)throw new Error('Connexion requise')
+    await sendTradeOffer(user.uid,user.displayName,friend.uid,friend.pseudo,offerCardIds,offerCoins,requestCardIds,requestCoins)
+  }
+  function handleCancelTradeOffer(tradeId,toUid){
+    if(!user)return
+    cancelTradeOffer(user.uid,toUid,tradeId).catch(e=>console.warn('cancelTradeOffer failed',e))
+  }
+  function handleRespondTradeOffer(tradeId,accept){
+    if(!user)return
+    respondTradeOffer(user.uid,tradeId,accept).catch(e=>console.warn('respondTradeOffer failed',e))
+  }
   function handleMarkAllNotifsRead(){
     const unreadIds=notifications.filter(n=>!n.read).map(n=>n.id)
     if(user&&unreadIds.length)markAllNotificationsRead(user.uid,unreadIds).catch(e=>console.warn('markAllNotificationsRead failed',e))
   }
-  // Opening the popin is the read receipt — same "whole-batch" model the
-  // notifications list used when it lived inside the Amis page.
-  function openNotifPopin(){setNotifPopinOpen(true);handleMarkAllNotifsRead()}
+  function openNotifPopin(){setNotifPopinOpen(true)}
+  // Closing the popin is the read receipt — same "whole-batch" model the
+  // notifications list used when it lived inside the Amis page, but marking
+  // read on close (not on open) so the unread badge/dot actually has a
+  // visible window while the user is looking at the list, instead of
+  // clearing itself before the popin has even rendered.
+  function closeNotifPopin(){setNotifPopinOpen(false);handleMarkAllNotifsRead()}
 
   function handleOnlineStart(state,code,player,opponent){
     setLastAnim(null) // don't replay the previous match's death animation on the new board
@@ -4728,7 +5015,7 @@ export default function App(){
     <>
       <SoundToggle enabled={soundOn} onToggle={()=>setSoundOn(v=>!v)}/>
       {screen!=='game'&&<NotificationBell count={unreadCount} onClick={openNotifPopin}/>}
-      {notifPopinOpen&&<NotificationsPopin notifications={notifications} onClose={()=>setNotifPopinOpen(false)} onAcceptChallenge={handleAcceptChallenge} onOpenBooster={()=>{setNotifPopinOpen(false);setScreen('booster')}}/>}
+      {notifPopinOpen&&<NotificationsPopin notifications={notifications} onClose={closeNotifPopin} onAcceptChallenge={handleAcceptChallenge} onOpenBooster={()=>{closeNotifPopin();setScreen('booster')}} onRespondTrade={handleRespondTradeOffer} onNavigate={type=>{if(type==='friend_request'||type==='friend_accept'||type==='trade_accepted'||type==='trade_declined')setScreen('social');else if(type==='match_result')setScreen('account')}}/>}
       {screen==='menu'     && <MenuScreen onAI={()=>goToDeckSelect('ai')} onLocal={()=>goToDeckSelect('local')} onAdventure={()=>goToDeckSelect('adventure')} onOnline={()=>{setPendingChallenge(null);setPendingJoinCode(null);goToDeckSelect('online')}} onPlay={()=>setScreen('menu')} onDeckBuilder={()=>setScreen('deckbuilder')} onAccount={()=>setScreen('account')} onBooster={()=>setScreen('booster')} onShop={()=>setScreen('shop')} onSocial={()=>setScreen('social')} unreadCount={unreadCount} user={user} coins={coins}/>}
       {screen==='rules'    && <RulesScreen onBack={()=>setScreen('menu')} user={user} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onPlay={()=>setScreen('menu')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')} onSocial={()=>setScreen('social')} unreadCount={unreadCount}/>}
       {screen==='deckbuilder' && <DeckBuilderScreen onBack={()=>setScreen('menu')} user={user} ownedSkins={ownedSkins} coins={coins} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onPlay={()=>setScreen('menu')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')} onSocial={()=>setScreen('social')} unreadCount={unreadCount}/>}
@@ -4740,7 +5027,7 @@ export default function App(){
         sfxVolume={sfxVolume} onSfxVolumeChange={v=>{setSfxVolumeState(v);setSfxVolume(v)}}
         onDevGrantCoins={()=>earnCoins(1000)} onDevLevelUp={()=>{if(user)recordGameResult(user.uid,true).catch(()=>{})}}/>}
       {(screen==='cgu'||screen==='privacy') && <LegalScreen type={screen} onBack={()=>setScreen(user?'account':'menu')} user={user} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onPlay={()=>setScreen('menu')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')} onSocial={()=>setScreen('social')} unreadCount={unreadCount}/>}
-      {screen==='social'   && <SocialScreen onBack={()=>setScreen('menu')} user={user} friends={friends} friendRequests={friendRequests} onSendRequest={handleSendFriendRequest} onRespondRequest={handleRespondFriendRequest} onChallengeFriend={handleChallengeFriend} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onPlay={()=>setScreen('menu')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')}/>}
+      {screen==='social'   && <SocialScreen onBack={()=>setScreen('menu')} user={user} friends={friends} friendRequests={friendRequests} onSendRequest={handleSendFriendRequest} onRespondRequest={handleRespondFriendRequest} onChallengeFriend={handleChallengeFriend} onDeckBuilder={()=>setScreen('deckbuilder')} onBooster={()=>setScreen('booster')} onPlay={()=>setScreen('menu')} onAccount={()=>setScreen('account')} onShop={()=>setScreen('shop')} coins={coins} tradeOffersSent={tradeOffersSent} onSendTradeOffer={handleSendTradeOffer} onCancelTradeOffer={handleCancelTradeOffer}/>}
       {screen==='online'   && <OnlineLobbyScreen onBack={()=>{setPendingChallenge(null);setPendingJoinCode(null);setScreen('menu')}} onGameStart={handleOnlineStart} deck={chosenDeck} ownedSkins={ownedSkins} user={user} challengeTarget={pendingChallenge} autoJoinCode={pendingJoinCode}/>}
       {screen==='loading'  && game && <LoadingScreen onDone={()=>setScreen('game')}/>}
       {screen==='game'     && game && <GameScreen game={game} soundEnabled={soundOn} myPlayer={myPlayer} isAI={gameMode==='ai'||gameMode==='adventure'} onAction={handleAction} onEndTurn={handleEndTurn} onHome={closeGame} onQuit={handleQuitGame} onPowerAction={handlePowerAction} onElementAction={handleElementAction} onSurrender={handleSurrender} lastAnim={lastAnim} syncError={roomCode?syncError:null} showTutorial={gameMode==='ai'&&showTutorial} onTutorialClose={handleTutorialClose} pseudo={user?.displayName} opponent={opponentRef.current} canUndo={!!undoSnapshot} onUndo={handleUndo}/>}

@@ -6,7 +6,16 @@
     "users": {
       "$uid": {
         ".read": "auth != null && auth.uid === $uid",
-        ".write": "auth != null && auth.uid === $uid"
+        ".write": "auth != null && auth.uid === $uid",
+        // Trading needs a proposer to see what their friend actually owns
+        // before targeting specific cards — this is the one deliberate crack
+        // in "fully private" above, scoped to collection only (not economy/
+        // decks/stats) and only for an existing friend. Read access at a
+        // deeper path adds to (never replaces) the owner-only rule inherited
+        // from above, so the owner's own access is unaffected.
+        "collection": {
+          ".read": "auth != null && (auth.uid === $uid || root.child('friends').child($uid).child(auth.uid).exists())"
+        }
       }
     },
 
@@ -78,7 +87,7 @@
         ".read": "auth != null && auth.uid === $uid",
         "$pushId": {
           ".write": "auth != null && (!data.exists() || auth.uid === $uid || newData.val() === null)",
-          ".validate": "newData.val() === null || (newData.hasChildren(['type','at']) && newData.child('at').isNumber() && newData.child('type').val().matches(/^(friend_request|friend_accept|challenge|match_result|level_up)$/) && (!newData.hasChild('fromUid') || newData.child('fromUid').val() === auth.uid || newData.child('fromUid').val() === data.child('fromUid').val()) && (!newData.hasChild('byUid') || newData.child('byUid').val() === auth.uid || newData.child('byUid').val() === data.child('byUid').val()) && (!newData.hasChild('fromPseudo') || newData.child('fromPseudo').val().length <= 12) && (!newData.hasChild('byPseudo') || newData.child('byPseudo').val().length <= 12) && (!newData.hasChild('code') || newData.child('code').val().matches(/^[A-HJ-NP-Z2-9]{6}$/)) && (newData.child('type').val() !== 'challenge' || data.exists() || root.child('friends').child($uid).child(auth.uid).exists()))"
+          ".validate": "newData.val() === null || (newData.hasChildren(['type','at']) && newData.child('at').isNumber() && newData.child('type').val().matches(/^(friend_request|friend_accept|challenge|match_result|level_up|trade_offer|trade_accepted|trade_declined)$/) && (!newData.hasChild('fromUid') || newData.child('fromUid').val() === auth.uid || newData.child('fromUid').val() === data.child('fromUid').val()) && (!newData.hasChild('byUid') || newData.child('byUid').val() === auth.uid || newData.child('byUid').val() === data.child('byUid').val()) && (!newData.hasChild('fromPseudo') || newData.child('fromPseudo').val().length <= 12) && (!newData.hasChild('byPseudo') || newData.child('byPseudo').val().length <= 12) && (!newData.hasChild('code') || newData.child('code').val().matches(/^[A-HJ-NP-Z2-9]{6}$/)) && (!newData.hasChild('tradeId') || newData.child('tradeId').val().length <= 40) && ((newData.child('type').val() !== 'challenge' && newData.child('type').val() !== 'trade_offer') || data.exists() || root.child('friends').child($uid).child(auth.uid).exists()))"
         }
       }
     },
@@ -93,6 +102,46 @@
         "$token": {
           ".write": "auth != null && auth.uid === $uid",
           ".validate": "newData.val() === true || newData.val() === null"
+        }
+      }
+    },
+
+    // ── Trade offers (tradeOffers/{toUid}/{tradeId}) — mailbox at the
+    // recipient, same shape of idea as notifications/friendRequests. Only the
+    // sender (an existing friend of the recipient) can create one, starting
+    // 'pending'; only the recipient can flip it to 'accepted'/'declined',
+    // only the sender can flip it to 'cancelled', and fromUid can never
+    // change on an update (blocks spoofing an existing offer's origin).
+    // Either side can delete their own copy outright. The actual card/coin
+    // transfer on acceptance is NOT done here — see resolveTrade in
+    // functions/index.js, which re-validates and moves everything
+    // server-side via the Admin SDK (these rules only gate the offer
+    // record itself, never the economic outcome).
+    "tradeOffers": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        "$tradeId": {
+          ".read": "auth != null && (auth.uid === $uid || auth.uid === data.child('fromUid').val())",
+          ".write": "auth != null && ((!data.exists() && newData.child('fromUid').val() === auth.uid && newData.child('status').val() === 'pending' && root.child('friends').child($uid).child(auth.uid).exists()) || (data.exists() && newData.val() === null && (auth.uid === $uid || auth.uid === data.child('fromUid').val())) || (data.exists() && data.child('status').val() === 'pending' && newData.child('fromUid').val() === data.child('fromUid').val() && ((auth.uid === $uid && (newData.child('status').val() === 'accepted' || newData.child('status').val() === 'declined')) || (auth.uid === data.child('fromUid').val() && newData.child('status').val() === 'cancelled'))))",
+          ".validate": "newData.val() === null || (newData.hasChildren(['fromUid','fromPseudo','offerCardIds','requestCardIds','offerCoins','requestCoins','status','createdAt']) && newData.child('fromPseudo').val().length <= 12 && newData.child('offerCoins').isNumber() && newData.child('offerCoins').val() >= 0 && newData.child('requestCoins').isNumber() && newData.child('requestCoins').val() >= 0 && newData.child('status').val().matches(/^(pending|accepted|declined|cancelled|completed|failed)$/) && newData.child('createdAt').isNumber())"
+        }
+      }
+    },
+
+    // ── Sender-owned mirror of outgoing trade offers (tradeOffersSent/{fromUid}/{tradeId}).
+    // tradeOffers/{toUid}/{tradeId} above lives at the RECIPIENT's uid, so the
+    // sender has no query-able path to list "my pending outgoing offers" —
+    // this lightweight pointer (same tradeId, plus toUid/toPseudo) is what
+    // the "Échanges en cours" list in SocialScreen reads. Owner-only; the
+    // resolveTrade Cloud Function updates/removes it via the Admin SDK once
+    // the real tradeOffers entry resolves, since the recipient's own client
+    // can't write into the sender's uid path.
+    "tradeOffersSent": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        "$tradeId": {
+          ".write": "auth != null && auth.uid === $uid",
+          ".validate": "newData.val() === null || (newData.hasChildren(['toUid','toPseudo','status','createdAt']) && newData.child('toPseudo').val().length <= 12)"
         }
       }
     },

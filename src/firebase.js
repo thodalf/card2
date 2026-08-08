@@ -175,6 +175,7 @@ export async function deleteAccountData(uid) {
     remove(ref(db, `friends/${uid}`)),
     remove(ref(db, `friendRequests/${uid}`)),
     remove(ref(db, `notifications/${uid}`)),
+    remove(ref(db, `tradeOffers/${uid}`)),
   ].map(p => p.catch(() => {})))
 }
 export async function deleteCurrentAccount() {
@@ -203,6 +204,15 @@ export async function loadCloudCollection(uid) {
   if (!db) return null
   const snap = await get(ref(db, `users/${uid}/collection`))
   if (!snap.exists()) return null
+  return toArray(snap.val())
+}
+// Read-only, friends-only (see database.rules.json's nested users/$uid/collection
+// rule) — lets a trade proposer see what their friend actually owns before
+// targeting specific cards to request.
+export async function loadFriendCollection(friendUid) {
+  if (!db) return []
+  const snap = await get(ref(db, `users/${friendUid}/collection`)).catch(() => null)
+  if (!snap?.exists()) return []
   return toArray(snap.val())
 }
 export async function saveCloudCollection(uid, cards) {
@@ -575,6 +585,65 @@ export async function markAllNotificationsRead(uid, ids) {
   const updates = {}
   ids.forEach(id => { updates[`notifications/${uid}/${id}/read`] = true })
   await update(ref(db), updates)
+}
+
+// ─── Trading ───────────────────────────────────────────────────
+// `tradeOffers/{toUid}/{tradeId}` — mailbox at the recipient, same shape of
+// idea as friendRequests/notifications above. `offer*` is what the sender
+// gives, `request*` is what they want back (cards and/or coins on either
+// side). The actual card/coin transfer on acceptance is NOT done here — see
+// the resolveTrade Cloud Function (functions/index.js), which re-validates
+// both sides still hold what the offer references and moves everything
+// server-side via the Admin SDK in one atomic multi-path update. These
+// functions only ever write the offer record itself.
+export async function sendTradeOffer(fromUid, fromPseudo, toUid, toPseudo, offerCardIds, offerCoins, requestCardIds, requestCoins) {
+  if (!db) throw new Error('Firebase not configured')
+  const tradeRef = push(ref(db, `tradeOffers/${toUid}`))
+  const tradeId = tradeRef.key
+  const createdAt = Date.now()
+  await set(tradeRef, {
+    fromUid, fromPseudo,
+    offerCardIds: offerCardIds || [], offerCoins: offerCoins || 0,
+    requestCardIds: requestCardIds || [], requestCoins: requestCoins || 0,
+    status: 'pending', createdAt,
+  })
+  // Sender-owned mirror so they can list/cancel their own outgoing offers —
+  // tradeOffers above lives at the recipient's uid, unreadable as a list by
+  // the sender (only a single known tradeId, via the nested read rule).
+  await set(ref(db, `tradeOffersSent/${fromUid}/${tradeId}`), { toUid, toPseudo, status: 'pending', createdAt })
+  await pushNotification(toUid, { type: 'trade_offer', fromUid, fromPseudo, tradeId })
+  return tradeId
+}
+
+export async function respondTradeOffer(toUid, tradeId, accept) {
+  if (!db) return
+  await update(ref(db, `tradeOffers/${toUid}/${tradeId}`), { status: accept ? 'accepted' : 'declined' })
+}
+
+// Sender-only, and only while still pending (enforced by rules on the
+// tradeOffers side) — withdraws an offer that hasn't been answered yet.
+export async function cancelTradeOffer(fromUid, toUid, tradeId) {
+  if (!db) return
+  await Promise.all([
+    remove(ref(db, `tradeOffers/${toUid}/${tradeId}`)),
+    remove(ref(db, `tradeOffersSent/${fromUid}/${tradeId}`)),
+  ].map(p => p.catch(() => {})))
+}
+
+export function subscribeTradeOffers(uid, callback) {
+  if (!db) { callback([]); return () => {} }
+  return onValue(ref(db, `tradeOffers/${uid}`), snap => {
+    const v = snap.val() || {}
+    callback(Object.entries(v).map(([id, t]) => ({ id, ...t })).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)))
+  })
+}
+
+export function subscribeTradeOffersSent(uid, callback) {
+  if (!db) { callback([]); return () => {} }
+  return onValue(ref(db, `tradeOffersSent/${uid}`), snap => {
+    const v = snap.val() || {}
+    callback(Object.entries(v).map(([id, t]) => ({ id, ...t })).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)))
+  })
 }
 
 // ─── Push notification device tokens ──────────────────────────────

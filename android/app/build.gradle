@@ -52,8 +52,14 @@ android {
     }
     buildTypes {
         release {
-            minifyEnabled false
-            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            // R8 code shrinking + obfuscation — was off, which is what Play
+            // Console's "app optimization" report flags as low/near-zero
+            // obfuscation and an empty R8 config. proguard-rules.pro has the
+            // Capacitor-specific keep rules this needs to not break the
+            // native<->JS bridge once classes get renamed/stripped.
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
             if (keystorePropertiesFile.exists()) {
                 signingConfig signingConfigs.release
             }

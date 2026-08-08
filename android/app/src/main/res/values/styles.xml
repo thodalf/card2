@@ -13,10 +13,22 @@
         <item name="windowActionBar">false</item>
         <item name="windowNoTitle">true</item>
         <item name="android:background">@null</item>
+        <!-- Lets the WebView draw into the display cutout (front-camera
+             punch-hole/notch) area instead of Android reserving a safe strip
+             around it — targeting API 36 already forces edge-to-edge under
+             the (now-hidden, see StatusBar.hide() in App.jsx) status bar, but
+             the cutout itself is a separate reservation this is needed for
+             too. shortEdges rather than "always" since this is a
+             portrait-first game — it only extends into the cutout on the
+             screen's short edges, leaving landscape's default safe padding
+             alone in case the cutout ends up on a long edge there. Ignored
+             harmlessly below API 27 (minSdk is 24). -->
+        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
     </style>
 
 
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
         <item name="android:background">@drawable/splash</item>
+        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
     </style>
 </resources>

@@ -2,7 +2,12 @@
 <html lang="fr">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <!-- viewport-fit=cover lets the layout viewport extend under the status
+         bar/display cutout (needed for the native Android/iOS shell's
+         edge-to-edge + shortEdges cutout mode, see android/app/src/main/res/values/styles.xml)
+         instead of Chromium/WebKit constraining it to the "safe" area — makes
+         env(safe-area-inset-*) meaningful too. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <title>Charta Logica — Jeu de cartes tactique en ligne</title>
     <meta name="description" content="Charta Logica est un jeu de cartes tactique gratuit pour 2 joueurs. Affrontez l'IA ou d'autres joueurs en ligne sur un plateau 5x5, construisez votre deck avec des cartes de booster et grimpez au classement, directement dans votre navigateur." />
     <meta name="robots" content="index, follow" />
